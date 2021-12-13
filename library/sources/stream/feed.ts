@@ -1,10 +1,12 @@
 const { Client } = require("ifunny");
 
 import Config from "../../types/config";
-import { ConfigKind } from "../../types/config-kind";
+import AsyncStream from "../../types/async-stream";
+import AsyncPool from "../../types/async-pool";
 import { StreamConfig } from "../../types/stream-kind";
+import { ConfigKind } from "../../types/config-kind";
 
-const client = async (config: Config): Promise<any> => {
+const get_client = async (config: Config): Promise<any> => {
   if (config.get(ConfigKind.NoAuth)) {
     return new Client();
   }
@@ -18,14 +20,26 @@ const client = async (config: Config): Promise<any> => {
   return client;
 };
 
-export default async (
+const get_feed = async (
   config: Config,
   stream: StreamConfig,
-): Promise<any> => {
-  const handle = await client(config);
+): Promise<AsyncStream> => {
+  const client = await get_client(config);
 
   return {
-    "feed/collective": handle.collective,
-    "feed/featured": handle.featured,
+    "feed/collective": client.collective,
+    "feed/featured": client.featured,
   }[stream.name];
+};
+
+export const read = async (
+  config: Config,
+  stream: StreamConfig,
+): Promise<AsyncStream> => ({ iterator: await get_feed(config, stream) });
+
+export const write = async (
+  config: Config,
+  stream: StreamConfig,
+): Promise<AsyncPool> => {
+  throw "Cannot create an AsyncPool, iFunny feeds are read-only";
 };

@@ -1,53 +1,70 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 
+import AsyncStream from "../../types/async-stream";
+import AsyncPool from "../../types/async-pool";
 import Config from "../../types/config";
 import { ConfigKind } from "../../types/config-kind";
 import { StreamConfig } from "../../types/stream-kind";
 
-// TODO fn: types ??
-export interface Handle {
-  push: (data: string) => Promise<void>;
-  head: () => Promise<string | null>;
-}
-
-export const attach = async (
-  config: Config,
-  stream: StreamConfig,
-): Promise<Handle> => {
-  const name = stream.name.split("/")[1];
-  const host = config.get(ConfigKind.ScytherHost) as string;
-  const url = host + "/queues/" + name;
-
+const ensure_queue = async (config: Config, stream: StreamConfig) =>
   axios({
-    url: host + "/queues",
     method: "POST",
-    data: JSON.stringify({ name }),
-  }).catch(
-    (it) => {
-      if (it.response?.status === 409) {
-        return;
-      }
+    data: JSON.stringify({ name: stream.name.split("/")[1] }),
+    url: [
+      config.get(ConfigKind.ScytherHost),
+      "queues",
+    ].join("/"),
+  }).catch((error: AxiosError) => {
+    if (error.response?.data?.error !== "conflict") {
+      throw error;
+    }
+  });
 
-      throw it;
-    },
-  );
+async function* iterate_queue(config: Config, stream: StreamConfig) {
+  ensure_queue(config, stream);
 
-  return {
-    push: async (data: string) => {
-      await axios({ url, method: "PUT", data });
-    },
-    head: async () => {
-      try {
-        return (await axios({ url: url + "/head", method: "GET" }))
-          .data
-          .message;
-      } catch (error: any) {
-        if (error.response.data?.error === "no_message") {
-          return null;
-        }
-
+  while (true) {
+    try {
+      yield (await axios({
+        method: "GET",
+        url: [
+          config.get(ConfigKind.ScytherHost),
+          "queues",
+          stream.name.split("/")[1],
+          "head",
+        ].join("/"),
+      }))
+        .data
+        .message;
+    } catch (error) {
+      if ((error as AxiosError)?.response?.data?.error !== "no_message") {
         throw error;
       }
-    },
+    }
+  }
+}
+
+export const read = async (
+  config: Config,
+  stream: StreamConfig,
+): Promise<AsyncStream> => ({ iterator: await iterate_queue(config, stream) });
+
+export const write = async (
+  config: Config,
+  stream: StreamConfig,
+): Promise<AsyncPool> => {
+  ensure_queue(config, stream);
+
+  return {
+    push: (data: any) =>
+      axios({
+        method: "PUT",
+        url: [
+          config.get(ConfigKind.ScytherHost),
+          "queues",
+          stream.name.split("/")[1],
+        ].join("/"),
+        data,
+      }),
   };
 };
