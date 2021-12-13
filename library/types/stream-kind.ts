@@ -3,6 +3,7 @@ import Config from "./config";
 
 export const enum StreamKind {
   Feed,
+  Mariadb,
   Queue,
 }
 
@@ -13,6 +14,7 @@ export interface StreamConfig {
 
 export const patterns: Map<StreamKind, RegExp> = new Map([
   [StreamKind.Feed, /^feed\/[\w]+$/],
+  [StreamKind.Mariadb, /^mariadb\/[\w]+$/],
   [StreamKind.Queue, /^queue\/[\w]+$/],
 ]);
 
