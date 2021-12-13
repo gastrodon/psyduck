@@ -12,9 +12,8 @@ import {
 
 const ENVIRONMENT_PREFIX: string = "IFUNNY_ETL_";
 
-const as_env = (key: string): string => {
-  return ENVIRONMENT_PREFIX + key.replace("-", "_").toUpperCase();
-};
+const as_env = (key: string): string =>
+  ENVIRONMENT_PREFIX + key.replaceAll("-", "_").toUpperCase();
 
 const noop = (it: any): any => it;
 
