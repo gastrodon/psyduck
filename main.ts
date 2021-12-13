@@ -1,14 +1,11 @@
 const { Client } = require("ifunny");
 
-import job from "./library/job";
+import do_job from "./library/jobs";
 import configure from "./library/tools/configure";
 import { ConfigKind } from "./library/types/config-kind";
+import { JobKind, lookup as job_lookup } from "./library/types/job-kind";
 
 const config = configure();
 let client = new Client();
 
-client.login(config.get(ConfigKind.Email), config.get(ConfigKind.Password))
-  .then(async () => {
-    console.log(config);
-    // job(config.get(ConfigKind.job))(config);
-  });
+do_job(job_lookup.get(config.get(ConfigKind.Job)) as JobKind)(config);
