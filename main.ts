@@ -1,12 +1,12 @@
-import { Client } from "ifunny";
+const { Client } = require("ifunny");
 
-import configure from "./configure";
+import { Config, configure } from "./configure";
 
+const config = configure();
 let client = new Client();
 
-// TODO
-// client.login("test@gastrodon.io", "0xDEADhex").then(async () => {
-//   console.log(client);
-// });
-
-configure();
+client.login(config.get(Config.Email), config.get(Config.Password))
+  .then(async () => {
+    console.log(config);
+    // job(config.get(Config.job))(config);
+  });
