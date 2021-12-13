@@ -1,7 +1,8 @@
 import axios from "axios";
 
-import Config from "../types/config";
-import { ConfigKind } from "../types/config-kind";
+import Config from "../../types/config";
+import { ConfigKind } from "../../types/config-kind";
+import { StreamConfig } from "../../types/stream-kind";
 
 // TODO fn: types ??
 export interface Handle {
@@ -9,7 +10,11 @@ export interface Handle {
   head: () => Promise<string | null>;
 }
 
-export const attach = async (config: Config, name: string): Promise<Handle> => {
+export const attach = async (
+  config: Config,
+  stream: StreamConfig,
+): Promise<Handle> => {
+  const name = stream.name.split("/")[1];
   const host = config.get(ConfigKind.ScytherHost) as string;
   const url = host + "/queues/" + name;
 

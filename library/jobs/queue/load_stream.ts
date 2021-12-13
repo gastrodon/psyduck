@@ -3,13 +3,12 @@
 import stream from "../../sources/stream";
 import Config from "../../types/config";
 import { ConfigKind } from "../../types/config-kind";
-import { attach } from "../../tools/queue";
 import sleep from "../../tools/sleep";
 import per_second from "../../tools/per-second";
 
 export default async (config: Config) => {
-  const source = await stream(config, config.get(ConfigKind.StreamSource));
-  const target = await attach(config, config.get(ConfigKind.QueueTarget));
+  const source = await stream(config, config.get(ConfigKind.Source));
+  const target = await stream(config, config.get(ConfigKind.Target));
   const keep = config.get(ConfigKind.KeepFields) ?? null;
 
   for await (const content of source) {

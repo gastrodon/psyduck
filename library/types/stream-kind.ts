@@ -2,16 +2,23 @@ import Config from "./config";
 import iterate from "../tools/iterate";
 
 export const enum StreamKind {
-  FeedCollective,
-  FeedFeatured,
+  Feed,
+  Queue,
 }
 
-export const names: Map<StreamKind, string> = new Map([
-  [StreamKind.FeedCollective, "feed/collective"],
-  [StreamKind.FeedFeatured, "feed/featured"],
+export interface StreamConfig {
+  kind: StreamKind;
+  name: string;
+}
+
+export const patterns: Map<StreamKind, RegExp> = new Map([
+  [StreamKind.Feed, /^feed\/[\w]+$/],
+  [StreamKind.Queue, /^queue\/[\w]+$/],
 ]);
 
-export const lookup: Map<string, StreamKind> = new Map(
-  iterate(names.entries())
-    .map(([kind, name]) => [name, kind]),
-);
+export const lookup = {
+  get: (name: string): StreamConfig =>
+    Array.from(patterns.entries())
+      .filter(([_, match]) => name.match(match))
+      .map(([kind, _]) => ({ kind, name }))[0],
+};

@@ -9,9 +9,8 @@ export const enum ConfigKind {
   PerSecond,
   ExitAfter,
 
-  QueueSource,
-  QueueTarget,
-  StreamSource,
+  Source,
+  Target,
   KeepFields,
 
   NoAuth,
@@ -26,9 +25,8 @@ export const names = new Map<ConfigKind, string>([
   [ConfigKind.PerSecond, "per-second"],
   [ConfigKind.ExitAfter, "exit-after"],
 
-  [ConfigKind.QueueSource, "queue-source"],
-  [ConfigKind.QueueTarget, "queue-target"],
-  [ConfigKind.StreamSource, "stream-source"],
+  [ConfigKind.Source, "source"],
+  [ConfigKind.Target, "target"],
   [ConfigKind.KeepFields, "keep-fields"],
 
   [ConfigKind.NoAuth, "no-auth"],
@@ -41,9 +39,6 @@ export const names = new Map<ConfigKind, string>([
 
 export const defaults = new Map<ConfigKind, any>([
   [ConfigKind.PerSecond, 20],
-
-  [ConfigKind.QueueSource, v4()],
-  [ConfigKind.QueueTarget, v4()],
 
   [ConfigKind.NoAuth, "true"],
 
@@ -58,7 +53,8 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
 
   [ConfigKind.NoAuth, (it: string) => it.toLowerCase() === "true"],
 
-  [ConfigKind.StreamSource, (it: string) => stream_lookup.get(it)],
+  [ConfigKind.Source, (it: string) => stream_lookup.get(it)],
+  [ConfigKind.Target, (it: string) => stream_lookup.get(it)],
 
   [ConfigKind.ScytherHost, (it: string) => trim(it, "/")],
   [ConfigKind.FerrothornHost, (it: string) => trim(it, "/")],
