@@ -77,8 +77,5 @@ services:
       MARIADB_USER: etl
       MARIADB_PASSWORD: foobar2000
 
-    networks:
-      - etl
-
     ports:
       - "3306:3306"
