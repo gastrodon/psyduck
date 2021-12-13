@@ -1,13 +1,20 @@
 const parser = require("args-parser");
 
 import iterate from "./iterate";
-import { ConfigKind, defaults, names } from "../types/config-kind";
+import {
+  ConfigKind,
+  defaults,
+  names,
+  transformers,
+} from "../types/config-kind";
 
 const ENVIRONMENT_PREFIX: string = "IFUNNY_ETL_";
 
 const as_env = (key: string): string => {
   return ENVIRONMENT_PREFIX + key.replace("-", "_").toUpperCase();
 };
+
+const noop = (it: any): any => it;
 
 // TODO validate arguments
 export default (): Map<ConfigKind, any> => {
@@ -24,6 +31,6 @@ export default (): Map<ConfigKind, any> => {
           defaults.get(kind) ??
           null,
       ]
-    )),
+    )).map(([kind, value]) => [kind, (transformers.get(kind) ?? noop)(value)]),
   );
 };
