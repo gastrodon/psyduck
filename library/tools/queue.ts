@@ -1,5 +1,6 @@
 import axios from "axios";
 
+import Config from "../types/config";
 import { ConfigKind } from "../types/config-kind";
 
 // TODO fn: types ??
@@ -8,7 +9,7 @@ export interface Handle {
   head: () => Promise<string | null>;
 }
 
-export const attach = (config: Map<ConfigKind, any>, name: string): Handle => {
+export const attach = (config: Config, name: string): Handle => {
   const host = config.get(ConfigKind.ScytherHost) as string;
   const url = host + "/queues/" + name;
 

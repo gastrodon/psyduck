@@ -1,5 +1,7 @@
 const parser = require("args-parser");
 
+import Config from "../types/config";
+
 import iterate from "./iterate";
 import {
   ConfigKind,
@@ -17,7 +19,7 @@ const as_env = (key: string): string => {
 const noop = (it: any): any => it;
 
 // TODO validate arguments
-export default (): Map<ConfigKind, any> => {
+export default (): Config => {
   const args = parser(process.argv);
 
   return new Map(
