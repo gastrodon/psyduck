@@ -1,7 +1,0 @@
-[
-  {
-    "files": "**/*.js",
-    "command": "deno fmt ${srcFile}",
-    "showError": false
-  }
-]
