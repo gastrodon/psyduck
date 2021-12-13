@@ -26,6 +26,6 @@ export const defaults = new Map<ConfigKind, any>([
   [ConfigKind.PerSecond, 20],
 ]);
 
-export const transformers = new Map([
+export const transformers = new Map<ConfigKind, (it: string) => any>([
   [ConfigKind.KeepFields, (it: string) => (it ?? "").split(",")],
 ]);
