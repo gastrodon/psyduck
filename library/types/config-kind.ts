@@ -13,9 +13,15 @@ export const enum ConfigKind {
   Target,
   KeepFields,
 
+  MariadbUsername,
+  MariadbPassword,
+  MariadbDatabase,
+
   NoAuth,
   Email,
   Password,
+
+  MariadbHost,
   ScytherHost,
   FerrothornHost,
 }
@@ -29,10 +35,15 @@ export const names = new Map<ConfigKind, string>([
   [ConfigKind.Target, "target"],
   [ConfigKind.KeepFields, "keep-fields"],
 
+  [ConfigKind.MariadbUsername, "mariadb-username"],
+  [ConfigKind.MariadbPassword, "mariadb-password"],
+  [ConfigKind.MariadbDatabase, "mariadb-database"],
+
   [ConfigKind.NoAuth, "no-auth"],
   [ConfigKind.Email, "email"],
   [ConfigKind.Password, "password"],
 
+  [ConfigKind.MariadbHost, "mariadb-host"],
   [ConfigKind.ScytherHost, "scyther-host"],
   [ConfigKind.FerrothornHost, "ferrothorn-host"],
 ]);
@@ -42,6 +53,7 @@ export const defaults = new Map<ConfigKind, any>([
 
   [ConfigKind.NoAuth, "true"],
 
+  [ConfigKind.MariadbHost, "http://localhost"],
   [ConfigKind.ScytherHost, "http://localhost"],
   [ConfigKind.FerrothornHost, "http://localhost"],
 ]);
@@ -56,6 +68,7 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
   [ConfigKind.Source, (it: string) => stream_lookup.get(it)],
   [ConfigKind.Target, (it: string) => stream_lookup.get(it)],
 
+  [ConfigKind.MariadbHost, (it: string) => trim(it, "/")],
   [ConfigKind.ScytherHost, (it: string) => trim(it, "/")],
   [ConfigKind.FerrothornHost, (it: string) => trim(it, "/")],
 ]);
