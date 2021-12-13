@@ -11,6 +11,7 @@ export const enum ConfigKind {
   StreamSource,
   KeepFields,
 
+  NoAuth,
   Email,
   Password,
   ScytherHost,
@@ -27,6 +28,7 @@ export const names = new Map<ConfigKind, string>([
   [ConfigKind.StreamSource, "stream-source"],
   [ConfigKind.KeepFields, "keep-fields"],
 
+  [ConfigKind.NoAuth, "no-auth"],
   [ConfigKind.Email, "email"],
   [ConfigKind.Password, "password"],
 
@@ -40,12 +42,17 @@ export const defaults = new Map<ConfigKind, any>([
   [ConfigKind.QueueSource, v4()],
   [ConfigKind.QueueTarget, v4()],
 
+  [ConfigKind.NoAuth, "true"],
+
   [ConfigKind.ScytherHost, "http://localhost"],
   [ConfigKind.FerrothornHost, "http://localhost"],
 ]);
 
 export const transformers = new Map<ConfigKind, (it: string) => any>([
   [ConfigKind.KeepFields, (it: string) => (it ?? "").split(",")],
+
+  [ConfigKind.NoAuth, (it: string) => it.toLowerCase() === "true"],
+
   [ConfigKind.ScytherHost, (it: string) => trim(it, "/")],
   [ConfigKind.FerrothornHost, (it: string) => trim(it, "/")],
 ]);
