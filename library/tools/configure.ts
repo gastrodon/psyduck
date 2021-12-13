@@ -1,8 +1,10 @@
 const parser = require("args-parser");
 
+import iterate from "./iterate";
+
 const ENVIRONMENT_PREFIX: string = "IFUNNY_ETL_";
 
-export const enum Config {
+export const enum ConfigKind {
   Job,
   SourceKind,
   SourceID,
@@ -12,36 +14,26 @@ export const enum Config {
   Password,
 }
 
-const names: Map<Config, string> = new Map([
-  [Config.Job, "job"],
-  [Config.SourceKind, "source-kind"],
-  [Config.SourceID, "source-id"],
-  [Config.PerSecond, "per-second"],
-  [Config.ExitAfter, "exit-after"],
-  [Config.Email, "email"],
-  [Config.Password, "password"],
+const names: Map<ConfigKind, string> = new Map([
+  [ConfigKind.Job, "job"],
+  [ConfigKind.SourceKind, "source-kind"],
+  [ConfigKind.SourceID, "source-id"],
+  [ConfigKind.PerSecond, "per-second"],
+  [ConfigKind.ExitAfter, "exit-after"],
+  [ConfigKind.Email, "email"],
+  [ConfigKind.Password, "password"],
 ]);
 
-const defaults: Map<Config, any> = new Map([
-  [Config.PerSecond, 20],
+const defaults: Map<ConfigKind, any> = new Map([
+  [ConfigKind.PerSecond, 20],
 ]);
-
-const iterate = <T>(iterable: Iterable<T>): Array<T> => {
-  let buffer = new Array();
-
-  for (let it of iterable) {
-    buffer.push(it);
-  }
-
-  return buffer;
-};
 
 const as_env = (key: string): string => {
   return ENVIRONMENT_PREFIX + key.replace("-", "_").toUpperCase();
 };
 
 // TODO validate arguments
-export const configure = (): Map<Config, any> => {
+export const configure = (): Map<ConfigKind, any> => {
   const args = parser(process.argv);
 
   return new Map(
