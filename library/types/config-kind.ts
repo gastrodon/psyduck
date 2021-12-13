@@ -1,4 +1,3 @@
-import { v4 } from "uuid";
 import { trim } from "lodash";
 
 import { lookup as stream_lookup } from "./stream-kind";
@@ -16,6 +15,7 @@ export const enum ConfigKind {
   MariadbUsername,
   MariadbPassword,
   MariadbDatabase,
+  MariadbTableSchema,
 
   NoAuth,
   Email,
@@ -38,6 +38,7 @@ export const names = new Map<ConfigKind, string>([
   [ConfigKind.MariadbUsername, "mariadb-username"],
   [ConfigKind.MariadbPassword, "mariadb-password"],
   [ConfigKind.MariadbDatabase, "mariadb-database"],
+  [ConfigKind.MariadbTableSchema, "mariadb-table-schema"],
 
   [ConfigKind.NoAuth, "no-auth"],
   [ConfigKind.Email, "email"],
@@ -67,6 +68,19 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
 
   [ConfigKind.Source, (it: string) => stream_lookup.get(it)],
   [ConfigKind.Target, (it: string) => stream_lookup.get(it)],
+
+  [
+    ConfigKind.MariadbTableSchema,
+    (it: string) =>
+      new Map<string, string>(
+        !it ? [] : it
+          .split(",")
+          .map((it) => [
+            it.split(" ")[0],
+            it.split(" ").slice(1).join(" "),
+          ]),
+      ),
+  ],
 
   [ConfigKind.MariadbHost, (it: string) => trim(it, "/")],
   [ConfigKind.ScytherHost, (it: string) => trim(it, "/")],
