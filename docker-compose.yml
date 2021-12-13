@@ -68,6 +68,17 @@ services:
     depends_on:
       - database-ferrothorn
 
-  etl:
-    build:
-      context: .
+  database-etl:
+    image: mariadb:latest
+
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "true"
+      MARIADB_DATABASE: etl
+      MARIADB_USER: etl
+      MARIADB_PASSWORD: foobar2000
+
+    networks:
+      - etl
+
+    ports:
+      - "3306:3306"
