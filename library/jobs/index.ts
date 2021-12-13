@@ -3,7 +3,7 @@ import { JobKind } from "../types/job-kind";
 import { ConfigKind } from "../types/config-kind";
 
 const jobs = new Map([
-  [JobKind.QueueLoadStream, require("./queue/load_stream").default],
+  [JobKind.QueueLoadFeed, require("./queue/load-feed").default],
 ]);
 
 export default (job: JobKind) => (config: Config) => jobs.get(job)(config);

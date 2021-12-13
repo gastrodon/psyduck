@@ -1,11 +1,11 @@
 import iterate from "../tools/iterate";
 
 export const enum JobKind {
-  QueueLoadStream,
+  QueueLoadFeed,
 }
 
 export const names: Map<JobKind, string> = new Map([
-  [JobKind.QueueLoadStream, "queue-load-stream"],
+  [JobKind.QueueLoadFeed, "queue-load-feed"],
 ]);
 
 export const lookup: Map<string, JobKind> = new Map(
