@@ -21,7 +21,7 @@ const ensure_queue = async (config: Config, stream: StreamConfig) =>
   });
 
 async function* iterate_queue(config: Config, stream: StreamConfig) {
-  ensure_queue(config, stream);
+  await ensure_queue(config, stream);
 
   while (true) {
     try {
@@ -52,19 +52,19 @@ export const read = async (
 export const write = async (
   config: Config,
   stream: StreamConfig,
-): Promise<AsyncPool> => {
-  ensure_queue(config, stream);
+): Promise<AsyncPool<string>> => {
+  await ensure_queue(config, stream);
 
   return {
-    push: (data: any) =>
+    push: (data: string) =>
       axios({
         method: "PUT",
+        data: data,
         url: [
           config.get(ConfigKind.ScytherHost),
           "queues",
           stream.name.split("/")[1],
         ].join("/"),
-        data,
       }),
   };
 };
