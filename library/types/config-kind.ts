@@ -54,7 +54,7 @@ export const defaults = new Map<ConfigKind, any>([
 export const transformers = new Map<ConfigKind, (it: string) => any>([
   [ConfigKind.Job, (it: string) => job_lookup.get(it)],
 
-  [ConfigKind.KeepFields, (it: string) => (it ?? "").split(",")],
+  [ConfigKind.KeepFields, (it: string) => it ? it.split(",") : []],
 
   [ConfigKind.NoAuth, (it: string) => it.toLowerCase() === "true"],
 

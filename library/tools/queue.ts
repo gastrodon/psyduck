@@ -9,7 +9,7 @@ export interface Handle {
   head: () => Promise<string | null>;
 }
 
-export const attach = (config: Config, name: string): Handle => {
+export const attach = async (config: Config, name: string): Promise<Handle> => {
   const host = config.get(ConfigKind.ScytherHost) as string;
   const url = host + "/queues/" + name;
 

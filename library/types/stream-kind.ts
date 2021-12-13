@@ -1,3 +1,4 @@
+import Config from "./config";
 import iterate from "../tools/iterate";
 
 export const enum StreamKind {
