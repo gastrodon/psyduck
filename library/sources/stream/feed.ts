@@ -40,6 +40,6 @@ export const read = async (
 export const write = async (
   config: Config,
   stream: StreamConfig,
-): Promise<AsyncPool> => {
+): Promise<AsyncPool<any>> => {
   throw "Cannot create an AsyncPool, iFunny feeds are read-only";
 };

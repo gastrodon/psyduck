@@ -1,5 +1,5 @@
-interface AsyncPool {
-  push(value?: any): void;
+interface AsyncPool<T> {
+  push(value?: T): void;
 }
 
 export default AsyncPool;
