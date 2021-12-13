@@ -8,4 +8,4 @@ import { JobKind, lookup as job_lookup } from "./library/types/job-kind";
 const config = configure();
 let client = new Client();
 
-do_job(job_lookup.get(config.get(ConfigKind.Job)) as JobKind)(config);
+do_job(config.get(ConfigKind.Job)!)(config);
