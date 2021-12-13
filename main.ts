@@ -1,7 +1,8 @@
 const { Client } = require("ifunny");
 
 import job from "./library/job";
-import { ConfigKind, configure } from "./library/tools/configure";
+import configure from "./library/tools/configure";
+import { ConfigKind } from "./library/types/config-kind";
 
 const config = configure();
 let client = new Client();
