@@ -1,7 +1,7 @@
 import Config from "../../types/config";
-import { StreamConfig, StreamKind } from "../../types/stream-kind";
-import AsyncPool from "../../types/async-pool";
 import AsyncStream from "../../types/async-stream";
+import AsyncPool from "../../types/async-pool";
+import { StreamConfig, StreamKind } from "../../types/stream-kind";
 
 type StreamGetter = any; // TODO (_: type): type isn't working idk why
 

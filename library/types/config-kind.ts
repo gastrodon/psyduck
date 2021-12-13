@@ -1,5 +1,5 @@
-import { trim } from "lodash";
 import { v4 } from "uuid";
+import { trim } from "lodash";
 
 import { lookup as stream_lookup } from "./stream-kind";
 import { lookup as job_lookup } from "./job-kind";

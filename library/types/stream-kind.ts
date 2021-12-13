@@ -1,5 +1,5 @@
-import Config from "./config";
 import iterate from "../tools/iterate";
+import Config from "./config";
 
 export const enum StreamKind {
   Feed,

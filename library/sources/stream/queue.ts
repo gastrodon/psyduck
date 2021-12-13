@@ -1,10 +1,10 @@
 import axios, { AxiosError } from "axios";
 
+import Config from "../../types/config";
 import AsyncStream from "../../types/async-stream";
 import AsyncPool from "../../types/async-pool";
-import Config from "../../types/config";
-import { ConfigKind } from "../../types/config-kind";
 import { StreamConfig } from "../../types/stream-kind";
+import { ConfigKind } from "../../types/config-kind";
 
 const ensure_queue = async (config: Config, stream: StreamConfig) =>
   axios({
