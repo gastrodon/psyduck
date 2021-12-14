@@ -5,7 +5,8 @@ import AsyncPool from "./library/types/async-pool";
 import { StreamConfig } from "./library/types/stream-kind";
 import { read, write } from "./library/sources/stream";
 import { lookup as stream_lookup } from "./library/types/stream-kind";
-import { functions, TransformerKind } from "./library/types/transformer-kind";
+import { functions } from "./library/types/transformer-kind";
+import TransformerKind from "./library/types/transformer-kind/enum";
 import { ConfigKind } from "./library/types/config-kind";
 import { async as async_iterate } from "./library/tools/iterate";
 

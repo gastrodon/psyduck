@@ -1,10 +1,8 @@
 import { trim } from "lodash";
 
+import TransformerKind from "./transformer-kind/enum";
+import { lookup as transformer_lookup } from "./transformer-kind";
 import { lookup as stream_lookup, StreamConfig } from "./stream-kind";
-import {
-  lookup as transformer_lookup,
-  TransformerKind,
-} from "./transformer-kind";
 
 const lookup_streams = (them: string): Array<StreamConfig> =>
   them

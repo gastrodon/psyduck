@@ -1,3 +1,5 @@
+export const ifunny = require("./ifunny").default;
+
 export const zoom_key = require("./zoom-key").default;
 export const stringify = require("./stringify").default;
 export const nop = require("./nop").default;
