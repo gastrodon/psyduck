@@ -1,8 +1,11 @@
 import * as transformer from "../transformers";
 import iterate from "../tools/iterate";
 
-const KEYS_DATABASE_IFUNNY_CONTENT = ["id", "publish_at", "date_create"];
-const KEYS_QUEUE_IFUNNY_CONTENT = ["id", "publish_at", "date_create"];
+const KEYS_IFUNNY_CONTENT_REFERENCE = ["id", "publish_at", "date_create"];
+const KEYS_IFUNNY_USER_REFERENCE = ["id", "nick", "original_nick"];
+
+const KEY_IFUNNY_OBJECT = "_object_payload";
+const KEY_IFUNNY_AUTHOR = "creator";
 
 export const enum TransformerKind {
   Nop,
@@ -10,8 +13,12 @@ export const enum TransformerKind {
   Log,
   Jsonify,
   Stringify,
-  DatabaseIFunnyContent,
-  QueueIFunnyContent,
+
+  IFunnyContentReference,
+  IFunnyUserReference,
+
+  IFunnyObject,
+  IFunnyAuthor,
 }
 
 export const names: Map<TransformerKind, string> = new Map([
@@ -20,8 +27,12 @@ export const names: Map<TransformerKind, string> = new Map([
   [TransformerKind.Log, "log"],
   [TransformerKind.Jsonify, "jsonify"],
   [TransformerKind.Stringify, "stringify"],
-  [TransformerKind.DatabaseIFunnyContent, "database-ifunny-content"],
-  [TransformerKind.QueueIFunnyContent, "queue-ifunny-content"],
+
+  [TransformerKind.IFunnyContentReference, "ifunny-content-reference"],
+  [TransformerKind.IFunnyUserReference, "ifunny-user-reference"],
+
+  [TransformerKind.IFunnyObject, "ifunny-object"],
+  [TransformerKind.IFunnyAuthor, "ifunny-author"],
 ]);
 
 export const lookup: Map<string, TransformerKind> = new Map(
@@ -38,13 +49,21 @@ export const functions: Map<TransformerKind, (it: any) => any> = new Map(
     [TransformerKind.Stringify, transformer.stringify],
 
     [
-      TransformerKind.DatabaseIFunnyContent,
-      transformer.keep_keys(KEYS_DATABASE_IFUNNY_CONTENT),
+      TransformerKind.IFunnyContentReference,
+      transformer.keep_keys(KEYS_IFUNNY_CONTENT_REFERENCE),
+    ],
+    [
+      TransformerKind.IFunnyUserReference,
+      transformer.keep_keys(KEYS_IFUNNY_USER_REFERENCE),
     ],
 
     [
-      TransformerKind.QueueIFunnyContent,
-      transformer.keep_keys(KEYS_QUEUE_IFUNNY_CONTENT),
+      TransformerKind.IFunnyAuthor,
+      transformer.zoom_key(KEY_IFUNNY_AUTHOR),
+    ],
+    [
+      TransformerKind.IFunnyObject,
+      transformer.zoom_key(KEY_IFUNNY_OBJECT),
     ],
   ],
 );
