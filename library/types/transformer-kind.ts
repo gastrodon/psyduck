@@ -1,5 +1,5 @@
 import * as transformer from "../transformers";
-import iterate from "../tools/iterate";
+import { sync as iterate } from "../tools/iterate";
 
 const KEYS_IFUNNY_CONTENT_REFERENCE = ["id", "publish_at", "date_create"];
 const KEYS_IFUNNY_USER_REFERENCE = ["id", "nick", "original_nick"];

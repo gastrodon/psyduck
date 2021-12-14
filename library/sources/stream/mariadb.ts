@@ -1,6 +1,6 @@
 import { createPool } from "mariadb";
 
-import iterate from "../../tools/iterate";
+import { sync as iterate } from "../../tools/iterate";
 import Config from "../../types/config";
 import AsyncStream from "../../types/async-stream";
 import AsyncPool from "../../types/async-pool";

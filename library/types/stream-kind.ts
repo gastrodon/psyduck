@@ -1,4 +1,4 @@
-import iterate from "../tools/iterate";
+import { sync as iterate } from "../tools/iterate";
 import Config from "./config";
 
 export const enum StreamKind {

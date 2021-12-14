@@ -1,17 +1,25 @@
 import { trim } from "lodash";
 
-import { lookup as stream_lookup } from "./stream-kind";
+import { lookup as stream_lookup, StreamConfig } from "./stream-kind";
 import {
   lookup as transformer_lookup,
   TransformerKind,
 } from "./transformer-kind";
 
+const lookup_streams = (them: string): Array<StreamConfig> =>
+  them
+    .split(",")
+    .map((name: string) => stream_lookup.get(name))
+    .filter((it) => it);
+
 export const enum ConfigKind {
   PerSecond,
   ExitAfter,
 
-  Source,
-  Target,
+  Sources,
+  Targets,
+  SourcesFrom,
+  TargetsFrom,
   Transformers,
 
   MariadbUsername,
@@ -32,8 +40,10 @@ export const names = new Map<ConfigKind, string>([
   [ConfigKind.PerSecond, "per-second"],
   [ConfigKind.ExitAfter, "exit-after"],
 
-  [ConfigKind.Source, "source"],
-  [ConfigKind.Target, "target"],
+  [ConfigKind.Sources, "sources"],
+  [ConfigKind.Targets, "targets"],
+  [ConfigKind.SourcesFrom, "sources-from"],
+  [ConfigKind.TargetsFrom, "targets-from"],
   [ConfigKind.Transformers, "transformers"],
 
   [ConfigKind.MariadbUsername, "mariadb-username"],
@@ -55,6 +65,11 @@ export const defaults = new Map<ConfigKind, any>([
 
   [ConfigKind.NoAuth, "true"],
 
+  [ConfigKind.Sources, ""],
+  [ConfigKind.Targets, ""],
+  [ConfigKind.SourcesFrom, ""],
+  [ConfigKind.TargetsFrom, ""],
+
   [ConfigKind.MariadbHost, "http://localhost"],
   [ConfigKind.ScytherHost, "http://localhost"],
   [ConfigKind.FerrothornHost, "http://localhost"],
@@ -71,8 +86,10 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
 
   [ConfigKind.NoAuth, (it: string) => it.toLowerCase() === "true"],
 
-  [ConfigKind.Source, (it: string) => stream_lookup.get(it)],
-  [ConfigKind.Target, (it: string) => stream_lookup.get(it)],
+  [ConfigKind.Sources, lookup_streams],
+  [ConfigKind.Targets, lookup_streams],
+  [ConfigKind.SourcesFrom, lookup_streams],
+  [ConfigKind.TargetsFrom, lookup_streams],
 
   [
     ConfigKind.MariadbTableSchema,

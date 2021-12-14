@@ -2,7 +2,7 @@ const parser = require("args-parser");
 
 import Config from "../types/config";
 import { nop } from "../transformers";
-import iterate from "./iterate";
+import { sync as iterate } from "./iterate";
 import {
   ConfigKind,
   defaults,
@@ -22,14 +22,12 @@ export default (): Config => {
   return new Map(
     iterate(names.entries()).map((
       [kind, name],
-    ) => (
-      [
-        kind,
-        args[name] ??
-          process.env[as_env(name)] ??
-          defaults.get(kind) ??
-          null,
-      ]
-    )).map(([kind, value]) => [kind, (transformers.get(kind) ?? nop)(value)]),
+    ) => [
+      kind,
+      args[name] ??
+        process.env[as_env(name)] ??
+        defaults.get(kind) ??
+        null,
+    ]).map(([kind, value]) => [kind, (transformers.get(kind) ?? nop)(value)]),
   );
 };
