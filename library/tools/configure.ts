@@ -10,7 +10,7 @@ import {
   transformers,
 } from "../types/config-kind";
 
-const ENVIRONMENT_PREFIX: string = "IFUNNY_ETL_";
+const ENVIRONMENT_PREFIX: string = "ETL_";
 
 const as_env = (key: string): string =>
   ENVIRONMENT_PREFIX + key.replaceAll("-", "_").toUpperCase();

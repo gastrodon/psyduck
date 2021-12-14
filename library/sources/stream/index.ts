@@ -6,7 +6,7 @@ import { StreamConfig, StreamKind } from "../../types/stream-kind";
 type StreamGetter = any; // TODO (_: type): type isn't working idk why
 
 const lookup = new Map<StreamKind, StreamGetter>([
-  [StreamKind.Feed, require("./feed")],
+  [StreamKind.IFunnyFeed, require("./ifunny-feed")],
   [StreamKind.Mariadb, require("./mariadb")],
   [StreamKind.Queue, require("./queue")],
   [StreamKind.Trash, require("./trash")],

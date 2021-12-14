@@ -27,8 +27,8 @@ const get_feed = async (
   const client = await get_client(config);
 
   return {
-    "feed/collective": client.collective,
-    "feed/featured": client.featured,
+    "ifunny-feed/collective": client.collective,
+    "ifunny-feed/featured": client.featured,
   }[stream.name];
 };
 

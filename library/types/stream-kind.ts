@@ -2,7 +2,7 @@ import iterate from "../tools/iterate";
 import Config from "./config";
 
 export const enum StreamKind {
-  Feed,
+  IFunnyFeed,
   Mariadb,
   Queue,
   Trash,
@@ -14,7 +14,7 @@ export interface StreamConfig {
 }
 
 export const patterns: Map<StreamKind, RegExp> = new Map([
-  [StreamKind.Feed, /^feed\/[\w]+$/],
+  [StreamKind.IFunnyFeed, /^ifunny-feed\/[\w]+$/],
   [StreamKind.Mariadb, /^mariadb\/[\w_-]+$/],
   [StreamKind.Queue, /^queue\/[\w_]+$/],
   [StreamKind.Trash, /^trash$/],
