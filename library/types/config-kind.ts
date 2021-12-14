@@ -65,7 +65,7 @@ export const defaults = new Map<ConfigKind, any>([
 export const transformers = new Map<ConfigKind, (it: string) => any>([
   [ConfigKind.KeepFields, (it: string) => it ? it.split(",") : []],
   [
-    ConfigKind.KeepFields,
+    ConfigKind.Transformers,
     (it: string) =>
       it
         ? it.split(",").map((it) => transformer_lookup.get(it))
