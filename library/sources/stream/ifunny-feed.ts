@@ -28,7 +28,7 @@ const get_feed = async (
 
   return {
     "ifunny-feed/collective": client.collective,
-    "ifunny-feed/featured": client.featured,
+    "ifunny-feed/features": client.features,
   }[stream.name];
 };
 
