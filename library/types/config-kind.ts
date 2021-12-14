@@ -12,7 +12,6 @@ export const enum ConfigKind {
 
   Source,
   Target,
-  KeepFields,
   Transformers,
 
   MariadbUsername,
@@ -35,7 +34,6 @@ export const names = new Map<ConfigKind, string>([
 
   [ConfigKind.Source, "source"],
   [ConfigKind.Target, "target"],
-  [ConfigKind.KeepFields, "keep-fields"],
   [ConfigKind.Transformers, "transformers"],
 
   [ConfigKind.MariadbUsername, "mariadb-username"],
@@ -63,7 +61,6 @@ export const defaults = new Map<ConfigKind, any>([
 ]);
 
 export const transformers = new Map<ConfigKind, (it: string) => any>([
-  [ConfigKind.KeepFields, (it: string) => it ? it.split(",") : []],
   [
     ConfigKind.Transformers,
     (it: string) =>
