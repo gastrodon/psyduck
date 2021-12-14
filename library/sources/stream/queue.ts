@@ -40,6 +40,8 @@ async function* iterate_queue(config: Config, stream: StreamConfig) {
       if ((error as AxiosError)?.response?.data?.error !== "no_message") {
         throw error;
       }
+
+      return;
     }
   }
 }
