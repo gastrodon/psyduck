@@ -9,6 +9,7 @@ const lookup = new Map<StreamKind, StreamGetter>([
   [StreamKind.Feed, require("./feed")],
   [StreamKind.Mariadb, require("./mariadb")],
   [StreamKind.Queue, require("./queue")],
+  [StreamKind.Trash, require("./trash")],
 ]);
 
 export const read = (config: Config, stream: StreamConfig): AsyncStream<any> =>
