@@ -2,6 +2,7 @@ import configure from "./library/tools/configure";
 import AsyncStream from "./library/types/async-stream";
 import AsyncPool from "./library/types/async-pool";
 import { read, write } from "./library/sources/stream";
+import { functions, TransformerKind } from "./library/types/transformer-kind";
 import { ConfigKind } from "./library/types/config-kind";
 
 type Transformer = (it: any) => any;
@@ -17,8 +18,6 @@ const etl = async (
   target: AsyncPool<any>,
   transformers: Array<(it: any) => any>,
 ) => {
-  console.log(`starting etl`);
-
   for await (let content of source.iterator) {
     for (const transformer of transformers) {
       content = await transformer(content);
@@ -33,7 +32,9 @@ const main = async () => {
 
   const source = await read(config, config.get(ConfigKind.Source));
   const target = await write(config, config.get(ConfigKind.Target));
-  const transformers = config.get(ConfigKind.Transformers);
+  const transformers = config
+    .get(ConfigKind.Transformers)
+    .map((it: TransformerKind) => functions.get(it)!);
 
   etl(source, target, transformers);
 };
