@@ -27,11 +27,10 @@ const ensure_table = async (
   await pool.query(statement);
 };
 
-// TODO can't set rerturn type of (data: any): void
 const push_database = async (
   config: Config,
   stream: StreamConfig,
-): Promise<any> => {
+): Promise<(data: any) => void> => {
   const pool = await createPool({
     host: config.get(ConfigKind.MariadbHost),
     user: config.get(ConfigKind.MariadbUsername),
@@ -40,15 +39,14 @@ const push_database = async (
   });
 
   await ensure_table(pool, config, stream);
-  return async (data: DatabaseInsertable) => {
-    const keys = new Array(data.keys());
-    const values = new Array(data.values());
-    const statement = `INSERT INTO (${keys.join(",")}) VALUES (${
-      keys.map((_) => "?").join(",")
-    })`;
+  const table = stream.name.split("/")[1];
 
-    console.log(statement, values);
-    // pool.query(statement, values);
+  return async (data: DatabaseInsertable) => {
+    const keys = iterate(data.keys()).join(", ");
+    const marks = iterate(data.keys()).map((_) => "?").join(", ");
+    const statement = `INSERT INTO ${table} (${keys}) VALUES (${marks})`;
+
+    pool.query(statement, iterate(data.values()));
   };
 };
 
@@ -56,7 +54,21 @@ async function* iterate_database(
   config: Config,
   stream: StreamConfig,
 ) {
-  yield "TODO";
+  const pool = await createPool({
+    host: config.get(ConfigKind.MariadbHost),
+    user: config.get(ConfigKind.MariadbUsername),
+    password: config.get(ConfigKind.MariadbPassword),
+    database: config.get(ConfigKind.MariadbDatabase),
+  });
+
+  await ensure_table(pool, config, stream);
+  const table = stream.name.split("/")[1];
+
+  // TODO need some way to not re-visit items
+  // and to configure chunked selecting
+  for (const row of await pool.query(`SELECT * FROM ${table}`)) {
+    yield row;
+  }
 }
 
 export const read = async (
