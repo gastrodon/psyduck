@@ -23,7 +23,7 @@ const get_client = async (config: Config): Promise<any> => {
 const get_feed = async (
   config: Config,
   stream: StreamConfig,
-): Promise<AsyncStream> => {
+): Promise<AsyncStream<any>> => {
   const client = await get_client(config);
 
   return {
@@ -35,7 +35,7 @@ const get_feed = async (
 export const read = async (
   config: Config,
   stream: StreamConfig,
-): Promise<AsyncStream> => ({ iterator: await get_feed(config, stream) });
+): Promise<AsyncStream<any>> => ({ iterator: await get_feed(config, stream) });
 
 export const write = async (
   config: Config,

@@ -47,7 +47,9 @@ async function* iterate_queue(config: Config, stream: StreamConfig) {
 export const read = async (
   config: Config,
   stream: StreamConfig,
-): Promise<AsyncStream> => ({ iterator: await iterate_queue(config, stream) });
+): Promise<AsyncStream<any>> => ({
+  iterator: await iterate_queue(config, stream),
+});
 
 export const write = async (
   config: Config,

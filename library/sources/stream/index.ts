@@ -11,7 +11,7 @@ const lookup = new Map<StreamKind, StreamGetter>([
   [StreamKind.Queue, require("./queue")],
 ]);
 
-export const read = (config: Config, stream: StreamConfig): AsyncStream =>
+export const read = (config: Config, stream: StreamConfig): AsyncStream<any> =>
   lookup.get(stream.kind)["read"](config, stream);
 
 export const write = (config: Config, stream: StreamConfig): AsyncPool<any> =>

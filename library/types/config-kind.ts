@@ -1,16 +1,19 @@
 import { trim } from "lodash";
 
 import { lookup as stream_lookup } from "./stream-kind";
-import { lookup as job_lookup } from "./job-kind";
+import {
+  lookup as transformer_lookup,
+  TransformerKind,
+} from "./transformer-kind";
 
 export const enum ConfigKind {
-  Job,
   PerSecond,
   ExitAfter,
 
   Source,
   Target,
   KeepFields,
+  Transformers,
 
   MariadbUsername,
   MariadbPassword,
@@ -27,13 +30,13 @@ export const enum ConfigKind {
 }
 
 export const names = new Map<ConfigKind, string>([
-  [ConfigKind.Job, "job"],
   [ConfigKind.PerSecond, "per-second"],
   [ConfigKind.ExitAfter, "exit-after"],
 
   [ConfigKind.Source, "source"],
   [ConfigKind.Target, "target"],
   [ConfigKind.KeepFields, "keep-fields"],
+  [ConfigKind.Transformers, "transformers"],
 
   [ConfigKind.MariadbUsername, "mariadb-username"],
   [ConfigKind.MariadbPassword, "mariadb-password"],
@@ -60,9 +63,14 @@ export const defaults = new Map<ConfigKind, any>([
 ]);
 
 export const transformers = new Map<ConfigKind, (it: string) => any>([
-  [ConfigKind.Job, (it: string) => job_lookup.get(it)],
-
   [ConfigKind.KeepFields, (it: string) => it ? it.split(",") : []],
+  [
+    ConfigKind.KeepFields,
+    (it: string) =>
+      it
+        ? it.split(",").map((it) => transformer_lookup.get(it))
+        : [TransformerKind.Nop],
+  ],
 
   [ConfigKind.NoAuth, (it: string) => it.toLowerCase() === "true"],
 

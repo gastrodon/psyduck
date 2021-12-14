@@ -1,6 +1,6 @@
-interface AsyncStream {
+interface AsyncStream<T> {
   // iterator: AsyncIterator<T>;
-  iterator: any; // TODO ??
+  iterator: T; // TODO ??
 }
 
 export default AsyncStream;
