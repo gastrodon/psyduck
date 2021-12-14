@@ -30,7 +30,7 @@ const ensure_table = async (
 const push_database = async (
   config: Config,
   stream: StreamConfig,
-): Promise<(data: any) => void> => {
+): Promise<(data: DatabaseInsertable) => void> => {
   const pool = await createPool({
     host: config.get(ConfigKind.MariadbHost),
     user: config.get(ConfigKind.MariadbUsername),
@@ -53,7 +53,7 @@ const push_database = async (
 async function* iterate_database(
   config: Config,
   stream: StreamConfig,
-) {
+): { [key: string]: any } {
   const pool = await createPool({
     host: config.get(ConfigKind.MariadbHost),
     user: config.get(ConfigKind.MariadbUsername),
