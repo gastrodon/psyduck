@@ -1,9 +1,11 @@
 enum TransformerKind {
   IFunnyContentReference,
   IFunnyUserReference,
+  IFunnyCommentSource,
+  IFunnyTimelineSource,
+  IFunnyCommentArchive,
   IFunnyAuthor,
   IFunnyObject,
-  IFunnyTimelineReference,
 
   AsMap,
   Jsonify,

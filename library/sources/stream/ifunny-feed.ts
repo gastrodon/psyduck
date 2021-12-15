@@ -1,10 +1,13 @@
-const { Client } = require("ifunny");
+const { Client, Post, User } = require("ifunny");
 
 import Config from "../../types/config";
 import AsyncStream from "../../types/async-stream";
 import AsyncPool from "../../types/async-pool";
 import { StreamConfig } from "../../types/stream-kind";
 import { ConfigKind } from "../../types/config-kind";
+
+const FEED_COMMENTS = /^ifunny-feed\/comments\/.{9}$/;
+const FEED_TIMELINE = /^ifunny-feed\/timeline\/.{36}$/;
 
 const get_client = async (config: Config): Promise<any> => {
   if (config.get(ConfigKind.NoAuth)) {
@@ -26,10 +29,18 @@ const get_feed = async (
 ): Promise<AsyncStream<any>> => {
   const client = await get_client(config);
 
-  return {
-    "ifunny-feed/collective": client.collective,
-    "ifunny-feed/features": client.features,
-  }[stream.name];
+  switch (true) {
+    case stream.name === "ifunny-feed/collective":
+      return client.collective;
+    case stream.name === "ifunny-feed/features":
+      return client.features;
+    case !!stream.name.match(FEED_COMMENTS):
+      return new Post(stream.name.split("/")[2], { client }).comments;
+    case !!stream.name.match(FEED_TIMELINE):
+      return new User(stream.name.split("/")[2], { client }).timeline; // TODO add in library
+  }
+
+  throw `Unknown ifunny resource ${stream.name}`;
 };
 
 export const read = async (
