@@ -78,7 +78,7 @@ const main = async () => {
     .get(ConfigKind.Transformers)
     .map((it: TransformerKind) => functions.get(it)!);
 
-  etl(sources, targets, transformers);
+  await etl(sources, targets, transformers);
 };
 
 main().catch((it) => {

@@ -6,7 +6,7 @@ import AsyncPool from "../../types/async-pool";
 import { StreamConfig } from "../../types/stream-kind";
 import { ConfigKind } from "../../types/config-kind";
 
-const ensure_queue = async (config: Config, stream: StreamConfig) =>
+const ensure_queue = (config: Config, stream: StreamConfig) =>
   axios({
     method: "POST",
     data: JSON.stringify({ name: stream.name.split("/")[1] }),
