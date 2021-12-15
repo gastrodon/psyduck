@@ -1,0 +1,162 @@
+networks:
+  scyther:
+    name: scyther
+
+  ferrothorn:
+    name: ferrothorn
+
+  etl:
+    name: elt
+
+services:
+  database-scyther:
+    image: mariadb:latest
+
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "true"
+      MARIADB_DATABASE: scyther
+      MARIADB_USER: scyther
+      MARIADB_PASSWORD: foobar2000
+
+    networks:
+      - scyther
+
+  scyther:
+    image: gastrodon/scyther:latest
+
+    restart: on-failure
+
+    environment:
+      SCYTHER_CONNECTION: scyther:foobar2000@tcp(database-scyther)/scyther
+
+    ports:
+      - "3000:8000"
+
+    networks:
+      - scyther
+      - etl
+
+    depends_on:
+      - database-scyther
+
+  database-ferrothorn:
+    image: mariadb:latest
+
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "true"
+      MARIADB_DATABASE: ferrothorn
+      MARIADB_USER: ferrothorn
+      MARIADB_PASSWORD: foobar2000
+
+    networks:
+      - ferrothorn
+
+  ferrothorn:
+    image: gastrodon/ferrothorn:latest
+
+    restart: on-failure
+
+    environment:
+      FERROTHORN_CONNECTION: ferrothorn:foobar2000@tcp(database-ferrothorn)/ferrothorn
+
+    ports:
+      - "3001:8000"
+
+    networks:
+      - ferrothorn
+      - etl
+
+    depends_on:
+      - database-ferrothorn
+
+  database-etl:
+    image: mariadb:latest
+
+    networks:
+      - etl
+
+    environment:
+      MARIADB_RANDOM_ROOT_PASSWORD: "true"
+      MARIADB_DATABASE: etl
+      MARIADB_USER: etl
+      MARIADB_PASSWORD: foobar2000
+
+    ports:
+      - "3306:3306"
+
+  pipeline: &pipeline
+    image: gastrodon/psyduck:latest
+
+    networks:
+      - etl
+
+    restart: unless-stopped
+
+    environment: &pipeline-environment
+      ETL_NO_AUTH: "true"
+
+      ETL_MARIADB_DATABASE: etl
+      ETL_MARIADB_USERNAME: etl
+      ETL_MARIADB_PASSWORD: foobar2000
+
+      ETL_MARIADB_HOST: database-etl
+      ETL_SCYTHER_HOST: http://scyther:8000
+      ETL_FERROTHORN_HOST: http://ferrothorn:8000
+
+    depends_on:
+      - scyther
+      - ferrothorn
+      - database-etl
+
+  log-content:
+    <<: *pipeline
+
+    environment:
+      <<: *pipeline-environment
+
+      ETL_SOURCES: 'ifunny-feed/features'
+      ELT_TARGETS: 'trash'
+      ETL_TRANSFORMERS: 'ifunny-object,log'
+
+  enqueue-content-ref:
+    <<: *pipeline
+
+    environment:
+      <<: *pipeline-environment
+
+      ETL_SOURCES: 'ifunny-feed/features,ifunny-feed/collective'
+      # ELT_TARGETS: 'queue/ref_content,queue/ref_content_be_comment_source,queue/ref_content_be_archive'
+      ETL_TARGETS: 'queue/ref_content_be_comment_source,queue/ref_content'
+      ETL_TRANSFORMERS: 'ifunny-object,ifunny-content-reference,log,stringify'
+
+  archive-comments:
+    <<: *pipeline
+
+    environment:
+      <<: *pipeline-environment
+
+      ETL_SOURCES: 'queue/ref_content'
+      ETL_TARGETS: 'mariadb/archive_content'
+      ETL_TRANSFORMERS: 'jsonify,ifunny-lookup-content,trash' # TODO
+
+  enqueue-content-comment-source:
+    <<: *pipeline
+
+    environment:
+      <<: *pipeline-environment
+
+      ETL_SOURCES: 'queue/ref_content_be_comment_source'
+      ETL_TARGETS: 'queue/source_comment'
+      ETL_TRANSFORMERS: 'jsonify,ifunny-lookup-content,ifunny-object,ifunny-comment-source'
+
+  archive-comment-snapshot:
+    <<: *pipeline
+
+    environment:
+      <<: *pipeline-environment
+
+      ETL_SOURCES_FROM: 'queue/source_comment'
+      ETL_TARGETS: 'mariadb/comment_snapshot'
+      ETL_TRANSFORMERS: 'ifunny-object,ifunny-comment-archive,log,as-map'
+
+      ETL_MARIADB_TABLE_SCHEMA: cid CHAR(9),id CHAR(36),date BIGINT UNSIGNED,text TEXT(1024),state CHAR(16),is_edited BOOLEAN,is_reply BOOLEAN,is_smiled BOOLEAN,is_unsmiled BOOLEAN
