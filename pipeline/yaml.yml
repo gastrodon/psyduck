@@ -90,7 +90,7 @@ services:
     networks:
       - etl
 
-    restart: unless-stopped
+    restart: always
 
     environment: &pipeline-environment
       ETL_NO_AUTH: "true"
@@ -128,16 +128,6 @@ services:
       # ELT_TARGETS: 'queue/ref_content,queue/ref_content_be_comment_source,queue/ref_content_be_archive'
       ETL_TARGETS: 'queue/ref_content_be_comment_source,queue/ref_content'
       ETL_TRANSFORMERS: 'ifunny-object,ifunny-content-reference,log,stringify'
-
-  archive-comments:
-    <<: *pipeline
-
-    environment:
-      <<: *pipeline-environment
-
-      ETL_SOURCES: 'queue/ref_content'
-      ETL_TARGETS: 'mariadb/archive_content'
-      ETL_TRANSFORMERS: 'jsonify,ifunny-lookup-content,trash' # TODO
 
   enqueue-content-comment-source:
     <<: *pipeline
