@@ -6,6 +6,7 @@ import { lookup as stream_lookup, StreamConfig } from "./stream-kind";
 
 const lookup_streams = (them: string): Array<StreamConfig> =>
   them
+    .replaceAll(" ", "")
     .split(",")
     .map((name: string) => stream_lookup.get(name))
     .filter((it) => it);
