@@ -96,8 +96,6 @@ const main = async () => {
     .get(ConfigKind.Transformers)
     .map((it: TransformerKind) => functions.get(it)!);
 
-  console.log("exiting after", config.get(ConfigKind.ExitAfter));
-
   await etl(
     sources,
     targets,
