@@ -6,6 +6,7 @@ enum TransformerKind {
   IFunnyTimelineSource,
   IFunnyCommentSnapshot,
   IFunnyContentSnapshot,
+  IFunnyLookupComment,
   IFunnyLookupContent,
   IFunnyAuthor,
   IFunnyObject,

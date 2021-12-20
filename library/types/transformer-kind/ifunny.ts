@@ -7,15 +7,13 @@ const KEYS_USER_REFERENCE = ["id", "nick", "original_nick"];
 const KEYS_COMMENT_REFERENCE = ["id", "cid"];
 
 const KEYS_COMMENT_SNAPSHOT = [
-  "cid",
-  "date",
   "id",
-  "is_edited",
-  "is_reply",
-  "is_smiled",
-  "is_unsmiled",
+  "cid",
   "state",
   "text",
+  "date",
+  "is_reply",
+  "is_edited",
 ];
 
 const KEYS_CONTENT_SNAPSHOT = [
@@ -46,6 +44,7 @@ export const names = new Map<TransformerKind, string>([
   [TransformerKind.IFunnyTimelineSource, "ifunny-timeline-source"],
   [TransformerKind.IFunnyCommentSnapshot, "ifunny-comment-snapshot"],
   [TransformerKind.IFunnyContentSnapshot, "ifunny-content-snapshot"],
+  [TransformerKind.IFunnyLookupComment, "ifunny-lookup-comment"],
   [TransformerKind.IFunnyLookupContent, "ifunny-lookup-content"],
   [TransformerKind.IFunnyAuthor, "ifunny-author"],
   [TransformerKind.IFunnyObject, "ifunny-object"],
@@ -80,6 +79,10 @@ export const functions: Map<TransformerKind, (it: any) => any> = new Map(
     [
       TransformerKind.IFunnyContentSnapshot,
       transformer.keep_keys(KEYS_CONTENT_SNAPSHOT),
+    ],
+    [
+      TransformerKind.IFunnyLookupComment,
+      transformer.ifunny.lookup_comment,
     ],
     [
       TransformerKind.IFunnyLookupContent,
