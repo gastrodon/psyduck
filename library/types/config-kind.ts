@@ -99,7 +99,7 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
       new Map<string, string>(
         !it ? [] : it
           .split(",")
-          .map((it) => it.replaceAll(/^ +/, "").replaceAll(/ +$/, ""))
+          .map((it) => it.replaceAll(/^\s+/gm, "").replaceAll(/\s+$/gm, ""))
           .map((it) => [
             it.split(" ")[0],
             it.split(" ").slice(1).join(" "),
