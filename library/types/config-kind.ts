@@ -6,7 +6,7 @@ import { lookup as stream_lookup, StreamConfig } from "./stream-kind";
 
 const lookup_streams = (them: string): Array<StreamConfig> =>
   them
-    .replaceAll(" ", "")
+    .replaceAll(/\s+/gm, "")
     .split(",")
     .map((name: string) => stream_lookup.get(name))
     .filter((it) => it);
@@ -79,7 +79,10 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
     ConfigKind.Transformers,
     (it: string) =>
       it
-        ? it.split(",").map((it) => transformer_lookup.get(it))
+        ? it
+          .replaceAll(/\s+/gm, "")
+          .split(",")
+          .map((it) => transformer_lookup.get(it))
         : [TransformerKind.Nop],
   ],
 
@@ -96,6 +99,7 @@ export const transformers = new Map<ConfigKind, (it: string) => any>([
       new Map<string, string>(
         !it ? [] : it
           .split(",")
+          .map((it) => it.replaceAll(/^ +/, "").replaceAll(/ +$/, ""))
           .map((it) => [
             it.split(" ")[0],
             it.split(" ").slice(1).join(" "),
