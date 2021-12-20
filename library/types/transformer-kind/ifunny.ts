@@ -6,7 +6,7 @@ const KEYS_CONTENT_REFERENCE = ["id", "publish_at", "date_create"];
 const KEYS_USER_REFERENCE = ["id", "nick", "original_nick"];
 const KEYS_COMMENT_REFERENCE = ["id", "cid"];
 
-const KEYS_COMMENT_ARCHIVE = [
+const KEYS_COMMENT_SNAPSHOT = [
   "cid",
   "date",
   "id",
@@ -16,6 +16,22 @@ const KEYS_COMMENT_ARCHIVE = [
   "is_unsmiled",
   "state",
   "text",
+];
+
+const KEYS_CONTENT_SNAPSHOT = [
+  "id",
+  "type",
+  "visibility",
+  "url",
+  "canonical_url",
+  "date_create",
+  "publish_at",
+  "issue_at",
+  "is_featured",
+  "is_pinned",
+  "is_republished",
+  "fast_start",
+  "can_be_boosted",
 ];
 
 const KEY_AUTHOR = "creator";
@@ -28,7 +44,8 @@ export const names = new Map<TransformerKind, string>([
   [TransformerKind.IFunnyCommentReference, "ifunny-comment-reference"],
   [TransformerKind.IFunnyCommentSource, "ifunny-comment-source"],
   [TransformerKind.IFunnyTimelineSource, "ifunny-timeline-source"],
-  [TransformerKind.IFunnyCommentArchive, "ifunny-comment-archive"],
+  [TransformerKind.IFunnyCommentSnapshot, "ifunny-comment-snapshot"],
+  [TransformerKind.IFunnyContentSnapshot, "ifunny-content-snapshot"],
   [TransformerKind.IFunnyLookupContent, "ifunny-lookup-content"],
   [TransformerKind.IFunnyAuthor, "ifunny-author"],
   [TransformerKind.IFunnyObject, "ifunny-object"],
@@ -57,8 +74,12 @@ export const functions: Map<TransformerKind, (it: any) => any> = new Map(
       transformer.ifunny.timeline_source,
     ],
     [
-      TransformerKind.IFunnyCommentArchive,
-      transformer.keep_keys(KEYS_COMMENT_ARCHIVE),
+      TransformerKind.IFunnyCommentSnapshot,
+      transformer.keep_keys(KEYS_COMMENT_SNAPSHOT),
+    ],
+    [
+      TransformerKind.IFunnyContentSnapshot,
+      transformer.keep_keys(KEYS_CONTENT_SNAPSHOT),
     ],
     [
       TransformerKind.IFunnyLookupContent,
