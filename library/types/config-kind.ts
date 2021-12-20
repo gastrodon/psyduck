@@ -14,6 +14,8 @@ const lookup_streams = (them: string): Array<StreamConfig> =>
 export const enum ConfigKind {
   PerSecond,
   ExitAfter,
+  SourcesFromCount,
+  TargetsFromCount,
 
   Sources,
   Targets,
@@ -38,6 +40,8 @@ export const enum ConfigKind {
 export const names = new Map<ConfigKind, string>([
   [ConfigKind.PerSecond, "per-second"],
   [ConfigKind.ExitAfter, "exit-after"],
+  [ConfigKind.SourcesFromCount, "sources-from-count"],
+  [ConfigKind.TargetsFromCount, "targets-from-count"],
 
   [ConfigKind.Sources, "sources"],
   [ConfigKind.Targets, "targets"],
@@ -61,6 +65,9 @@ export const names = new Map<ConfigKind, string>([
 
 export const defaults = new Map<ConfigKind, any>([
   [ConfigKind.PerSecond, 20],
+  [ConfigKind.ExitAfter, 0],
+  [ConfigKind.SourcesFromCount, 0],
+  [ConfigKind.TargetsFromCount, 0],
 
   [ConfigKind.NoAuth, "true"],
 

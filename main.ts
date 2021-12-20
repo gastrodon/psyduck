@@ -21,6 +21,7 @@ interface ETLConfig {
 const collect_remote = async (
   config: Config,
   sources: Array<any>,
+  count: number,
 ): Promise<Array<StreamConfig>> => {
   const source_iterators: Array<AsyncStream<string>> = await Promise.all(
     sources
@@ -29,7 +30,7 @@ const collect_remote = async (
 
   const sources_iterated: [Array<string>] = (await Promise.all(
     source_iterators
-      .map((it) => async_iterate(it.iterator)),
+      .map((it) => async_iterate(it.iterator, count)),
   )) as [Array<string>];
 
   return sources_iterated.length > 0
@@ -41,7 +42,10 @@ const etl = async (
   sources: Array<AsyncStream<any>>,
   targets: Array<AsyncPool<any>>,
   transformers: Array<(it: any) => any>,
+  count: number,
 ) => {
+  let pushed = 0;
+
   for (const source of sources) {
     for await (let content of source.iterator) {
       for (const transformer of transformers) {
@@ -50,6 +54,12 @@ const etl = async (
 
       for (const target of targets) {
         target.push(content);
+      }
+
+      pushed++;
+
+      if (count !== 0 && count <= pushed) {
+        break;
       }
     }
   }
@@ -60,7 +70,11 @@ const main = async () => {
 
   const sources = await Promise.all(
     [
-      ...await collect_remote(config, config.get(ConfigKind.SourcesFrom)),
+      ...await collect_remote(
+        config,
+        config.get(ConfigKind.SourcesFrom),
+        config.get(ConfigKind.SourcesFromCount),
+      ),
       ...config.get(ConfigKind.Sources),
     ]
       .map((it: StreamConfig) => read(config, it)),
@@ -68,7 +82,11 @@ const main = async () => {
 
   const targets = await Promise.all(
     [
-      ...await collect_remote(config, config.get(ConfigKind.TargetsFrom)),
+      ...await collect_remote(
+        config,
+        config.get(ConfigKind.TargetsFrom),
+        config.get(ConfigKind.TargetsFromCount),
+      ),
       ...config.get(ConfigKind.Targets),
     ]
       .map((it: StreamConfig) => write(config, it)),
@@ -78,7 +96,14 @@ const main = async () => {
     .get(ConfigKind.Transformers)
     .map((it: TransformerKind) => functions.get(it)!);
 
-  await etl(sources, targets, transformers);
+  console.log("exiting after", config.get(ConfigKind.ExitAfter));
+
+  await etl(
+    sources,
+    targets,
+    transformers,
+    config.get(ConfigKind.ExitAfter),
+  );
 };
 
 main().catch((it) => {
