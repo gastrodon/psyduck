@@ -7,6 +7,7 @@ import { StreamConfig } from "../../types/stream-kind";
 import { ConfigKind } from "../../types/config-kind";
 
 const FEED_COMMENTS = /^ifunny-feed\/comments\/.{9}$/;
+const FEED_TAG = /^ifunny-feed\/tag\/.{3,100}$/;
 const FEED_TIMELINE = /^ifunny-feed\/timeline\/.{36}$/;
 
 const get_client = async (config: Config): Promise<any> => {
@@ -37,7 +38,9 @@ const get_feed = async (
     case !!stream.name.match(FEED_COMMENTS):
       return new Post(stream.name.split("/")[2], { client }).comments;
     case !!stream.name.match(FEED_TIMELINE):
-      return new User(stream.name.split("/")[2], { client }).timeline; // TODO add in library
+      return new User(stream.name.split("/")[2], { client }).timeline;
+    case !!stream.name.match(FEED_TAG):
+      return client.search_tags(stream.name.split("/")[2]);
   }
 
   throw `Unknown ifunny resource ${stream.name}`;
