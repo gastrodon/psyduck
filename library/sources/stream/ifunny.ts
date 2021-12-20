@@ -6,9 +6,10 @@ import AsyncPool from "../../types/async-pool";
 import { StreamConfig } from "../../types/stream-kind";
 import { ConfigKind } from "../../types/config-kind";
 
-const FEED_COMMENTS = /^ifunny-feed\/comments\/.{9}$/;
-const FEED_TAG = /^ifunny-feed\/tag\/.{3,100}$/;
-const FEED_TIMELINE = /^ifunny-feed\/timeline\/.{36}$/;
+const STREAM_FEED = /^ifunny\/feed\/.+$/;
+const STREAM_COMMENTS = /^ifunny\/comments\/.{9}$/;
+const STREAM_TAG = /^ifunny\/tag\/.{3,100}$/;
+const STREAM_TIMELINE = /^ifunny\/timeline\/.{36}$/;
 
 const get_client = async (config: Config): Promise<any> => {
   if (config.get(ConfigKind.NoAuth)) {
@@ -31,15 +32,13 @@ const get_feed = async (
   const client = await get_client(config);
 
   switch (true) {
-    case stream.name === "ifunny-feed/collective":
-      return client.collective;
-    case stream.name === "ifunny-feed/features":
-      return client.features;
-    case !!stream.name.match(FEED_COMMENTS):
+    case !!stream.name.match(STREAM_FEED):
+      return client[stream.name.split("/")[2]];
+    case !!stream.name.match(STREAM_COMMENTS):
       return new Post(stream.name.split("/")[2], { client }).comments;
-    case !!stream.name.match(FEED_TIMELINE):
+    case !!stream.name.match(STREAM_TIMELINE):
       return new User(stream.name.split("/")[2], { client }).timeline;
-    case !!stream.name.match(FEED_TAG):
+    case !!stream.name.match(STREAM_TAG):
       return client.search_tags(stream.name.split("/")[2]);
   }
 

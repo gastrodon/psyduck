@@ -14,7 +14,7 @@ export interface StreamConfig {
 }
 
 export const patterns: Map<StreamKind, RegExp> = new Map([
-  [StreamKind.IFunnyFeed, /^ifunny-feed\/[\w\/]+$/],
+  [StreamKind.IFunnyFeed, /^ifunny\/[\w\/]+$/],
   [StreamKind.Mariadb, /^mariadb\/[\w_-]+$/],
   [StreamKind.Queue, /^queue\/[\w_]+$/],
   [StreamKind.Trash, /^trash$/],
