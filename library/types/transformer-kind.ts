@@ -7,6 +7,7 @@ export const names: Map<TransformerKind, string> = new Map([
   ...ifunny.names,
 
   [TransformerKind.AsMap, "as-map"],
+  [TransformerKind.AsMaps, "as-maps"],
   [TransformerKind.Jsonify, "jsonify"],
   [TransformerKind.Log, "log"],
   [TransformerKind.Nop, "nop"],
@@ -18,6 +19,7 @@ export const functions: Map<TransformerKind, (it: any) => any> = new Map(
     ...ifunny.functions,
 
     [TransformerKind.AsMap, transformer.as_map],
+    [TransformerKind.AsMaps, transformer.as_maps],
     [TransformerKind.Jsonify, transformer.jsonify],
     [TransformerKind.Log, transformer.log],
     [TransformerKind.Nop, transformer.nop],
