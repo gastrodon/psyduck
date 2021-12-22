@@ -1,4 +1,4 @@
-import { createPool } from "mariadb";
+import { createPool, Pool } from "mariadb";
 
 import { sync as iterate } from "../../tools/iterate";
 import Config from "../../types/config";
@@ -7,7 +7,7 @@ import AsyncPool from "../../types/async-pool";
 import { StreamConfig } from "../../types/stream-kind";
 import { ConfigKind } from "../../types/config-kind";
 
-type DatabaseInsertable = Map<string, string | number | null>;
+type DatabaseInsertable = Map<string, string | number | boolean | null>;
 
 const ensure_table = async (
   pool: any,
@@ -27,6 +27,14 @@ const ensure_table = async (
   await pool.query(statement);
 };
 
+const do_insert = (pool: Pool, table: string, data: DatabaseInsertable) => {
+  const keys = iterate(data.keys()).join(", ");
+  const marks = iterate(data.keys()).map((_) => "?").join(", ");
+  const statement = `INSERT INTO ${table} (${keys}) VALUES (${marks})`;
+
+  pool.query(statement, iterate(data.values()));
+};
+
 const push_database = async (
   config: Config,
   stream: StreamConfig,
@@ -41,12 +49,10 @@ const push_database = async (
   await ensure_table(pool, config, stream);
   const table = stream.name.split("/")[1];
 
-  return async (data: DatabaseInsertable) => {
-    const keys = iterate(data.keys()).join(", ");
-    const marks = iterate(data.keys()).map((_) => "?").join(", ");
-    const statement = `INSERT INTO ${table} (${keys}) VALUES (${marks})`;
-
-    pool.query(statement, iterate(data.values()));
+  return (data: DatabaseInsertable | Array<DatabaseInsertable>) => {
+    Array.isArray(data)
+      ? data.map((it) => do_insert(pool, table, it))
+      : do_insert(pool, table, data);
   };
 };
 
