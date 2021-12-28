@@ -9,7 +9,7 @@ import { ConfigKind } from "../../types/config-kind";
 const STREAM_FEED = /^ifunny\/feed\/.+$/;
 const STREAM_COMMENTS = /^ifunny\/comments\/.{9}$/;
 const STREAM_TAG = /^ifunny\/tag\/.{3,100}$/;
-const STREAM_TIMELINE = /^ifunny\/timeline\/.{36}$/;
+const STREAM_TIMELINE = /^ifunny\/timeline\/.{24}$/;
 
 const get_client = async (config: Config): Promise<any> => {
   if (config.get(ConfigKind.NoAuth)) {
