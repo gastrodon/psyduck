@@ -9,6 +9,7 @@ enum TransformerKind {
   IFunnyTagSnapshot,
   IFunnyLookupComment,
   IFunnyLookupContent,
+  IFunnyLookupUser,
   IFunnyPartitionTags,
   IFunnyAuthor,
   IFunnyObject,

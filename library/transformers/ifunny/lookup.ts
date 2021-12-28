@@ -1,4 +1,4 @@
-const { Post, Comment } = require("ifunny");
+const { Comment, Post, User } = require("ifunny");
 
 export const lookup_content = async (ref: any): Promise<any> => {
   const post = new Post(ref.id);
@@ -12,4 +12,11 @@ export const lookup_comment = async (ref: any): Promise<any> => {
   await comment.fresh.get("");
 
   return comment;
+};
+
+export const lookup_user = async (ref: any): Promise<any> => {
+  const user = new User(ref.id);
+  await user.fresh.get("");
+
+  return user;
 };

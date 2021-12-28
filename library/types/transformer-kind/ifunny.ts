@@ -52,6 +52,7 @@ export const names = new Map<TransformerKind, string>([
   [TransformerKind.IFunnyTagSnapshot, "ifunny-tag-snapshot"],
   [TransformerKind.IFunnyLookupComment, "ifunny-lookup-comment"],
   [TransformerKind.IFunnyLookupContent, "ifunny-lookup-content"],
+  [TransformerKind.IFunnyLookupUser, "ifunny-lookup-user"],
   [TransformerKind.IFunnyPartitionTags, "ifunny-partition-tags"],
   [TransformerKind.IFunnyAuthor, "ifunny-author"],
   [TransformerKind.IFunnyObject, "ifunny-object"],
@@ -98,6 +99,10 @@ export const functions: Map<TransformerKind, (it: any) => any> = new Map(
     [
       TransformerKind.IFunnyLookupContent,
       transformer.ifunny.lookup_content,
+    ],
+    [
+      TransformerKind.IFunnyLookupUser,
+      transformer.ifunny.lookup_user,
     ],
     [
       TransformerKind.IFunnyPartitionTags,
