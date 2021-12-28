@@ -4,6 +4,8 @@ import TransformerKind from "./transformer-kind/enum";
 import { lookup as transformer_lookup } from "./transformer-kind";
 import { lookup as stream_lookup, StreamConfig } from "./stream-kind";
 
+const as_int = (it: string): number => parseInt(it, 10);
+
 const lookup_streams = (them: string): Array<StreamConfig> =>
   them
     .replaceAll(/\s+/gm, "")
@@ -82,6 +84,11 @@ export const defaults = new Map<ConfigKind, any>([
 ]);
 
 export const transformers = new Map<ConfigKind, (it: string) => any>([
+  [ConfigKind.PerSecond, as_int],
+  [ConfigKind.ExitAfter, as_int],
+  [ConfigKind.SourcesFromCount, as_int],
+  [ConfigKind.TargetsFromCount, as_int],
+
   [
     ConfigKind.Transformers,
     (it: string) =>

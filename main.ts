@@ -28,14 +28,20 @@ const collect_remote = async (
       .map((source: StreamConfig) => read(config, source)),
   );
 
-  const sources_iterated: [Array<string>] = (await Promise.all(
-    source_iterators
-      .map((it) => async_iterate(it.iterator, count)),
-  )) as [Array<string>];
+  let collected: number = 0;
+  let sources_collected: Array<string> = [];
+  for (const source of source_iterators) {
+    for await (const it of source.iterator) {
+      sources_collected.push(it);
 
-  return sources_iterated.length > 0
-    ? sources_iterated[0].map((it: string) => stream_lookup.get(it))
-    : [];
+      if (++collected === count) {
+        break;
+      }
+    }
+  }
+
+  console.log(sources_collected);
+  return sources_collected.map((it: string) => stream_lookup.get(it));
 };
 
 const etl = async (
