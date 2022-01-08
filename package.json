@@ -2,7 +2,7 @@
   "author": "Eva <mail@gastrodon.io>",
   "description": "",
   "license": "AGPL-3.0",
-  "main": "main.js",
+  "main": "main.ts",
   "name": "ifunny-etl",
   "version": "1.0.0",
   "dependencies": {
