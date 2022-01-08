@@ -13,16 +13,20 @@
     "ifunny": "^2.5.10",
     "lodash": "^4.17.21",
     "mariadb": "^2.5.5",
-    "typescript": "^4.5.3"
+    "typescript": "^4.5.4"
   },
   "repository": {
     "type": "git",
     "url": "github.com/gastrodon/ifunny-etl"
   },
   "scripts": {
+    "compile": "tsc main.ts --target es2021 --moduleResolution node --outDir build/compile --strict",
+    "package": "ncc build ./main.ts -o ./build/package",
     "start": "ts-node ./main.ts"
   },
   "devDependencies": {
+    "@vercel/ncc": "^0.33.1",
+    "pkg": "^5.5.1",
     "ts-node": "^10.4.0"
   }
 }
