@@ -40,7 +40,6 @@ const collect_remote = async (
     }
   }
 
-  console.log(sources_collected);
   return sources_collected.map((it: string) => stream_lookup.get(it));
 };
 
