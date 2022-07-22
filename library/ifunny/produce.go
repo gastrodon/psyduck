@@ -4,7 +4,7 @@ import (
 	"github.com/gastrodon/psyduck/model"
 )
 
-func ProduceFeatures(configRaw interface{}) model.Mover {
+func produceFeatures(configRaw interface{}) model.Producer {
 	config := configRaw.(IFunnyConfig)
 
 	return func(signal chan string) chan interface{} {

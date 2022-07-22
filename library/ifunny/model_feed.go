@@ -1,10 +1,5 @@
 package ifunny
 
-type IFunnyConfig struct {
-	BearerAuth string
-	UserAgent  string
-}
-
 type Content struct {
 	ID         string   `json:"id"`
 	URL        string   `json:"url"`
