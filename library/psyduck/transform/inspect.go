@@ -1,4 +1,4 @@
-package psyduck
+package transform
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 	"github.com/gastrodon/psyduck/model"
 )
 
-func inspect(parse func(interface{}) error) model.Transformer {
+func Inspect(parse func(interface{}) error) model.Transformer {
 	return func(data interface{}) interface{} {
 		fmt.Println(data)
 		return data
