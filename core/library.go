@@ -30,7 +30,7 @@ func NewLibrary() model.Library {
 	lookupTransformer := make(map[string]model.TransformerProvider)
 
 	return model.Library{
-		Load: func(plugin model.Plugin) {
+		Load: func(plugin *model.Plugin) {
 			for name, provide := range plugin.ProvideProducer {
 				lookupProducer[name] = provide
 			}

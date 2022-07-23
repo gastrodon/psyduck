@@ -18,7 +18,7 @@ func stackTransform(transformers []model.Transformer) model.Transformer {
 	}
 }
 
-func BuildPipeline(descriptor model.PipelineDescriptor, library model.Library) model.Pipeline {
+func BuildPipeline(descriptor model.PipelineDescriptor, library model.Library) *model.Pipeline {
 	producer := library.ProvideProducer(descriptor.Producer.Kind, descriptor.Producer.Config)
 	consumer := library.ProvideConsumer(descriptor.Consumer.Kind, descriptor.Consumer.Config)
 
@@ -27,7 +27,7 @@ func BuildPipeline(descriptor model.PipelineDescriptor, library model.Library) m
 		transformers[index] = library.ProvideTransformer(transformDescriptor.Kind, transformDescriptor.Config)
 	}
 
-	return model.Pipeline{
+	return &model.Pipeline{
 		Producer:           producer,
 		Consumer:           consumer,
 		Transformers:       transformers,

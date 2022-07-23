@@ -4,7 +4,7 @@ import (
 	"github.com/gastrodon/psyduck/model"
 )
 
-func RunPipeline(pipeline model.Pipeline) {
+func RunPipeline(pipeline *model.Pipeline) {
 	signal := make(chan string)
 	chanProducer := pipeline.Producer(signal)
 	chanConsumer := pipeline.Consumer(signal)
