@@ -1,10 +1,10 @@
 package model
 
 type Mover func(chan string) chan interface{}
-type MoverProvider func(interface{}) Mover
+type MoverProvider func(func(interface{}) error) Mover
 
 type Producer Mover
-type ProducerProvider func(interface{}) Producer
+type ProducerProvider func(func(interface{}) error) Producer
 
 type Consumer Mover
-type ConsumerProvider func(interface{}) Consumer
+type ConsumerProvider func(func(interface{}) error) Consumer

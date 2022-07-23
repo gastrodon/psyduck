@@ -6,7 +6,7 @@ import (
 	"github.com/gastrodon/psyduck/model"
 )
 
-func inspect(configRaw interface{}) model.Transformer {
+func inspect(parse func(interface{}) error) model.Transformer {
 	return func(data interface{}) interface{} {
 		fmt.Println(data)
 		return data

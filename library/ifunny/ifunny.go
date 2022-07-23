@@ -20,7 +20,7 @@ func getFeaturesPage(config IFunnyConfig, nextPage string) FeedPage {
 	query.Add("next", nextPage)
 	request.URL.RawQuery = query.Encode()
 
-	request.Header.Add("authorization", "Bearer "+config.BearerAuth)
+	request.Header.Add("authorization", "Bearer "+config.BearerToken)
 	request.Header.Add("user-agent", config.UserAgent)
 	request.Header.Add("ifunny-project-id", "ifunny")
 	request.Header.Add("accept", "video/mp4, image/jpeg")

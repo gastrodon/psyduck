@@ -4,8 +4,11 @@ import (
 	"github.com/gastrodon/psyduck/model"
 )
 
-func produceFeatures(configRaw interface{}) model.Producer {
-	config := configRaw.(IFunnyConfig)
+func produceFeatures(parse func(interface{}) error) model.Producer {
+	config := *new(IFunnyConfig)
+	if err := parse(&config); err != nil {
+		panic(err)
+	}
 
 	return func(signal chan string) chan interface{} {
 		data := make(chan interface{}, 32)

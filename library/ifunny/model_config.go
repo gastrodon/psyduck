@@ -1,6 +1,6 @@
 package ifunny
 
 type IFunnyConfig struct {
-	BearerAuth string `hcl:"bearer_auth"`
-	UserAgent  string `hcl:"user_agent"`
+	BearerToken string `psy:"bearer_token"`
+	UserAgent   string `psy:"user_agent"`
 }
