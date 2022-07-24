@@ -1,10 +1,11 @@
 package core
 
 import (
-	"github.com/gastrodon/psyduck/model"
+	"github.com/gastrodon/psyduck/config"
+	"github.com/gastrodon/psyduck/sdk"
 )
 
-func stackTransform(transformers []model.Transformer) model.Transformer {
+func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	if len(transformers) == 0 {
 		return func(data interface{}) interface{} { return data }
 	}
@@ -18,16 +19,16 @@ func stackTransform(transformers []model.Transformer) model.Transformer {
 	}
 }
 
-func BuildPipeline(descriptor model.PipelineDescriptor, library model.Library) *model.Pipeline {
+func BuildPipeline(descriptor config.PipelineDescriptor, library Library) *Pipeline {
 	producer := library.ProvideProducer(descriptor.Producer.Kind, descriptor.Producer.Config)
 	consumer := library.ProvideConsumer(descriptor.Consumer.Kind, descriptor.Consumer.Config)
 
-	transformers := make([]model.Transformer, len(descriptor.Transformers))
+	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
 		transformers[index] = library.ProvideTransformer(transformDescriptor.Kind, transformDescriptor.Config)
 	}
 
-	return &model.Pipeline{
+	return &Pipeline{
 		Producer:           producer,
 		Consumer:           consumer,
 		Transformers:       transformers,

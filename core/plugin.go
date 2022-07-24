@@ -3,10 +3,10 @@ package core
 import (
 	"plugin"
 
-	"github.com/gastrodon/psyduck/model"
+	"github.com/gastrodon/psyduck/sdk"
 )
 
-func LoadPlugin(path string) (*model.Plugin, error) {
+func LoadPlugin(path string) (*sdk.Plugin, error) {
 	loaded, err := plugin.Open(path)
 	if err != nil {
 		return nil, err
@@ -17,5 +17,5 @@ func LoadPlugin(path string) (*model.Plugin, error) {
 		return nil, err
 	}
 
-	return callable.(func() *model.Plugin)(), nil
+	return callable.(func() *sdk.Plugin)(), nil
 }

@@ -1,4 +1,4 @@
-package model
+package config
 
 type Descriptor struct {
 	Kind   string
@@ -11,9 +11,4 @@ type PipelineDescriptor struct {
 	Transformers []Descriptor
 }
 
-type Pipeline struct {
-	Producer           Producer
-	Consumer           Consumer
-	Transformers       []Transformer
-	StackedTransformer Transformer
-}
+type PipelineDescriptors map[string]*PipelineDescriptor

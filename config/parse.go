@@ -2,11 +2,9 @@ package config
 
 import (
 	"fmt"
-
-	"github.com/gastrodon/psyduck/model"
 )
 
-func makePipelineDescriptor(data model.ETLPipelineRaw) (*model.PipelineDescriptor, error) {
+func makePipelineDescriptor(data PipelineRaw) (*PipelineDescriptor, error) {
 	producer, err := makeDescriptor(data.Producer)
 	if err != nil {
 		return nil, err
@@ -17,7 +15,7 @@ func makePipelineDescriptor(data model.ETLPipelineRaw) (*model.PipelineDescripto
 		return nil, err
 	}
 
-	transformers := make([]model.Descriptor, len(data.Transformers))
+	transformers := make([]Descriptor, len(data.Transformers))
 	for index, descriptor := range data.Transformers {
 		transformer, err := makeDescriptor(descriptor)
 		if err != nil {
@@ -27,20 +25,20 @@ func makePipelineDescriptor(data model.ETLPipelineRaw) (*model.PipelineDescripto
 		transformers[index] = *transformer
 	}
 
-	return &model.PipelineDescriptor{
+	return &PipelineDescriptor{
 		Producer:     *producer,
 		Consumer:     *consumer,
 		Transformers: transformers,
 	}, nil
 }
 
-func makeDescriptor(data map[string]interface{}) (*model.Descriptor, error) {
+func makeDescriptor(data map[string]interface{}) (*Descriptor, error) {
 	kind, ok := data["kind"].(string)
 	if !ok {
 		return nil, fmt.Errorf("data does not have a kind %#v", data)
 	}
 
-	return &model.Descriptor{
+	return &Descriptor{
 		Kind:   kind,
 		Config: data,
 	}, nil
