@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 
+	std "github.com/gastrodon/psyduck-std"
 	"github.com/gastrodon/psyduck/config"
 	"github.com/gastrodon/psyduck/core"
 )
