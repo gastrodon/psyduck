@@ -32,7 +32,6 @@ func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) *Pip
 	return &Pipeline{
 		Producer:           producer,
 		Consumer:           consumer,
-		Transformers:       transformers,
 		StackedTransformer: stackTransform(transformers),
 	}
 }
