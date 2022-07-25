@@ -10,3 +10,5 @@ type Pipeline struct {
 	Transformers       []sdk.Transformer
 	StackedTransformer sdk.Transformer
 }
+
+type Pipelines map[string]*Pipeline

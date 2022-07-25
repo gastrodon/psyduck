@@ -19,7 +19,7 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func BuildPipeline(descriptor config.PipelineDescriptor, library Library) *Pipeline {
+func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) *Pipeline {
 	producer := library.ProvideProducer(descriptor.Producer.Kind, descriptor.Producer.Config)
 	consumer := library.ProvideConsumer(descriptor.Consumer.Kind, descriptor.Consumer.Config)
 

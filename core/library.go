@@ -24,12 +24,12 @@ func makeParser(data map[string]interface{}) func(interface{}) error {
 	}
 }
 
-func NewLibrary() Library {
+func NewLibrary() *Library {
 	lookupProducer := make(map[string]sdk.ProducerProvider)
 	lookupConsumer := make(map[string]sdk.ConsumerProvider)
 	lookupTransformer := make(map[string]sdk.TransformerProvider)
 
-	return Library{
+	return &Library{
 		Load: func(plugin *sdk.Plugin) {
 			for name, provide := range plugin.ProvideProducer {
 				lookupProducer[name] = provide
