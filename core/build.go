@@ -14,8 +14,9 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 		return transformers[0]
 	}
 
+	tail := len(transformers) - 1
+
 	return func(data interface{}) interface{} {
-		tail := len(transformers) - 1
 		return transformers[tail](stackTransform(transformers[:tail])(data))
 	}
 }
