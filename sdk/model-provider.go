@@ -1,6 +1,6 @@
 package sdk
 
-type Mover func(chan string) (chan []byte, error)
+type Mover func(chan string) (chan []byte, chan error)
 type MoverProvider func(func([]byte) error) (Mover, error)
 
 type Producer Mover

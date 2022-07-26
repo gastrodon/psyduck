@@ -7,7 +7,8 @@ import (
 const EACH_MINUTE = 60_000
 
 type PipelineConfig struct {
-	PerMinute int `psy:"per_minute"`
+	PerMinute   int  `psy:"per-minute"`
+	ExitOnError bool `psy:"exit-on-error"`
 }
 
 func mustParse(parse func(interface{}) error) *PipelineConfig {
@@ -31,15 +32,25 @@ func ratelimit(perMinute int) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse func(interface{}) error, data chan []byte, signal chan string) error {
+func ProduceChunk(next func() ([]byte, bool, error), parse func(interface{}) error, data chan []byte, errors chan error, signal chan string) {
 	config := mustParse(parse)
 	alive := make(chan bool, 1)
 	alive <- true
 
 	for {
-		dataNext, hasNext, err := next()
-		if err != nil || !hasNext {
-			return err
+		dataNext, more, err := next()
+		if err != nil {
+			errors <- err
+
+			if config.ExitOnError {
+				return
+			}
+
+			continue
+		}
+
+		if !more {
+			return
 		}
 
 		data <- dataNext
@@ -55,7 +66,7 @@ func ProduceChunk(next func() ([]byte, bool, error), parse func(interface{}) err
 }
 
 // Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) (bool, error), parse func(interface{}) error, data chan []byte, signal chan string) error {
+func ConsumeChunk(next func([]byte) (bool, error), parse func(interface{}) error, data chan []byte, errors chan error, signal chan string) {
 	config := mustParse(parse)
 
 	for {
@@ -63,8 +74,19 @@ func ConsumeChunk(next func([]byte) (bool, error), parse func(interface{}) error
 		case received := <-signal:
 			panic(received)
 		case dataNext := <-data:
-			if more, err := next(dataNext); err != nil || !more {
-				return err
+			more, err := next(dataNext)
+			if err != nil {
+				errors <- err
+
+				if config.ExitOnError {
+					return
+				}
+
+				continue
+			}
+
+			if !more {
+				return
 			}
 		}
 

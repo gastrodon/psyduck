@@ -1,24 +1,22 @@
 package core
 
 func RunPipeline(pipeline *Pipeline, signal chan string) error {
-	chanProducer, err := pipeline.Producer(signal)
-	if err != nil {
-		return err
-	}
+	chanProducer, chanProducerError := pipeline.Producer(signal)
+	chanConsumer, chanConsumerError := pipeline.Consumer(signal)
 
-	chanConsumer, err := pipeline.Consumer(signal)
-	if err != nil {
-		return err
-	}
+	for {
+		select {
+		case data := <-chanProducer:
+			transformed, err := pipeline.StackedTransformer(data)
+			if err != nil {
+				return err
+			}
 
-	for data := range chanProducer {
-		transformed, err := pipeline.StackedTransformer(data)
-		if err != nil {
+			chanConsumer <- transformed
+		case err := <-chanProducerError:
+			return err
+		case err := <-chanConsumerError:
 			return err
 		}
-
-		chanConsumer <- transformed
 	}
-
-	return nil
 }
