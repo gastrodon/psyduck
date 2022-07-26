@@ -1,13 +1,13 @@
 package sdk
 
-type Mover func(chan string) chan []byte
-type MoverProvider func(func([]byte) error) Mover
+type Mover func(chan string) (chan []byte, error)
+type MoverProvider func(func([]byte) error) (Mover, error)
 
 type Producer Mover
-type ProducerProvider func(func(interface{}) error) Producer
+type ProducerProvider func(func(interface{}) error) (Producer, error)
 
 type Consumer Mover
-type ConsumerProvider func(func(interface{}) error) Consumer
+type ConsumerProvider func(func(interface{}) error) (Consumer, error)
 
-type Transformer func([]byte) []byte
-type TransformerProvider func(func(interface{}) error) Transformer
+type Transformer func([]byte) ([]byte, error)
+type TransformerProvider func(func(interface{}) error) (Transformer, error)

@@ -6,25 +6,36 @@ import (
 )
 
 func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func(signal chan string) chan []byte {
+	return func(signal chan string) (chan []byte, error) {
 		joined := make(chan []byte, len(producers))
+
 		for _, producer := range producers {
+			chanProducer, err := producer(signal)
+			if err != nil {
+				return nil, err
+			}
+
 			go func() {
-				for data := range producer(signal) {
+				for data := range chanProducer {
 					joined <- data
 				}
 			}()
 		}
 
-		return joined
+		return joined, nil
 	}
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func(signal chan string) chan []byte {
+	return func(signal chan string) (chan []byte, error) {
 		chanConsumers := make([]chan []byte, len(consumers))
 		for index, consumer := range consumers {
-			chanConsumers[index] = consumer(signal)
+			chanConsumer, err := consumer(signal)
+			if err != nil {
+				return nil, err
+			}
+
+			chanConsumers[index] = chanConsumer
 		}
 
 		joined := make(chan []byte, len(consumers))
@@ -36,13 +47,13 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 			}
 		}()
 
-		return joined
+		return joined, nil
 	}
 }
 
 func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	if len(transformers) == 0 {
-		return func(data []byte) []byte { return data }
+		return func(data []byte) ([]byte, error) { return data, nil }
 	}
 
 	if len(transformers) == 1 {
@@ -51,30 +62,50 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 
 	tail := len(transformers) - 1
 
-	return func(data []byte) []byte {
-		return transformers[tail](stackTransform(transformers[:tail])(data))
+	return func(data []byte) ([]byte, error) {
+		transformed, err := stackTransform(transformers[:tail])(data)
+		if err != nil {
+			return nil, err
+		}
+
+		return transformers[tail](transformed)
 	}
 }
 
-func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) *Pipeline {
+func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) (*Pipeline, error) {
 	producers := make([]sdk.Producer, len(descriptor.Producers))
 	for index, produceDescriptor := range descriptor.Producers {
-		producers[index] = library.ProvideProducer(produceDescriptor.Kind, produceDescriptor.Config)
+		producer, err := library.ProvideProducer(produceDescriptor.Kind, produceDescriptor.Config)
+		if err != nil {
+			return nil, err
+		}
+
+		producers[index] = producer
 	}
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumers[index] = library.ProvideConsumer(consumeDescriptor.Kind, consumeDescriptor.Config)
+		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, consumeDescriptor.Config)
+		if err != nil {
+			return nil, err
+		}
+
+		consumers[index] = consumer
 	}
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformers[index] = library.ProvideTransformer(transformDescriptor.Kind, transformDescriptor.Config)
+		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, transformDescriptor.Config)
+		if err != nil {
+			return nil, err
+		}
+
+		transformers[index] = transformer
 	}
 
 	return &Pipeline{
 		Producer:           joinProducers(producers),
 		Consumer:           joinConsumers(consumers),
 		StackedTransformer: stackTransform(transformers),
-	}
+	}, nil
 }

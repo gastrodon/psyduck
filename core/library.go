@@ -41,26 +41,26 @@ func NewLibrary() *Library {
 				lookupTransformer[name] = provide
 			}
 		},
-		ProvideProducer: func(name string, config map[string]interface{}) sdk.Producer {
+		ProvideProducer: func(name string, config map[string]interface{}) (sdk.Producer, error) {
 			found, ok := lookupProducer[name]
 			if !ok {
-				panic(fmt.Sprintf("can't find producer %s!", name))
+				return nil, fmt.Errorf("can't find producer %s", name)
 			}
 
 			return found(makeParser(config))
 		},
-		ProvideConsumer: func(name string, config map[string]interface{}) sdk.Consumer {
+		ProvideConsumer: func(name string, config map[string]interface{}) (sdk.Consumer, error) {
 			found, ok := lookupConsumer[name]
 			if !ok {
-				panic(fmt.Sprintf("can't find consumer %s!", name))
+				return nil, fmt.Errorf("can't find consumer %s", name)
 			}
 
 			return found(makeParser(config))
 		},
-		ProvideTransformer: func(name string, config map[string]interface{}) sdk.Transformer {
+		ProvideTransformer: func(name string, config map[string]interface{}) (sdk.Transformer, error) {
 			found, ok := lookupTransformer[name]
 			if !ok {
-				panic(fmt.Sprintf("can't find transformer %s!", name))
+				return nil, fmt.Errorf("can't find transformer %s", name)
 			}
 
 			return found(makeParser(config))

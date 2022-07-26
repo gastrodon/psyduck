@@ -29,7 +29,12 @@ func main() {
 
 	pipelines := make(core.Pipelines, len(pipelinesRaw))
 	for name, pipelineRaw := range pipelinesRaw {
-		pipelines[name] = core.BuildPipeline(pipelineRaw, library)
+		pipeline, err := core.BuildPipeline(pipelineRaw, library)
+		if err != nil {
+			panic(err)
+		}
+
+		pipelines[name] = pipeline
 	}
 
 	signal := make(chan string)

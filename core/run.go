@@ -1,10 +1,24 @@
 package core
 
-func RunPipeline(pipeline *Pipeline, signal chan string) {
-	chanProducer := pipeline.Producer(signal)
-	chanConsumer := pipeline.Consumer(signal)
+func RunPipeline(pipeline *Pipeline, signal chan string) error {
+	chanProducer, err := pipeline.Producer(signal)
+	if err != nil {
+		return err
+	}
+
+	chanConsumer, err := pipeline.Consumer(signal)
+	if err != nil {
+		return err
+	}
 
 	for data := range chanProducer {
-		chanConsumer <- pipeline.StackedTransformer(data)
+		transformed, err := pipeline.StackedTransformer(data)
+		if err != nil {
+			return err
+		}
+
+		chanConsumer <- transformed
 	}
+
+	return nil
 }
