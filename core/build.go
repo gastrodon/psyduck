@@ -6,8 +6,8 @@ import (
 )
 
 func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func(signal chan string) chan interface{} {
-		joined := make(chan interface{}, len(producers))
+	return func(signal chan string) chan []byte {
+		joined := make(chan []byte, len(producers))
 		for _, producer := range producers {
 			go func() {
 				for data := range producer(signal) {
@@ -21,13 +21,13 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func(signal chan string) chan interface{} {
-		chanConsumers := make([]chan interface{}, len(consumers))
+	return func(signal chan string) chan []byte {
+		chanConsumers := make([]chan []byte, len(consumers))
 		for index, consumer := range consumers {
 			chanConsumers[index] = consumer(signal)
 		}
 
-		joined := make(chan interface{}, len(consumers))
+		joined := make(chan []byte, len(consumers))
 		go func() {
 			for data := range joined {
 				for index := range chanConsumers {
@@ -42,7 +42,7 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 
 func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	if len(transformers) == 0 {
-		return func(data interface{}) interface{} { return data }
+		return func(data []byte) []byte { return data }
 	}
 
 	if len(transformers) == 1 {
@@ -51,7 +51,7 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 
 	tail := len(transformers) - 1
 
-	return func(data interface{}) interface{} {
+	return func(data []byte) []byte {
 		return transformers[tail](stackTransform(transformers[:tail])(data))
 	}
 }
