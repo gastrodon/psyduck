@@ -3,7 +3,7 @@ module github.com/gastrodon/psyduck
 go 1.18
 
 require (
-	github.com/gastrodon/psyduck-std v0.2.0
+	github.com/gastrodon/psyduck-std v0.2.2
 	github.com/mitchellh/mapstructure v1.5.0
 	gopkg.in/yaml.v3 v3.0.1
 )

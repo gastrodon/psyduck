@@ -2,6 +2,8 @@ github.com/gastrodon/psyduck-std v0.1.1 h1:paKqtfCBHJdcquM/ZuepimWmOKGB1rBDOqA2T
 github.com/gastrodon/psyduck-std v0.1.1/go.mod h1:JqOg9gDzzCmx8gjReiicMw7d6o1ot1TDFNpWel9Du9k=
 github.com/gastrodon/psyduck-std v0.2.0 h1:tmQ8CeFbmuMyzc+NiQRl2ywPCykCZXeo9vcP1+Xg+Zk=
 github.com/gastrodon/psyduck-std v0.2.0/go.mod h1:ZRm/ehqFeJR1nZljVLTcf8vZs0WDxTN64P9NfzWXkJc=
+github.com/gastrodon/psyduck-std v0.2.2 h1:sKwQ3KuY+GZQPg+Yiqv/sb4Q85SYgtMNJAT0IWQPW8A=
+github.com/gastrodon/psyduck-std v0.2.2/go.mod h1:Nb5QN1cyOmD2GcIDFYprJnHyGim5PmQ1xxCixX0QKpU=
 github.com/kr/pretty v0.1.0 h1:L/CwN0zerZDmRFUapSPitk6f+Q3+0za1rQkzVuMiMFI=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/pty v1.1.1/go.mod h1:pFQYn66WHrOpPYNljwOMqo10TkYh1fy3cYio2l3bCsQ=
