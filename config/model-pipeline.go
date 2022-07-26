@@ -6,9 +6,9 @@ type Descriptor struct {
 }
 
 type PipelineDescriptor struct {
-	Producer     Descriptor
-	Consumer     Descriptor
-	Transformers []Descriptor
+	Producers    []*Descriptor
+	Consumers    []*Descriptor
+	Transformers []*Descriptor
 }
 
 type PipelineDescriptors map[string]*PipelineDescriptor

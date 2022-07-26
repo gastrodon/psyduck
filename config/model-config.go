@@ -5,8 +5,8 @@ type Header struct {
 }
 
 type PipelineRaw struct {
-	Producer     map[string]interface{}   `yaml:"producer"`
-	Consumer     map[string]interface{}   `yaml:"consumer"`
+	Producers    []map[string]interface{} `yaml:"producers"`
+	Consumers    []map[string]interface{} `yaml:"consumers"`
 	Transformers []map[string]interface{} `yaml:"transformers"`
 }
 

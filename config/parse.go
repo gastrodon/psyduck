@@ -5,31 +5,40 @@ import (
 )
 
 func makePipelineDescriptor(data PipelineRaw) (*PipelineDescriptor, error) {
-	producer, err := makeDescriptor(data.Producer)
+	producers, err := makeDescriptors(data.Producers)
 	if err != nil {
 		return nil, err
 	}
 
-	consumer, err := makeDescriptor(data.Consumer)
+	consumers, err := makeDescriptors(data.Consumers)
 	if err != nil {
 		return nil, err
 	}
 
-	transformers := make([]Descriptor, len(data.Transformers))
-	for index, descriptor := range data.Transformers {
-		transformer, err := makeDescriptor(descriptor)
+	transformers, err := makeDescriptors(data.Transformers)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PipelineDescriptor{
+		Producers:    producers,
+		Consumers:    consumers,
+		Transformers: transformers,
+	}, nil
+}
+
+func makeDescriptors(data []map[string]interface{}) ([]*Descriptor, error) {
+	descriptors := make([]*Descriptor, len(data))
+	for index, rawDescriptor := range data {
+		descriptor, err := makeDescriptor(rawDescriptor)
 		if err != nil {
 			return nil, err
 		}
 
-		transformers[index] = *transformer
+		descriptors[index] = descriptor
 	}
 
-	return &PipelineDescriptor{
-		Producer:     *producer,
-		Consumer:     *consumer,
-		Transformers: transformers,
-	}, nil
+	return descriptors, nil
 }
 
 func makeDescriptor(data map[string]interface{}) (*Descriptor, error) {
