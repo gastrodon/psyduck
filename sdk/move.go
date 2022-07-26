@@ -31,15 +31,15 @@ func ratelimit(perMinute int) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool), parse func(interface{}) error, data chan []byte, signal chan string) {
+func ProduceChunk(next func() ([]byte, bool, error), parse func(interface{}) error, data chan []byte, signal chan string) error {
 	config := mustParse(parse)
 	alive := make(chan bool, 1)
 	alive <- true
 
 	for {
-		dataNext, hasNext := next()
-		if !hasNext {
-			return
+		dataNext, hasNext, err := next()
+		if err != nil || !hasNext {
+			return err
 		}
 
 		data <- dataNext
@@ -55,7 +55,7 @@ func ProduceChunk(next func() ([]byte, bool), parse func(interface{}) error, dat
 }
 
 // Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) bool, parse func(interface{}) error, data chan []byte, signal chan string) {
+func ConsumeChunk(next func([]byte) (bool, error), parse func(interface{}) error, data chan []byte, signal chan string) error {
 	config := mustParse(parse)
 
 	for {
@@ -63,8 +63,8 @@ func ConsumeChunk(next func([]byte) bool, parse func(interface{}) error, data ch
 		case received := <-signal:
 			panic(received)
 		case dataNext := <-data:
-			if !next(dataNext) {
-				return
+			if more, err := next(dataNext); err != nil || !more {
+				return err
 			}
 		}
 
