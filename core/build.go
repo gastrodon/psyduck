@@ -6,18 +6,21 @@ import (
 )
 
 func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func(signal chan string) (chan []byte, error) {
+	return func(signal chan string) (chan []byte, chan error) {
 		joined := make(chan []byte, len(producers))
+		errors := make(chan error)
 
 		for _, producer := range producers {
-			chanProducer, err := producer(signal)
-			if err != nil {
-				return nil, err
-			}
+			chanProducer, chanError := producer(signal)
 
 			go func() {
-				for data := range chanProducer {
-					joined <- data
+				for {
+					select {
+					case dataNext := <-chanProducer:
+						joined <- dataNext
+					case errNext := <-chanError:
+						errors <- errNext
+					}
 				}
 			}()
 		}
@@ -27,15 +30,13 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func(signal chan string) (chan []byte, error) {
+	return func(signal chan string) (chan []byte, chan error) {
 		chanConsumers := make([]chan []byte, len(consumers))
+		chanErrors := make([]chan error, len(consumers))
 		for index, consumer := range consumers {
-			chanConsumer, err := consumer(signal)
-			if err != nil {
-				return nil, err
-			}
-
+			chanConsumer, chanError := consumer(signal)
 			chanConsumers[index] = chanConsumer
+			chanErrors[index] = chanError
 		}
 
 		joined := make(chan []byte, len(consumers))
@@ -47,7 +48,16 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 			}
 		}()
 
-		return joined, nil
+		errors := make(chan error, len(consumers))
+		go func() {
+			for err := range errors {
+				for index := range chanErrors {
+					chanErrors[index] <- err
+				}
+			}
+		}()
+
+		return joined, errors
 	}
 }
 
