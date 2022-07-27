@@ -1,8 +1,16 @@
 package core
 
+import "fmt"
+
+func makeDone(message string) func() {
+	return func() {
+		fmt.Println(message)
+	}
+}
+
 func RunPipeline(pipeline *Pipeline, signal chan string) error {
-	chanProducer, chanProducerError := pipeline.Producer(signal)
-	chanConsumer, chanConsumerError := pipeline.Consumer(signal)
+	chanProducer, chanProducerError := pipeline.Producer(signal, makeDone("the producer is done!"))
+	chanConsumer, chanConsumerError := pipeline.Consumer(signal, makeDone("the consumer is done!"))
 
 	for {
 		select {

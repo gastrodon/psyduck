@@ -5,13 +5,25 @@ import (
 	"github.com/gastrodon/psyduck/sdk"
 )
 
+func makeAllDone(limit int, done func()) func() {
+	count := 0
+
+	return func() {
+		count++
+		if count == limit {
+			done()
+		}
+	}
+}
+
 func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func(signal chan string) (chan []byte, chan error) {
+	return func(signal chan string, done func()) (chan []byte, chan error) {
+		allDone := makeAllDone(len(producers), done)
 		joined := make(chan []byte, len(producers))
 		errors := make(chan error)
 
 		for _, producer := range producers {
-			chanProducer, chanError := producer(signal)
+			chanProducer, chanError := producer(signal, allDone)
 
 			go func() {
 				for {
@@ -30,11 +42,13 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func(signal chan string) (chan []byte, chan error) {
+	return func(signal chan string, done func()) (chan []byte, chan error) {
+		allDone := makeAllDone(len(consumers), done)
 		chanConsumers := make([]chan []byte, len(consumers))
 		chanErrors := make([]chan error, len(consumers))
+
 		for index, consumer := range consumers {
-			chanConsumer, chanError := consumer(signal)
+			chanConsumer, chanError := consumer(signal, allDone)
 			chanConsumers[index] = chanConsumer
 			chanErrors[index] = chanError
 		}
