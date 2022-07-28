@@ -38,7 +38,7 @@ func main() {
 	}
 
 	signal := make(chan string)
-	core.RunPipeline(pipelines[*pipeline], signal)
-
-	<-make(chan bool)
+	if err := core.RunPipeline(pipelines[*pipeline], signal); err != nil {
+		panic(err)
+	}
 }

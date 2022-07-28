@@ -1,16 +1,17 @@
 package core
 
-import "fmt"
+import "errors"
 
-func makeDone(message string) func() {
-	return func() {
-		fmt.Println(message)
-	}
+func makeDone(done chan bool) func() {
+	return func() { done <- true }
 }
 
 func RunPipeline(pipeline *Pipeline, signal chan string) error {
-	chanProducer, chanProducerError := pipeline.Producer(signal, makeDone("the producer is done!"))
-	chanConsumer, chanConsumerError := pipeline.Consumer(signal, makeDone("the consumer is done!"))
+	doneProducer := make(chan bool)
+	doneConsumer := make(chan bool)
+
+	chanProducer, chanProducerError := pipeline.Producer(signal, makeDone(doneProducer))
+	chanConsumer, chanConsumerError := pipeline.Consumer(signal, makeDone(doneConsumer))
 
 	for {
 		select {
@@ -25,6 +26,10 @@ func RunPipeline(pipeline *Pipeline, signal chan string) error {
 			return err
 		case err := <-chanConsumerError:
 			return err
+		case <-doneProducer:
+			return nil
+		case <-doneConsumer:
+			return errors.New("the consumer stopped accepting data")
 		}
 	}
 }
