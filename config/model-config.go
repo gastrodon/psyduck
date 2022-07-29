@@ -1,15 +1,27 @@
 package config
 
-type Header struct {
-	Kind string `yaml:"kind"`
-}
-
-type PipelineRaw struct {
-	Producers    []map[string]interface{} `yaml:"producers"`
-	Consumers    []map[string]interface{} `yaml:"consumers"`
-	Transformers []map[string]interface{} `yaml:"transformers"`
-}
+import "github.com/hashicorp/hcl/v2"
 
 type ConfigRaw struct {
-	Pipelines map[string]PipelineRaw `yaml:"pipelines"`
+	Producers []struct {
+		Kind   string   `hcl:"kind,label"`
+		Name   string   `hcl:"name,label"`
+		Remain hcl.Body `hcl:",remain"`
+	} `hcl:"produce,block"`
+	Consumers []struct {
+		Kind   string   `hcl:"kind,label"`
+		Name   string   `hcl:"name,label"`
+		Remain hcl.Body `hcl:",remain"`
+	} `hcl:"consume,block"`
+	Transformers []struct {
+		Kind   string   `hcl:"kind,label"`
+		Name   string   `hcl:"name,label"`
+		Remain hcl.Body `hcl:",remain"`
+	} `hcl:"transform,block"`
+	Pipelines []struct {
+		Name           string   `hcl:"name,label"`
+		ProducerRef    []string `hcl:"producers,label"`
+		ConsumerRef    []string `hcl:"consumers,label"`
+		TransformerRef []string `hcl:"transformers,label"`
+	} `hcl:"pipeline,block"`
 }
