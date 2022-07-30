@@ -5,7 +5,7 @@ import "github.com/hashicorp/hcl/v2/hcldec"
 type kind int
 
 const (
-	PROVIDER    kind = 0b0001
+	PRODUCER    kind = 0b0001
 	CONSUMER    kind = 0b0010
 	TRANSFORMER kind = 0b0100
 )

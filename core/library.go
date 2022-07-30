@@ -45,7 +45,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			if found.Kinds&sdk.PROVIDER == 0 {
+			if found.Kinds&sdk.PRODUCER == 0 {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
