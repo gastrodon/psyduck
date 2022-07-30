@@ -12,7 +12,9 @@ import (
 func makeParser(config hcl.Body, spec *hcldec.ObjectSpec) func(interface{}) error {
 	return func(target interface{}) error {
 		decoded, diags := hcldec.Decode(config, spec, nil)
-		fmt.Println(diags)
+		if diags != nil {
+			return diags
+		}
 
 		return gocty.FromCtyValue(decoded, target)
 	}
