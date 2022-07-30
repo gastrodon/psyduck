@@ -34,10 +34,10 @@ func NewLibrary() *Library {
 			}
 
 			if found.Kinds&sdk.PRODUCER == 0 {
-				return found.ProvideProducer(makeParser(config, &found.Spec))
+				return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 			}
 
-			return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
+			return found.ProvideProducer(makeParser(config, &found.Spec))
 		},
 		ProvideConsumer: func(name string, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupResource[name]
