@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"os"
-	"path/filepath"
+	"path"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -22,11 +24,26 @@ func Load(filename string, configBytes []byte) (*Pipelines, error) {
 	return makePipelines(pipelinesRaw, resources)
 }
 
-func LoadFile(path string) (*Pipelines, error) {
-	content, err := os.ReadFile(path)
+func LoadDirectory(configPath string) (*Pipelines, error) {
+	configBytes := bytes.NewBuffer(nil)
+
+	paths, err := os.ReadDir(configPath)
 	if err != nil {
 		return nil, err
 	}
 
-	return Load(filepath.Base(path), content)
+	for _, each := range paths {
+		if each.IsDir() || !strings.HasSuffix(each.Name(), ".psy") {
+			continue
+		}
+
+		content, err := os.ReadFile(path.Join(configPath, each.Name()))
+		if err != nil {
+			return nil, err
+		}
+
+		configBytes.Write(content)
+	}
+
+	return Load(configPath, configBytes.Bytes())
 }

@@ -19,11 +19,11 @@ func library() *core.Library {
 }
 
 func main() {
-	file := flag.String("file", "psyduck.hcl", "File to interpret")
+	directory := flag.String("where", ".", "Directory with psyduck configs")
 	pipelineTarget := flag.String("pipeline", "", "Pipelines to run")
 	flag.Parse()
 
-	pipelinesConfig, err := config.LoadFile(*file)
+	pipelinesConfig, err := config.LoadDirectory(*directory)
 	if err != nil {
 		panic(err)
 	}
