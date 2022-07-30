@@ -4,23 +4,17 @@ import (
 	"fmt"
 
 	"github.com/gastrodon/psyduck/sdk"
-	"github.com/mitchellh/mapstructure"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hcldec"
+	"github.com/zclconf/go-cty/cty/gocty"
 )
 
-func makeParser(data map[string]interface{}) func(interface{}) error {
+func makeParser(config hcl.Body, spec *hcldec.ObjectSpec) func(interface{}) error {
 	return func(target interface{}) error {
-		decodeConfig := &mapstructure.DecoderConfig{
-			Metadata: nil,
-			Result:   target,
-			TagName:  "psy",
-		}
+		decoded, diags := hcldec.Decode(config, spec, nil)
+		fmt.Println(diags)
 
-		decoder, err := mapstructure.NewDecoder(decodeConfig)
-		if err != nil {
-			return err
-		}
-
-		return decoder.Decode(data)
+		return gocty.FromCtyValue(decoded, target)
 	}
 }
 
@@ -28,6 +22,7 @@ func NewLibrary() *Library {
 	lookupProducer := make(map[string]sdk.ProducerProvider)
 	lookupConsumer := make(map[string]sdk.ConsumerProvider)
 	lookupTransformer := make(map[string]sdk.TransformerProvider)
+	lookupSpec := make(map[string]*hcldec.ObjectSpec)
 
 	return &Library{
 		Load: func(plugin *sdk.Plugin) {
@@ -41,29 +36,44 @@ func NewLibrary() *Library {
 				lookupTransformer[name] = provide
 			}
 		},
-		ProvideProducer: func(name string, config map[string]interface{}) (sdk.Producer, error) {
+		ProvideProducer: func(name string, config hcl.Body) (sdk.Producer, error) {
 			found, ok := lookupProducer[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find producer %s", name)
 			}
 
-			return found(makeParser(config))
+			spec, ok := lookupSpec[name]
+			if !ok {
+				return nil, fmt.Errorf("can't find spec %s", name)
+			}
+
+			return found(makeParser(config, spec))
 		},
-		ProvideConsumer: func(name string, config map[string]interface{}) (sdk.Consumer, error) {
+		ProvideConsumer: func(name string, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupConsumer[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find consumer %s", name)
 			}
 
-			return found(makeParser(config))
+			spec, ok := lookupSpec[name]
+			if !ok {
+				return nil, fmt.Errorf("can't find spec %s", name)
+			}
+
+			return found(makeParser(config, spec))
 		},
-		ProvideTransformer: func(name string, config map[string]interface{}) (sdk.Transformer, error) {
+		ProvideTransformer: func(name string, config hcl.Body) (sdk.Transformer, error) {
 			found, ok := lookupTransformer[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find transformer %s", name)
 			}
 
-			return found(makeParser(config))
+			spec, ok := lookupSpec[name]
+			if !ok {
+				return nil, fmt.Errorf("can't find spec %s", name)
+			}
+
+			return found(makeParser(config, spec))
 		},
 	}
 }

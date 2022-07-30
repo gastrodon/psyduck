@@ -96,10 +96,10 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *config.Pipeline, library *Library) (*Pipeline, error) {
 	producers := make([]sdk.Producer, len(descriptor.Producers))
 	for index, produceDescriptor := range descriptor.Producers {
-		producer, err := library.ProvideProducer(produceDescriptor.Kind, produceDescriptor.Config)
+		producer, err := library.ProvideProducer(produceDescriptor.Kind, produceDescriptor.Remain)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +109,7 @@ func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) (*Pi
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, consumeDescriptor.Config)
+		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, consumeDescriptor.Remain)
 		if err != nil {
 			return nil, err
 		}
@@ -119,7 +119,7 @@ func BuildPipeline(descriptor *config.PipelineDescriptor, library *Library) (*Pi
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, transformDescriptor.Config)
+		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, transformDescriptor.Remain)
 		if err != nil {
 			return nil, err
 		}
