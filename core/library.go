@@ -19,61 +19,49 @@ func makeParser(config hcl.Body, spec *hcldec.ObjectSpec) func(interface{}) erro
 }
 
 func NewLibrary() *Library {
-	lookupProducer := make(map[string]sdk.ProducerProvider)
-	lookupConsumer := make(map[string]sdk.ConsumerProvider)
-	lookupTransformer := make(map[string]sdk.TransformerProvider)
-	lookupSpec := make(map[string]*hcldec.ObjectSpec)
+	lookupResource := make(map[string]*sdk.Resource)
 
 	return &Library{
 		Load: func(plugin *sdk.Plugin) {
-			for name, provide := range plugin.ProvideProducer {
-				lookupProducer[name] = provide
-			}
-			for name, provide := range plugin.ProvideConsumer {
-				lookupConsumer[name] = provide
-			}
-			for name, provide := range plugin.ProvideTransformer {
-				lookupTransformer[name] = provide
+			for _, resource := range plugin.Resources {
+				lookupResource[resource.Name] = resource
 			}
 		},
 		ProvideProducer: func(name string, config hcl.Body) (sdk.Producer, error) {
-			found, ok := lookupProducer[name]
+			found, ok := lookupResource[name]
 			if !ok {
-				return nil, fmt.Errorf("can't find producer %s", name)
+				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			spec, ok := lookupSpec[name]
-			if !ok {
-				return nil, fmt.Errorf("can't find spec %s", name)
+			if found.Kinds&sdk.PROVIDER == 0 {
+				return found.ProvideProducer(makeParser(config, &found.Spec))
 			}
 
-			return found(makeParser(config, spec))
+			return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 		},
 		ProvideConsumer: func(name string, config hcl.Body) (sdk.Consumer, error) {
-			found, ok := lookupConsumer[name]
+			found, ok := lookupResource[name]
 			if !ok {
-				return nil, fmt.Errorf("can't find consumer %s", name)
+				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			spec, ok := lookupSpec[name]
-			if !ok {
-				return nil, fmt.Errorf("can't find spec %s", name)
+			if found.Kinds&sdk.PROVIDER == 0 {
+				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found(makeParser(config, spec))
+			return found.ProvideConsumer(makeParser(config, &found.Spec))
 		},
 		ProvideTransformer: func(name string, config hcl.Body) (sdk.Transformer, error) {
-			found, ok := lookupTransformer[name]
+			found, ok := lookupResource[name]
 			if !ok {
-				return nil, fmt.Errorf("can't find transformer %s", name)
+				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			spec, ok := lookupSpec[name]
-			if !ok {
-				return nil, fmt.Errorf("can't find spec %s", name)
+			if found.Kinds&sdk.PROVIDER == 0 {
+				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found(makeParser(config, spec))
+			return found.ProvideTransformer(makeParser(config, &found.Spec))
 		},
 	}
 }
