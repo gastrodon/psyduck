@@ -3,30 +3,25 @@ package config
 import (
 	"os"
 
-	"gopkg.in/yaml.v3"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
-func Load(configBytes []byte) (PipelineDescriptors, error) {
-	configRaw := &ConfigRaw{}
-	if err := yaml.Unmarshal(configBytes, configRaw); err != nil {
-		panic(err)
-	}
+func Load(configBytes []byte) (*Pipelines, error) {
+	resourcesRaw := new(ResourcesRaw)
+	resourceFile, _ := hclparse.NewParser().ParseHCL(configBytes, "psyduck.psy")
+	gohcl.DecodeBody(resourceFile.Body, nil, resourcesRaw)
 
-	pipelines := make(PipelineDescriptors, len(configRaw.Pipelines))
+	resources := makeResources(resourcesRaw)
 
-	for key, pipelineRaw := range configRaw.Pipelines {
-		pipeline, err := makePipelineDescriptor(pipelineRaw)
-		if err != nil {
-			return nil, err
-		}
+	pipelinesRaw := new(PipelinesRaw)
+	pipelineFile, _ := hclparse.NewParser().ParseHCL(configBytes, "psyduck.psy")
+	gohcl.DecodeBody(pipelineFile.Body, nil, pipelinesRaw)
 
-		pipelines[key] = pipeline
-	}
-
-	return pipelines, nil
+	return makePipelines(pipelinesRaw, resources)
 }
 
-func LoadFile(path string) (PipelineDescriptors, error) {
+func LoadFile(path string) (*Pipelines, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

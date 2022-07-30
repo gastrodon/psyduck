@@ -1,14 +1,23 @@
 package config
 
-type Descriptor struct {
-	Kind   string
-	Config map[string]interface{}
+type PipelineRaw struct {
+	Name           string   `hcl:"name,label" cty:"name"`
+	ProducerRef    []string `hcl:"producers" cty:"producers"`
+	ConsumerRef    []string `hcl:"consumers" cty:"consumers"`
+	TransformerRef []string `hcl:"transformers" cty:"transformers"`
 }
 
-type PipelineDescriptor struct {
-	Producers    []*Descriptor
-	Consumers    []*Descriptor
-	Transformers []*Descriptor
+type PipelinesRaw struct {
+	Pipelines []*PipelineRaw `hcl:"pipeline,block" cty:"pipeline"`
 }
 
-type PipelineDescriptors map[string]*PipelineDescriptor
+type Pipeline struct {
+	Name         string
+	Producers    []*Resource
+	Consumers    []*Resource
+	Transformers []*Resource
+}
+
+type Pipelines struct {
+	Pipelines map[string]*Pipeline
+}
