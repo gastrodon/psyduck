@@ -33,7 +33,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			if found.Kinds&sdk.PROVIDER == 0 {
+			if found.Kinds&sdk.PRODUCER == 0 {
 				return found.ProvideProducer(makeParser(config, &found.Spec))
 			}
 
@@ -45,7 +45,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			if found.Kinds&sdk.PRODUCER == 0 {
+			if found.Kinds&sdk.CONSUMER == 0 {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
@@ -57,7 +57,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("can't find resource %s", name)
 			}
 
-			if found.Kinds&sdk.PROVIDER == 0 {
+			if found.Kinds&sdk.TRANSFORMER == 0 {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
