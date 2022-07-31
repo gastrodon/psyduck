@@ -2,21 +2,39 @@ package sdk
 
 import (
 	"time"
+
+	"github.com/zclconf/go-cty/cty"
 )
 
 const EACH_MINUTE = 60_000
 
 type PipelineConfig struct {
-	PerMinute   int  `psy:"per-minute"`
-	ExitOnError bool `psy:"exit-on-error"`
+	PerMinute   int  `cty:"per-minute"`
+	ExitOnError bool `cty:"exit-on-error"`
 }
 
-func mustParse(parse func(interface{}) error) *PipelineConfig {
-	config := &PipelineConfig{
-		PerMinute: 120,
+func specPipelineConfig() SpecMap {
+	return SpecMap{
+		"per-minute": &Spec{
+			Name:        "per-minute",
+			Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
+			Type:        cty.Number,
+			Required:    false,
+			Default:     cty.NumberIntVal(0),
+		},
+		"exit-on-error": &Spec{
+			Name:        "exit-on-error",
+			Description: "stop producing/consuming if we encounter an error",
+			Type:        cty.Bool,
+			Required:    false,
+			Default:     cty.BoolVal(true),
+		},
 	}
+}
 
-	if err := parse(config); err != nil {
+func mustParse(parse SpecParser) *PipelineConfig {
+	config := new(PipelineConfig)
+	if err := parse(specPipelineConfig(), config); err != nil {
 		panic(err)
 	}
 
@@ -32,7 +50,7 @@ func ratelimit(perMinute int) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse func(interface{}) error, data chan []byte, errors chan error, signal chan string) {
+func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error, signal chan string) {
 	config := mustParse(parse)
 	alive := make(chan bool, 1)
 	alive <- true
@@ -66,7 +84,7 @@ func ProduceChunk(next func() ([]byte, bool, error), parse func(interface{}) err
 }
 
 // Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) (bool, error), parse func(interface{}) error, data chan []byte, errors chan error, signal chan string) {
+func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error, signal chan string) {
 	config := mustParse(parse)
 
 	for {
