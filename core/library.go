@@ -6,18 +6,21 @@ import (
 	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hcldec"
-	"github.com/zclconf/go-cty/cty/gocty"
 )
 
-func makeParser(config hcl.Body, spec *hcldec.ObjectSpec) func(interface{}) error {
-	return func(target interface{}) error {
-		decoded, diags := hcldec.Decode(config, spec, nil)
+func makeParser(config hcl.Body, providedSpecMap sdk.SpecMap) (sdk.Parser, sdk.SpecParser) {
+	parser := func(specMap sdk.SpecMap, target interface{}) error {
+		decoded, diags := hcldec.Decode(config, buildSpecMap(specMap), nil) // TODO ctx with variables goes here!
 		if diags != nil {
 			return diags
 		}
 
-		return gocty.FromCtyValue(decoded, target)
+		panic(fmt.Errorf("%#v", decoded)) // cty.Value
 	}
+
+	return func(target interface{}) error {
+		return parser(providedSpecMap, target)
+	}, parser
 }
 
 func NewLibrary() *Library {
@@ -39,7 +42,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 			}
 
-			return found.ProvideProducer(makeParser(config, &found.Spec))
+			return found.ProvideProducer(makeParser(config, found.Spec))
 		},
 		ProvideConsumer: func(name string, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupResource[name]
@@ -51,7 +54,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideConsumer(makeParser(config, &found.Spec))
+			return found.ProvideConsumer(makeParser(config, found.Spec))
 		},
 		ProvideTransformer: func(name string, config hcl.Body) (sdk.Transformer, error) {
 			found, ok := lookupResource[name]
@@ -63,7 +66,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideTransformer(makeParser(config, &found.Spec))
+			return found.ProvideTransformer(makeParser(config, found.Spec))
 		},
 	}
 }
