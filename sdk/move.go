@@ -2,8 +2,6 @@ package sdk
 
 import (
 	"time"
-
-	"github.com/zclconf/go-cty/cty"
 )
 
 const EACH_MINUTE = 60_000
@@ -15,20 +13,8 @@ type PipelineConfig struct {
 
 func specPipelineConfig() SpecMap {
 	return SpecMap{
-		"per-minute": &Spec{
-			Name:        "per-minute",
-			Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
-			Type:        cty.Number,
-			Required:    false,
-			Default:     cty.NumberIntVal(0),
-		},
-		"exit-on-error": &Spec{
-			Name:        "exit-on-error",
-			Description: "stop producing/consuming if we encounter an error",
-			Type:        cty.Bool,
-			Required:    false,
-			Default:     cty.BoolVal(true),
-		},
+		"per-minute":    SpecPerMinute(180),
+		"exit-on-error": SpecExitOnError(true),
 	}
 }
 

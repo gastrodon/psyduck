@@ -1,32 +1,25 @@
 package sdk
 
 import (
-	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/zclconf/go-cty/cty"
 )
 
-func SpecPerMinute(value int64) hcldec.Spec {
-	return &hcldec.DefaultSpec{
-		Primary: &hcldec.AttrSpec{
-			Name:     "per-minute",
-			Type:     cty.Number,
-			Required: false,
-		},
-		Default: &hcldec.LiteralSpec{
-			Value: cty.NumberIntVal(value),
-		},
+func SpecPerMinute(value int64) *Spec {
+	return &Spec{
+		Name:        "per-minute",
+		Description: "target producing/consuming n items per minute ( or 0 for unrestricted )",
+		Type:        cty.Number,
+		Required:    false,
+		Default:     cty.NumberIntVal(value),
 	}
 }
 
-func SpecExitOnError(value bool) hcldec.Spec {
-	return &hcldec.DefaultSpec{
-		Primary: &hcldec.AttrSpec{
-			Name:     "exit-on-error",
-			Type:     cty.Bool,
-			Required: false,
-		},
-		Default: &hcldec.LiteralSpec{
-			Value: cty.BoolVal(value),
-		},
+func SpecExitOnError(value bool) *Spec {
+	return &Spec{
+		Name:        "exit-on-error",
+		Description: "stop producing/consuming if we encounter an error",
+		Type:        cty.Bool,
+		Required:    false,
+		Default:     cty.BoolVal(value),
 	}
 }
