@@ -1,7 +1,5 @@
 package sdk
 
-import "github.com/hashicorp/hcl/v2/hcldec"
-
 type kind int
 
 const (
@@ -13,7 +11,7 @@ const (
 type Resource struct {
 	Kinds              kind
 	Name               string
-	Spec               hcldec.ObjectSpec
+	Spec               SpecMap
 	ProvideProducer    ProducerProvider
 	ProvideConsumer    ConsumerProvider
 	ProvideTransformer TransformerProvider
