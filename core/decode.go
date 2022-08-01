@@ -99,11 +99,20 @@ func decodeConfig(body hcl.Body, spec sdk.SpecMap, target interface{}) error {
 				return err
 			}
 
-			if err = setField(target, fieldValue, fieldSpec); err != nil {
+			if err := setField(target, fieldValue, fieldSpec); err != nil {
 				return err
 			}
+
+			continue
 		}
 
+		if fieldSpec.Required {
+			return fmt.Errorf("missing required value %s", name)
+		}
+
+		if err := setField(target, fieldSpec.Default, fieldSpec); err != nil {
+			return err
+		}
 	}
 
 	return nil
