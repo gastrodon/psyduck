@@ -5,17 +5,11 @@ import (
 
 	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hcldec"
 )
 
 func makeParser(config hcl.Body, providedSpecMap sdk.SpecMap) (sdk.Parser, sdk.SpecParser) {
-	parser := func(specMap sdk.SpecMap, target interface{}) error {
-		decoded, diags := hcldec.Decode(config, buildSpecMap(specMap), nil) // TODO ctx with variables goes here!
-		if diags != nil {
-			return diags
-		}
-
-		panic(fmt.Errorf("%#v", decoded)) // cty.Value
+	parser := func(spec sdk.SpecMap, target interface{}) error {
+		return decodeConfig(config, spec, target)
 	}
 
 	return func(target interface{}) error {
