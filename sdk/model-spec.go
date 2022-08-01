@@ -6,7 +6,7 @@ type Spec struct {
 	Name        string
 	Description string
 	Required    bool
-	Type        cty.Type
+	Type        Type
 	Default     cty.Value
 }
 
