@@ -37,7 +37,7 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 			}()
 		}
 
-		return joined, nil
+		return joined, errors
 	}
 }
 
