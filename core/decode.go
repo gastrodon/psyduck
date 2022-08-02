@@ -25,8 +25,8 @@ func makeTagMap(source interface{}) map[string]reflect.Value {
 	return tagMap
 }
 
-func getFieldValue(fieldSpec *sdk.Spec, attr *hcl.Attribute) (cty.Value, error) {
-	attrValue, err := attr.Expr.Value(nil)
+func getFieldValue(fieldSpec *sdk.Spec, context *hcl.EvalContext, attr *hcl.Attribute) (cty.Value, error) {
+	attrValue, err := attr.Expr.Value(context)
 	if err != nil {
 		return cty.NilVal, err
 	}
@@ -81,7 +81,7 @@ func setField(target reflect.Value, value cty.Value, fieldSpec *sdk.Spec) error 
 	return nil
 }
 
-func decodeConfig(body hcl.Body, spec sdk.SpecMap, target interface{}) error {
+func decodeConfig(spec sdk.SpecMap, context *hcl.EvalContext, body hcl.Body, target interface{}) error {
 	content, _, diags := body.PartialContent(makeBodySchema(spec))
 	if diags != nil {
 		return diags
@@ -94,7 +94,7 @@ func decodeConfig(body hcl.Body, spec sdk.SpecMap, target interface{}) error {
 		}
 
 		if attr, ok := content.Attributes[name]; ok {
-			fieldValue, err := getFieldValue(fieldSpec, attr)
+			fieldValue, err := getFieldValue(fieldSpec, context, attr)
 			if err != nil {
 				return err
 			}

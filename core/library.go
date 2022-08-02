@@ -7,9 +7,9 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-func makeParser(config hcl.Body, providedSpecMap sdk.SpecMap) (sdk.Parser, sdk.SpecParser) {
+func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
 	parser := func(spec sdk.SpecMap, target interface{}) error {
-		return decodeConfig(config, spec, target)
+		return decodeConfig(spec, context, config, target)
 	}
 
 	return func(target interface{}) error {
@@ -26,7 +26,7 @@ func NewLibrary() *Library {
 				lookupResource[resource.Name] = resource
 			}
 		},
-		ProvideProducer: func(name string, config hcl.Body) (sdk.Producer, error) {
+		ProvideProducer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -36,9 +36,9 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 			}
 
-			return found.ProvideProducer(makeParser(config, found.Spec))
+			return found.ProvideProducer(makeParser(found.Spec, context, config))
 		},
-		ProvideConsumer: func(name string, config hcl.Body) (sdk.Consumer, error) {
+		ProvideConsumer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -48,9 +48,9 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideConsumer(makeParser(config, found.Spec))
+			return found.ProvideConsumer(makeParser(found.Spec, context, config))
 		},
-		ProvideTransformer: func(name string, config hcl.Body) (sdk.Transformer, error) {
+		ProvideTransformer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -60,7 +60,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideTransformer(makeParser(config, found.Spec))
+			return found.ProvideTransformer(makeParser(found.Spec, context, config))
 		},
 	}
 }

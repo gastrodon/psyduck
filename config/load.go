@@ -11,7 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
-func loadValuesContext(filename string, configBytes []byte) (*hcl.EvalContext, error) {
+func loadValues(filename string, configBytes []byte) (*Values, error) {
 	values := new(Values)
 	file, diags := hclparse.NewParser().ParseHCL(configBytes, filename)
 	if diags != nil {
@@ -19,7 +19,7 @@ func loadValuesContext(filename string, configBytes []byte) (*hcl.EvalContext, e
 	}
 
 	gohcl.DecodeBody(file.Body, nil, values)
-	return makeValuesContext(values), nil
+	return values, nil
 }
 
 func loadResources(filename string, configBytes []byte) (*Resources, error) {
@@ -45,7 +45,7 @@ func loadPipelines(filename string, configBytes []byte, resources *Resources) (*
 }
 
 func Load(filename string, configBytes []byte) (*Pipelines, *hcl.EvalContext, error) {
-	context, err := loadValuesContext(filename, configBytes)
+	values, err := loadValues(filename, configBytes)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -60,6 +60,10 @@ func Load(filename string, configBytes []byte) (*Pipelines, *hcl.EvalContext, er
 		return nil, nil, err
 	}
 
+	context, err := makeContext(values)
+	if err != nil {
+		return nil, nil, err
+	}
 	return pipelines, context, nil
 }
 

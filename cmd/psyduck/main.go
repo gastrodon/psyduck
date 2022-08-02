@@ -33,7 +33,7 @@ func main() {
 		panic(fmt.Errorf("no such pipeline %s", *pipelineTarget))
 	}
 
-	pipelineBuilt, err := core.BuildPipeline(pipelineConfig, library())
+	pipelineBuilt, err := core.BuildPipeline(pipelineConfig, context, library())
 	if err != nil {
 		panic(err)
 	}
