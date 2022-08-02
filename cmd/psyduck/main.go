@@ -23,12 +23,12 @@ func main() {
 	pipelineTarget := flag.String("pipeline", "", "Pipelines to run")
 	flag.Parse()
 
-	pipelinesConfig, err := config.LoadDirectory(*directory)
+	pipelines, context, err := config.LoadDirectory(*directory)
 	if err != nil {
 		panic(err)
 	}
 
-	pipelineConfig, ok := pipelinesConfig.Pipelines[*pipelineTarget]
+	pipelineConfig, ok := pipelines.Pipelines[*pipelineTarget]
 	if !ok {
 		panic(fmt.Errorf("no such pipeline %s", *pipelineTarget))
 	}

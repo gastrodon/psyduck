@@ -22,14 +22,14 @@ func loadValuesContext(filename string, configBytes []byte) (*hcl.EvalContext, e
 	return makeValuesContext(values), nil
 }
 
-func loadResources(filename string, configBytes []byte, context *hcl.EvalContext) (*Resources, error) {
+func loadResources(filename string, configBytes []byte) (*Resources, error) {
 	raw := new(ResourcesRaw)
 	file, diags := hclparse.NewParser().ParseHCL(configBytes, filename)
 	if diags != nil {
 		return nil, diags
 	}
 
-	gohcl.DecodeBody(file.Body, context, raw)
+	gohcl.DecodeBody(file.Body, nil, raw)
 	return makeResources(raw), nil
 }
 
@@ -44,27 +44,31 @@ func loadPipelines(filename string, configBytes []byte, resources *Resources) (*
 	return makePipelines(raw, resources)
 }
 
-func Load(filename string, configBytes []byte) (*Pipelines, error) {
-	valuesContext, err := loadValuesContext(filename, configBytes)
+func Load(filename string, configBytes []byte) (*Pipelines, *hcl.EvalContext, error) {
+	context, err := loadValuesContext(filename, configBytes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	resources, err := loadResources(filename, configBytes, valuesContext)
+	resources, err := loadResources(filename, configBytes)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// TODO in the future we want a resourcesContext here, I think
-	return loadPipelines(filename, configBytes, resources)
+	pipelines, err := loadPipelines(filename, configBytes, resources)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return pipelines, context, nil
 }
 
-func LoadDirectory(configPath string) (*Pipelines, error) {
+func LoadDirectory(configPath string) (*Pipelines, *hcl.EvalContext, error) {
 	configBytes := bytes.NewBuffer(nil)
 
 	paths, err := os.ReadDir(configPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	for _, each := range paths {
@@ -74,7 +78,7 @@ func LoadDirectory(configPath string) (*Pipelines, error) {
 
 		content, err := os.ReadFile(path.Join(configPath, each.Name()))
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		configBytes.Write(content)

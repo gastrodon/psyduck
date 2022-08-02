@@ -6,6 +6,6 @@ import (
 
 func makeValuesContext(values *Values) *hcl.EvalContext {
 	return &hcl.EvalContext{
-		Variables: values.Values,
+		Variables: values.Value.Entries,
 	}
 }
