@@ -1,7 +1,7 @@
 package core
 
 import (
-	"github.com/gastrodon/psyduck/config"
+	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
 )
@@ -97,10 +97,10 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func BuildPipeline(descriptor *config.Pipeline, context *hcl.EvalContext, library *Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, library *Library) (*Pipeline, error) {
 	producers := make([]sdk.Producer, len(descriptor.Producers))
 	for index, produceDescriptor := range descriptor.Producers {
-		producer, err := library.ProvideProducer(produceDescriptor.Kind, context, produceDescriptor.Remain)
+		producer, err := library.ProvideProducer(produceDescriptor.Kind, context, produceDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -110,7 +110,7 @@ func BuildPipeline(descriptor *config.Pipeline, context *hcl.EvalContext, librar
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, context, consumeDescriptor.Remain)
+		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, context, consumeDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -120,7 +120,7 @@ func BuildPipeline(descriptor *config.Pipeline, context *hcl.EvalContext, librar
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, context, transformDescriptor.Remain)
+		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, context, transformDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
