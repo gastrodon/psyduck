@@ -39,8 +39,21 @@ func getFieldValue(fieldSpec *sdk.Spec, context *hcl.EvalContext, attr *hcl.Attr
 		return fieldSpec.Default, nil
 	}
 
-	if !attrValue.Type().Equals(cty.Type(fieldSpec.Type)) {
-		return cty.NilVal, fmt.Errorf("%s requires a %v", fieldSpec.Name, fieldSpec.Type)
+	attrType := attrValue.Type()
+	if attrType.IsTupleType() {
+		index := 0
+		childs := make([]cty.Value, attrValue.LengthInt())
+		iter := attrValue.ElementIterator()
+		for iter.Next() {
+			_, value := iter.Element()
+			childs[index] = value
+		}
+
+		attrValue = cty.ListVal(childs)
+	}
+
+	if !attrType.Equals(cty.Type(fieldSpec.Type)) {
+		return cty.NilVal, fmt.Errorf("%s requires a %#v, but has a %#v", fieldSpec.Name, fieldSpec.Type, attrType)
 	}
 
 	return attrValue, nil
