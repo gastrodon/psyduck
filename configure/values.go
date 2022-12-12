@@ -7,7 +7,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func makeValuesMap(values *Values) map[string]cty.Value {
+func makeMapVal(values *Values) cty.Value {
 	length := 0
 	for _, block := range values.Blocks {
 		length += len(block.Entries)
@@ -20,7 +20,11 @@ func makeValuesMap(values *Values) map[string]cty.Value {
 		}
 	}
 
-	return valuesMap
+	if len(valuesMap) == 0 {
+		return cty.MapValEmpty(cty.String)
+	}
+
+	return cty.MapVal(valuesMap)
 }
 
 func loadValues(filename string, literal []byte) (*Values, error) {
@@ -40,7 +44,7 @@ func loadValuesContext(filename string, literal []byte) (*hcl.EvalContext, error
 	} else {
 		return &hcl.EvalContext{
 			Variables: map[string]cty.Value{
-				NAMESPACE_VALUE: cty.MapVal(makeValuesMap(values)),
+				NAMESPACE_VALUE: makeMapVal(values),
 			},
 		}, nil
 	}
