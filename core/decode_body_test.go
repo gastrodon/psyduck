@@ -1,0 +1,72 @@
+package core
+
+import (
+	"testing"
+
+	"github.com/gastrodon/psyduck/sdk"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/zclconf/go-cty/cty"
+)
+
+func TestDecodeConfig(test *testing.T) {
+	spec := sdk.SpecMap{
+		"test":     {Name: "test", Type: sdk.String},
+		"count":    {Name: "count", Type: sdk.Integer},
+		"values":   {Name: "values", Type: sdk.List(sdk.Integer)},
+		"map":      {Name: "map", Type: sdk.Map(sdk.Bool)},
+		"default":  {Name: "default", Type: sdk.String, Default: cty.StringVal("default")},
+		"override": {Name: "override", Type: sdk.String, Default: cty.StringVal("default")},
+	}
+
+	attrs := hcl.Attributes{
+		"test": {
+			Name: "test",
+			Expr: hcl.StaticExpr(cty.StringVal("passed"), hcl.Range{}),
+		},
+		"count": {
+			Name: "count",
+			Expr: hcl.StaticExpr(cty.NumberIntVal(100), hcl.Range{}),
+		},
+		"values": {
+			Name: "values",
+			Expr: hcl.StaticExpr(cty.ListVal([]cty.Value{
+				cty.NumberIntVal(10), cty.NumberIntVal(20),
+			}), hcl.Range{}),
+		},
+		"map": {
+			Name: "map",
+			Expr: hcl.StaticExpr(cty.MapVal(map[string]cty.Value{
+				"left":  cty.BoolVal(false),
+				"right": cty.BoolVal(true),
+			}), hcl.Range{}),
+		},
+		"override": {
+			Name: "override",
+			Expr: hcl.StaticExpr(cty.StringVal("overridden"), hcl.Range{}),
+		},
+	}
+
+	type dummy struct {
+		Test     string          `psy:"test"`
+		Count    int             `psy:"count"`
+		Values   []int           `psy:"values"`
+		Map      map[string]bool `psy:"map"`
+		Default  string          `psy:"default"`
+		Override string          `psy:"override"`
+	}
+
+	target := new(dummy)
+	want := dummy{
+		Test:     "passed",
+		Count:    100,
+		Values:   []int{10, 20},
+		Map:      map[string]bool{"left": false, "right": true},
+		Default:  "default",
+		Override: "overridden",
+	}
+
+	diags := decodeAttributes(spec, nil, attrs, target)
+	assert.False(test, diags.HasErrors(), "%s", diags)
+	assert.Equal(test, want, *target, "%#v", *target)
+}

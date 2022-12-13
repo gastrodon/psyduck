@@ -19,4 +19,7 @@ require (
 	golang.org/x/text v0.5.0 // indirect
 )
 
-replace github.com/gastrodon/psyduck-std => ../psyduck-std
+replace (
+	github.com/gastrodon/psyduck-std => ../psyduck-std
+	github.com/zclconf/go-cty => ../../../sources/go-cty
+)

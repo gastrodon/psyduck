@@ -9,7 +9,12 @@ import (
 
 func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
 	parser := func(spec sdk.SpecMap, target interface{}) error {
-		return decodeConfig(spec, context, config, target)
+		content, _, diags := config.PartialContent(makeBodySchema(spec))
+		if diags != nil {
+			return diags
+		}
+
+		return decodeAttributes(spec, context, content.Attributes, target)
 	}
 
 	return func(target interface{}) error {
