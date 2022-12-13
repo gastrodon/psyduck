@@ -9,6 +9,18 @@ import (
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
+func toListVal(value cty.Value) cty.Value {
+	items := make([]cty.Value, value.LengthInt())
+	iter := value.ElementIterator()
+	for iter.Next() {
+		nextIndex, nextValue := iter.Element()
+		index, _ := nextIndex.AsBigFloat().Int64()
+		items[int(index)] = nextValue
+	}
+
+	return cty.ListVal(items)
+}
+
 func getAttributeValue(attributes hcl.Attributes, name string, context *hcl.EvalContext) (cty.Value, hcl.Diagnostics) {
 	if attr, ok := attributes[name]; ok {
 		return attr.Expr.Value(context)
@@ -42,6 +54,10 @@ func decodeAttributes(spec sdk.SpecMap, context *hcl.EvalContext, attributes hcl
 				valuesDecode[name] = fieldSpec.Default
 			}
 			continue
+		}
+
+		if fieldValue.Type().IsTupleType() {
+			fieldValue = toListVal(fieldValue)
 		}
 
 		if diagsValidate := validate(fieldValue, fieldSpec); diagsValidate.HasErrors() {
