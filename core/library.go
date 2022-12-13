@@ -28,11 +28,15 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
 	parser := func(spec sdk.SpecMap, target interface{}) error {
 		content, _, diags := config.PartialContent(makeBodySchema(spec))
-		if diags != nil {
+		if diags.HasErrors() {
 			return diags
 		}
 
-		return decodeAttributes(spec, context, content.Attributes, target)
+		if diags := decodeAttributes(spec, context, content.Attributes, target); diags.HasErrors() {
+			return diags
+		}
+
+		return nil
 	}
 
 	return func(target interface{}) error {
