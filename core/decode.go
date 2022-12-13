@@ -25,40 +25,6 @@ func makeTagMap(source interface{}) map[string]reflect.Value {
 	return tagMap
 }
 
-func getFieldValue(fieldSpec *sdk.Spec, context *hcl.EvalContext, attr *hcl.Attribute) (cty.Value, error) {
-	attrValue, err := attr.Expr.Value(context)
-	if err != nil {
-		return cty.NilVal, err
-	}
-
-	if attrValue.IsNull() {
-		if fieldSpec.Required {
-			return cty.NilVal, fmt.Errorf("%s requires a value", fieldSpec.Name)
-		}
-
-		return fieldSpec.Default, nil
-	}
-
-	attrType := attrValue.Type()
-	if attrType.IsTupleType() {
-		index := 0
-		childs := make([]cty.Value, attrValue.LengthInt())
-		iter := attrValue.ElementIterator()
-		for iter.Next() {
-			_, value := iter.Element()
-			childs[index] = value
-		}
-
-		attrValue = cty.ListVal(childs)
-	}
-
-	if !attrType.Equals(cty.Type(fieldSpec.Type)) {
-		return cty.NilVal, fmt.Errorf("%s requires a %#v, but has a %#v", fieldSpec.Name, fieldSpec.Type, attrType)
-	}
-
-	return attrValue, nil
-}
-
 func setField(target reflect.Value, value cty.Value, fieldSpec *sdk.Spec) error {
 	if !target.CanAddr() {
 		return fmt.Errorf("can't address the field tagged %s", fieldSpec.Name)
@@ -107,7 +73,7 @@ func decodeConfig(spec sdk.SpecMap, context *hcl.EvalContext, body hcl.Body, tar
 		}
 
 		if attr, ok := content.Attributes[name]; ok {
-			fieldValue, err := getFieldValue(fieldSpec, context, attr)
+			fieldValue, err := decodeAttribute(attr, fieldSpec, context)
 			if err != nil {
 				return err
 			}
