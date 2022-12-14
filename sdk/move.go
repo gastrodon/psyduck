@@ -7,8 +7,8 @@ import (
 const EACH_MINUTE = 60_000
 
 type PipelineConfig struct {
-	PerMinute   int  `cty:"per-minute"`
-	ExitOnError bool `cty:"exit-on-error"`
+	PerMinute   int  `psy:"per-minute"`
+	ExitOnError bool `psy:"exit-on-error"`
 }
 
 func specPipelineConfig() SpecMap {
