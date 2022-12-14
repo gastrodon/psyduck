@@ -11,42 +11,6 @@ import (
 	"github.com/gastrodon/psyduck/sdk"
 )
 
-func done() (func(), chan bool) {
-	chanDone := make(chan bool)
-
-	return func() {
-		chanDone <- true
-	}, chanDone
-}
-
-func do(pipeline *core.Pipeline) error {
-	signal := make(sdk.Signal)
-	doneProduce, doneProduceChannel := done()
-	doneConsume, doneConsumeChannel := done()
-
-	chanProduce, chanProduceError := pipeline.Producer(signal, doneProduce)
-	chanConsume, chanConsumeError := pipeline.Consumer(signal, doneConsume)
-
-	for {
-		select {
-		case <-doneProduceChannel:
-			return errors.New("the producer is done (good ending)")
-		case <-doneConsumeChannel:
-			return errors.New("the consumer is done (bad ending)")
-		case err := <-chanProduceError:
-			return err
-		case err := <-chanConsumeError:
-			return err
-		case data := <-chanProduce:
-			if transformed, err := pipeline.StackedTransformer(data); err != nil {
-				return err
-			} else {
-				chanConsume <- transformed
-			}
-		}
-	}
-}
-
 func library() *core.Library {
 	made := core.NewLibrary()
 	made.Load(std.IFunny())
@@ -73,7 +37,9 @@ func main() {
 		if pipeline, err := core.BuildPipeline(descriptor, context, library()); err != nil {
 			panic(err)
 		} else {
-			if err := do(pipeline); err != nil {
+			signal := make(sdk.Signal)
+
+			if err := core.RunPipeline(pipeline, signal); err != nil {
 				panic(err)
 			}
 		}
