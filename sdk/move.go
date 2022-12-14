@@ -36,13 +36,32 @@ func ratelimit(perMinute int) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error, signal Signal) {
+func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error) {
 	config := mustParse(parse)
-	alive := make(chan bool, 1)
-	alive <- true
 
 	for {
-		dataNext, more, err := next()
+		if dataNext, more, err := next(); err != nil {
+			errors <- err
+
+			if config.ExitOnError {
+				return
+			}
+		} else {
+			if !more {
+				return
+			}
+
+			data <- dataNext
+		}
+	}
+}
+
+// Consume data streamed and call next on it
+func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error) {
+	config := mustParse(parse)
+
+	for dataNext := range data {
+		more, err := next(dataNext)
 		if err != nil {
 			errors <- err
 
@@ -55,43 +74,6 @@ func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan
 
 		if !more {
 			return
-		}
-
-		data <- dataNext
-
-		select {
-		case received := <-signal:
-			panic(received)
-		case <-alive:
-			alive <- true
-			ratelimit(config.PerMinute)
-		}
-	}
-}
-
-// Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error, signal Signal) {
-	config := mustParse(parse)
-
-	for {
-		select {
-		case received := <-signal:
-			panic(received)
-		case dataNext := <-data:
-			more, err := next(dataNext)
-			if err != nil {
-				errors <- err
-
-				if config.ExitOnError {
-					return
-				}
-
-				continue
-			}
-
-			if !more {
-				return
-			}
 		}
 
 		ratelimit(config.PerMinute)

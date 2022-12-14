@@ -6,36 +6,39 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-func makeAllDone(limit int, done func()) func() {
-	count := 0
-
-	return func() {
-		count++
-		if count == limit {
-			done()
-		}
-	}
-}
-
 func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func(signal sdk.Signal, done func()) (chan []byte, chan error) {
-		allDone := makeAllDone(len(producers), done)
+	return func() (chan []byte, chan error) {
 		joined := make(chan []byte, len(producers))
 		errors := make(chan error)
+		closed := 0
 
-		for _, producer := range producers {
-			chanProducer, chanError := producer(signal, allDone)
+		for index, producer := range producers {
+			chanData, chanError := producer()
 
-			go func() {
+			go func(index int) {
 				for {
 					select {
-					case dataNext := <-chanProducer:
+					case dataNext := <-chanData:
+						if dataNext == nil {
+							closed++
+							if closed == len(producers) {
+								close(joined)
+								close(errors)
+							}
+
+							return
+						}
+
 						joined <- dataNext
 					case errNext := <-chanError:
+						if errNext == nil {
+							continue
+						}
+
 						errors <- errNext
 					}
 				}
-			}()
+			}(index)
 		}
 
 		return joined, errors
@@ -43,22 +46,21 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func(signal sdk.Signal, done func()) (chan []byte, chan error) {
-		allDone := makeAllDone(len(consumers), done)
-		chanConsumers := make([]chan []byte, len(consumers))
+	return func() (chan []byte, chan error) {
+		chanData := make([]chan []byte, len(consumers))
 		chanErrors := make([]chan error, len(consumers))
 
 		for index, consumer := range consumers {
-			chanConsumer, chanError := consumer(signal, allDone)
-			chanConsumers[index] = chanConsumer
+			chanConsumer, chanError := consumer()
+			chanData[index] = chanConsumer
 			chanErrors[index] = chanError
 		}
 
 		joined := make(chan []byte, len(consumers))
 		go func() {
 			for data := range joined {
-				for index := range chanConsumers {
-					chanConsumers[index] <- data
+				for index := range chanData {
+					chanData[index] <- data
 				}
 			}
 		}()

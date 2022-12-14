@@ -1,39 +1,35 @@
 package core
 
-import (
-	"errors"
-
-	"github.com/gastrodon/psyduck/sdk"
-)
-
-func makeDone(done chan bool) func() {
-	return func() { done <- true }
-}
-
-func RunPipeline(pipeline *Pipeline, signal sdk.Signal) error {
-	doneProducer := make(chan bool)
-	doneConsumer := make(chan bool)
-
-	chanProducer, chanProducerError := pipeline.Producer(signal, makeDone(doneProducer))
-	chanConsumer, chanConsumerError := pipeline.Consumer(signal, makeDone(doneConsumer))
+func RunPipeline(pipeline *Pipeline) error {
+	dataProducer, errorProducer := pipeline.Producer()
+	dataConsumer, errorConsumer := pipeline.Consumer()
 
 	for {
 		select {
-		case data := <-chanProducer:
+		case data := <-dataProducer:
+			if data == nil {
+				return nil
+			}
+
 			transformed, err := pipeline.StackedTransformer(data)
 			if err != nil {
 				return err
 			}
 
-			chanConsumer <- transformed
-		case err := <-chanProducerError:
+			dataConsumer <- transformed
+		case err := <-errorProducer:
+			if err == nil {
+				continue
+			}
+
 			return err
-		case err := <-chanConsumerError:
+		case err := <-errorConsumer:
+			if err == nil {
+				continue
+			}
+
 			return err
-		case <-doneProducer:
-			return nil
-		case <-doneConsumer:
-			return errors.New("the consumer stopped accepting data")
 		}
+
 	}
 }

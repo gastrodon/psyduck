@@ -8,7 +8,6 @@ import (
 	std "github.com/gastrodon/psyduck-std"
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
-	"github.com/gastrodon/psyduck/sdk"
 )
 
 func library() *core.Library {
@@ -37,9 +36,7 @@ func main() {
 		if pipeline, err := core.BuildPipeline(descriptor, context, library()); err != nil {
 			panic(err)
 		} else {
-			signal := make(sdk.Signal)
-
-			if err := core.RunPipeline(pipeline, signal); err != nil {
+			if err := core.RunPipeline(pipeline); err != nil {
 				panic(err)
 			}
 		}
