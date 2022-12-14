@@ -18,7 +18,7 @@ func makeAllDone(limit int, done func()) func() {
 }
 
 func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func(signal chan string, done func()) (chan []byte, chan error) {
+	return func(signal sdk.Signal, done func()) (chan []byte, chan error) {
 		allDone := makeAllDone(len(producers), done)
 		joined := make(chan []byte, len(producers))
 		errors := make(chan error)
@@ -43,7 +43,7 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func(signal chan string, done func()) (chan []byte, chan error) {
+	return func(signal sdk.Signal, done func()) (chan []byte, chan error) {
 		allDone := makeAllDone(len(consumers), done)
 		chanConsumers := make([]chan []byte, len(consumers))
 		chanErrors := make([]chan error, len(consumers))

@@ -8,6 +8,7 @@ import (
 	std "github.com/gastrodon/psyduck-std"
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/gastrodon/psyduck/sdk"
 )
 
 func done() (func(), chan bool) {
@@ -19,7 +20,7 @@ func done() (func(), chan bool) {
 }
 
 func do(pipeline *core.Pipeline) error {
-	signal := make(chan string)
+	signal := make(sdk.Signal)
 	doneProduce, doneProduceChannel := done()
 	doneConsume, doneConsumeChannel := done()
 

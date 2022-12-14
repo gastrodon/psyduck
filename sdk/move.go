@@ -36,7 +36,7 @@ func ratelimit(perMinute int) {
 }
 
 // Produce data returned from successive calls to next
-func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error, signal chan string) {
+func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan []byte, errors chan error, signal Signal) {
 	config := mustParse(parse)
 	alive := make(chan bool, 1)
 	alive <- true
@@ -70,7 +70,7 @@ func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan
 }
 
 // Consume data streamed and call next on it
-func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error, signal chan string) {
+func ConsumeChunk(next func([]byte) (bool, error), parse SpecParser, data chan []byte, errors chan error, signal Signal) {
 	config := mustParse(parse)
 
 	for {

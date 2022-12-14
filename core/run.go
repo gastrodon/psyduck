@@ -1,12 +1,16 @@
 package core
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/gastrodon/psyduck/sdk"
+)
 
 func makeDone(done chan bool) func() {
 	return func() { done <- true }
 }
 
-func RunPipeline(pipeline *Pipeline, signal chan string) error {
+func RunPipeline(pipeline *Pipeline, signal sdk.Signal) error {
 	doneProducer := make(chan bool)
 	doneConsumer := make(chan bool)
 
