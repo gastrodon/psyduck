@@ -3,7 +3,6 @@ module github.com/gastrodon/psyduck
 go 1.18
 
 require (
-	github.com/gastrodon/psyduck-std v0.3.0
 	github.com/hashicorp/hcl/v2 v2.15.0
 	github.com/stretchr/testify v1.2.2
 	github.com/zclconf/go-cty v1.12.1
@@ -19,7 +18,4 @@ require (
 	golang.org/x/text v0.5.0 // indirect
 )
 
-replace (
-	github.com/gastrodon/psyduck-std => ../psyduck-std
-	github.com/zclconf/go-cty => ../../../sources/go-cty
-)
+replace github.com/zclconf/go-cty => ./replace/go-cty
