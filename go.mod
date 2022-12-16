@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/hashicorp/hcl/v2 v2.15.0
 	github.com/stretchr/testify v1.2.2
+	github.com/urfave/cli/v2 v2.23.7
 	github.com/zclconf/go-cty v1.12.1
 )
 
@@ -17,7 +18,6 @@ require (
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/urfave/cli/v2 v2.23.7 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/text v0.5.0 // indirect
 )
