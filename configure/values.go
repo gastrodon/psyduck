@@ -27,15 +27,15 @@ func makeMapVal(values *Values) cty.Value {
 	return cty.MapVal(valuesMap)
 }
 
-func loadValues(filename string, literal []byte) (*Values, error) {
-	values := new(Values)
-	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
-	if diags != nil {
+func loadValues(filename string, literal []byte) (*Values, hcl.Diagnostics) {
+	target := new(Values)
+	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
+	} else {
+		gohcl.DecodeBody(file.Body, nil, target)
+		return target, nil
 	}
 
-	gohcl.DecodeBody(file.Body, nil, values)
-	return values, nil
 }
 
 func loadValuesContext(filename string, literal []byte) (*hcl.EvalContext, error) {
