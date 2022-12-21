@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
@@ -15,9 +16,27 @@ var SUBCOMMANDS = [...]string{
 }
 
 func run(ctx *cli.Context) error {
-	descriptors, exprContext, err := configure.Directory(ctx.String("chdir"))
+	literal, err := configure.ReadDirectory(ctx.String("chdir"))
 	if err != nil {
 		return err
+	}
+
+	filename := path.Base(ctx.String("chdir"))
+	descriptors, exprContext, err := configure.Literal(filename, literal)
+	if err != nil {
+		return err
+	}
+
+	plugins, diags := configure.LoadPluginsLookup(filename, literal, exprContext)
+	if diags.HasErrors() {
+		panic(diags)
+		return err
+	}
+
+	library := core.NewLibrary()
+	for _, plugin := range plugins {
+		fmt.Printf("%#v\n", plugin)
+		library.Load(plugin)
 	}
 
 	target := ctx.String("target")
@@ -26,7 +45,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, exprContext, core.NewLibrary())
+	pipeline, err := core.BuildPipeline(descriptor, exprContext, library)
 	if err != nil {
 		return err
 	}

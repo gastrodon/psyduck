@@ -33,11 +33,11 @@ func Literal(filename string, literal []byte) (map[string]*Pipeline, *hcl.EvalCo
 	return pipelines, valuesContext, nil
 }
 
-func Directory(directory string) (map[string]*Pipeline, *hcl.EvalContext, error) {
+func ReadDirectory(directory string) ([]byte, error) {
 	literal := bytes.NewBuffer(nil)
 	paths, err := os.ReadDir(directory)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	for _, each := range paths {
@@ -46,11 +46,11 @@ func Directory(directory string) (map[string]*Pipeline, *hcl.EvalContext, error)
 		}
 
 		if content, err := os.ReadFile(path.Join(directory, each.Name())); err != nil {
-			return nil, nil, err
+			return nil, err
 		} else {
 			literal.Write(content)
 		}
 	}
 
-	return Literal(directory, literal.Bytes())
+	return literal.Bytes(), err
 }

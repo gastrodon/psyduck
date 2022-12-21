@@ -21,5 +21,3 @@ require (
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	golang.org/x/text v0.5.0 // indirect
 )
-
-replace github.com/zclconf/go-cty => ./replace/go-cty
