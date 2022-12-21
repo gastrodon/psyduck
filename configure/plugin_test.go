@@ -29,8 +29,8 @@ func TestReadPluginBlocks(test *testing.T) {
 	}
 
 	for _, testcase := range cases {
-		plugins, err := readPluginBlocks(testcase.Filename, []byte(testcase.Literal), testcase.Context)
-		assert.Nil(test, err, "%s", err)
+		plugins, daig := readPluginBlocks(testcase.Filename, []byte(testcase.Literal), testcase.Context)
+		assert.False(test, daig.HasErrors(), "%s", daig)
 		assert.NotNil(test, plugins, "plugins is nil!")
 		assert.Equal(test, testcase.Want, plugins)
 	}
