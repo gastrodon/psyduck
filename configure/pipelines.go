@@ -33,14 +33,6 @@ var refSpec = hcldec.BlockObjectSpec{
 	},
 }
 
-var headerSchema = hcl.BodySchema{
-	Blocks: []hcl.BlockHeaderSchema{
-		{
-			Type: "pipeline",
-		},
-	},
-}
-
 func lookupRefSlice(refs []string, lookup map[string]*Resource) ([]*Resource, error) {
 	resources := make([]*Resource, len(refs))
 
