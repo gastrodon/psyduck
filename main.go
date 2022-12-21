@@ -29,13 +29,11 @@ func run(ctx *cli.Context) error {
 
 	plugins, diags := configure.LoadPluginsLookup(filename, literal, exprContext)
 	if diags.HasErrors() {
-		panic(diags)
-		return err
+		return diags
 	}
 
 	library := core.NewLibrary()
 	for _, plugin := range plugins {
-		fmt.Printf("%#v\n", plugin)
 		library.Load(plugin)
 	}
 

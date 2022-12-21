@@ -75,22 +75,21 @@ func loadPluginsLookup(descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagno
 		}
 	}
 
-	return plugins, diags
+	return plugins, diags[:diagIndex]
 }
 
-// TODO use values context
 func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext) (*Plugins, hcl.Diagnostics) {
 	target := new(Plugins)
 	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
 	} else {
 		gohcl.DecodeBody(file.Body, context, target)
-		return target, nil
+		return target, make(hcl.Diagnostics, 0)
 	}
 }
 
 func LoadPluginsLookup(filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
-	if descriptors, diags := readPluginBlocks(filename, literal, context); diags != nil {
+	if descriptors, diags := readPluginBlocks(filename, literal, context); diags.HasErrors() {
 		return nil, diags
 	} else {
 		return loadPluginsLookup(descriptors)
