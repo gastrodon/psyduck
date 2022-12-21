@@ -30,6 +30,5 @@ func RunPipeline(pipeline *Pipeline) error {
 
 			return err
 		}
-
 	}
 }
