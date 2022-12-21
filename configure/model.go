@@ -5,6 +5,15 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+type pluginSource struct {
+	Name   string `hcl:"name,label"`
+	Source string `hcl:"source"`
+}
+
+type Plugins struct {
+	Blocks []pluginSource `hcl:"plugin,block"`
+}
+
 type Values struct {
 	Blocks []struct {
 		Entries map[string]cty.Value `hcl:",remain"`
