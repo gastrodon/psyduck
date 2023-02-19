@@ -46,26 +46,32 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 }
 
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func() (chan []byte, chan error) {
+	return func() (chan []byte, chan error, chan bool) {
 		chanData := make([]chan []byte, len(consumers))
 		chanErrors := make([]chan error, len(consumers))
+		chanDones := make([]chan bool, len(consumers))
 
 		for index, consumer := range consumers {
-			chanConsumer, chanError := consumer()
+			chanConsumer, chanError, chanDone := consumer()
 			chanData[index] = chanConsumer
 			chanErrors[index] = chanError
+			chanDones[index] = chanDone
 		}
 
-		joined := make(chan []byte, len(consumers))
+		joined := make(chan []byte)
 		go func() {
 			for data := range joined {
 				for index := range chanData {
 					chanData[index] <- data
 				}
 			}
+
+			for index := range chanData {
+				close(chanData[index])
+			}
 		}()
 
-		errors := make(chan error, len(consumers))
+		errors := make(chan error)
 		go func() {
 			for err := range errors {
 				for index := range chanErrors {
@@ -74,7 +80,35 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 			}
 		}()
 
-		return joined, errors
+		doneAll := make(chan bool)
+		doneCollect := make(chan bool)
+		go func() {
+			doneLimit := len(consumers)
+			for collected := range doneCollect {
+				if !collected {
+					panic("false sent through done channel")
+				}
+
+				doneLimit--
+				if doneLimit <= 0 {
+					if doneLimit < 0 {
+						panic("doneLimit < 0! this should never happen")
+					}
+
+					doneAll <- true
+					return
+				}
+			}
+		}()
+
+		for _, chanDone := range chanDones {
+			go func(each chan (bool)) {
+				done := <-each
+				doneCollect <- done
+			}(chanDone)
+		}
+
+		return joined, errors, doneAll
 	}
 }
 
