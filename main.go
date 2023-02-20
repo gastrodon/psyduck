@@ -27,7 +27,7 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	plugins, diags := configure.LoadPluginsLookup(filename, literal, exprContext)
+	plugins, diags := configure.LoadPluginsLookup(ctx.String("plugin"), filename, literal, exprContext)
 	if diags.HasErrors() {
 		return diags
 	}
@@ -56,6 +56,12 @@ func main() {
 		Name:  "psyduck",
 		Usage: "run and manage etl pipelines",
 		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:      "plugin",
+				Usage:     "directory to load plugins from",
+				Value:     "~/.psyduck.d/plugin",
+				TakesFile: true,
+			},
 			&cli.StringFlag{
 				Name:      "chdir",
 				Usage:     "directory to execute from",

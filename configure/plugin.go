@@ -2,6 +2,7 @@ package configure
 
 import (
 	"fmt"
+	"path/filepath"
 	"plugin"
 
 	"github.com/gastrodon/psyduck/sdk"
@@ -10,10 +11,15 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
-func loadPlugin(descriptor pluginSource) (*sdk.Plugin, *hcl.Diagnostic) {
+func loadPlugin(basePath string, descriptor pluginSource) (*sdk.Plugin, *hcl.Diagnostic) {
 	switch {
 	case descriptor.Source != "":
-		plugin, err := plugin.Open(descriptor.Source)
+		pluginPath := descriptor.Source
+		if !filepath.IsAbs(pluginPath) {
+			pluginPath = filepath.Join(basePath, pluginPath)
+		}
+
+		plugin, err := plugin.Open(pluginPath)
 		if err != nil {
 			return nil, &hcl.Diagnostic{
 				Severity: hcl.DiagError,
@@ -62,12 +68,12 @@ func loadPlugin(descriptor pluginSource) (*sdk.Plugin, *hcl.Diagnostic) {
 	}
 }
 
-func loadPluginsLookup(descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagnostics) {
+func loadPluginsLookup(basePath string, descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagnostics) {
 	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
 	diags := make(hcl.Diagnostics, len(descriptors.Blocks))
 	diagIndex := 0
 	for _, descriptor := range descriptors.Blocks {
-		if plugin, diag := loadPlugin(descriptor); diag != nil {
+		if plugin, diag := loadPlugin(basePath, descriptor); diag != nil {
 			diags[diagIndex] = diag
 			diagIndex++
 		} else {
@@ -88,10 +94,10 @@ func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext)
 	}
 }
 
-func LoadPluginsLookup(filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
+func LoadPluginsLookup(basePath, filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
 	if descriptors, diags := readPluginBlocks(filename, literal, context); diags.HasErrors() {
 		return nil, diags
 	} else {
-		return loadPluginsLookup(descriptors)
+		return loadPluginsLookup(basePath, descriptors)
 	}
 }
