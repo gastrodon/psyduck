@@ -1,0 +1,7 @@
+FROM golang:alpine
+
+WORKDIR /base
+ADD . .
+
+RUN go get -u ./...
+RUN go build -o /base/psyduck
