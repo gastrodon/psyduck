@@ -52,6 +52,11 @@ func run(ctx *cli.Context) error {
 }
 
 func main() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		panic(fmt.Sprintf("failed getting $HOME: %s", err))
+	}
+
 	app := cli.App{
 		Name:  "psyduck",
 		Usage: "run and manage etl pipelines",
@@ -59,7 +64,7 @@ func main() {
 			&cli.StringFlag{
 				Name:      "plugin",
 				Usage:     "directory to load plugins from",
-				Value:     "~/.psyduck.d/plugin",
+				Value:     path.Join(home, ".psyduck.d/plugin"),
 				TakesFile: true,
 			},
 			&cli.StringFlag{
