@@ -1,5 +1,5 @@
 FROM gastrodon/psyduck-base AS build
-FROM alpine:latest
+FROM debian:stable-slim
 
 VOLUME /plugin
 VOLUME /config
