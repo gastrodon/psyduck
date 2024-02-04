@@ -47,11 +47,11 @@ func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan
 				return
 			}
 		} else {
+			data <- dataNext
+
 			if !more {
 				return
 			}
-
-			data <- dataNext
 		}
 	}
 }
