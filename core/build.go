@@ -6,6 +6,9 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
+/*
+Join a collection of producers into a single in the order received
+*/
 func joinProducers(producers []sdk.Producer) sdk.Producer {
 	return func() (chan []byte, chan error) {
 		joined := make(chan []byte, len(producers))
@@ -45,6 +48,9 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 	}
 }
 
+/*
+Join a collection of consumers into a single that passes data to consumers in order
+*/
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 	return func() (chan []byte, chan error, chan bool) {
 		chanData := make([]chan []byte, len(consumers))
@@ -112,6 +118,9 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 	}
 }
 
+/*
+Join a collection of transformers into a single that applies them in order
+*/
 func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	if len(transformers) == 0 {
 		return func(data []byte) ([]byte, error) { return data, nil }
@@ -133,6 +142,16 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
+/*
+descriptor is a parsed `pipeline {}` block of hcl
+context is an hcl evaluation context, used to resolve values in descriptor
+library ( TODO - deprecated ) has content loaded from plugins
+
+Produces a runnable pipeline.
+
+Each mover in the pipeline ( every producer / consumer / transformer ) is joined
+and the resulting pipeline is returned.
+*/
 func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, library *Library) (*Pipeline, error) {
 	producers := make([]sdk.Producer, len(descriptor.Producers))
 	for index, produceDescriptor := range descriptor.Producers {
