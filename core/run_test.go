@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gastrodon/psyduck/sdk"
+	"github.com/psyduck-std/sdk"
 )
 
 type Values func() (int, int)

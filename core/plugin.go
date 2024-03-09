@@ -3,7 +3,7 @@ package core
 import (
 	"plugin"
 
-	"github.com/gastrodon/psyduck/sdk"
+	"github.com/psyduck-std/sdk"
 )
 
 func LoadPlugin(path string) (*sdk.Plugin, error) {

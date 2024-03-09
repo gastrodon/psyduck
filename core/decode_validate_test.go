@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/gastrodon/psyduck/sdk"
+	"github.com/psyduck-std/sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )

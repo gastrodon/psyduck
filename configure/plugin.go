@@ -10,10 +10,10 @@ import (
 	"plugin"
 	"strings"
 
-	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
+	"github.com/psyduck-std/sdk"
 )
 
 /*

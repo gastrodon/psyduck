@@ -1,9 +1,9 @@
 package core
 
 import (
-	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hcldec"
+	"github.com/psyduck-std/sdk"
 )
 
 type Library struct {

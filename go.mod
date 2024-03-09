@@ -1,9 +1,10 @@
 module github.com/gastrodon/psyduck
 
-go 1.18
+go 1.22.1
 
 require (
 	github.com/hashicorp/hcl/v2 v2.20.0
+	github.com/psyduck-std/sdk v1.0.0
 	github.com/stretchr/testify v1.2.2
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/zclconf/go-cty v1.14.3

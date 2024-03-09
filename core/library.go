@@ -3,8 +3,8 @@ package core
 import (
 	"fmt"
 
-	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/psyduck-std/sdk"
 )
 
 func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {

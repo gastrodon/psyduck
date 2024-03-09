@@ -2,8 +2,8 @@ package core
 
 import (
 	"github.com/gastrodon/psyduck/configure"
-	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/psyduck-std/sdk"
 )
 
 /*

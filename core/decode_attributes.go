@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/gastrodon/psyduck/core/gocty"
-	"github.com/gastrodon/psyduck/sdk"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/psyduck-std/sdk"
 	"github.com/zclconf/go-cty/cty"
 )
 

@@ -1,7 +1,7 @@
 package core
 
 import (
-	"github.com/gastrodon/psyduck/sdk"
+	"github.com/psyduck-std/sdk"
 )
 
 type Pipeline struct {
