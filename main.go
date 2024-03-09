@@ -27,7 +27,7 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	plugins, diags := configure.LoadPluginsLookup(ctx.String("plugin"), filename, literal, exprContext)
+	plugins, diags := configure.LoadPlugins(ctx.String("plugin"), filename, literal, exprContext)
 	if diags.HasErrors() {
 		return diags
 	}

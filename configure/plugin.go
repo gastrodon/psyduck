@@ -16,76 +16,79 @@ import (
 	"github.com/psyduck-std/sdk"
 )
 
-/*
-Fetch and build a plugin, writing the binary to root, returning the filename of the compiled library
-cache is where we will pull pkg to before building it
-root is where we want to build the package out to
-pkg is the name of the package - should mostly be stuff at github.com/psyduck-std/...
-*/
-func fetchPlugin(cache, root, pkg string) (string, error) {
-	pkgCache := path.Join(cache, pkg)
-	cmdClone := exec.Command("git", "clone", pkg, pkgCache)
-	println(strings.Join([]string{"git", "clone", pkg, pkgCache}, " "))
-	if err := cmdClone.Run(); err != nil {
-		return "", fmt.Errorf("failed to clone %s: %sstdout: \n%s\nstderr: %s", pkg, err, cmdClone.Stdout, cmdClone.Stderr)
+const (
+	pluginUnknown = iota
+	pluginLocal
+	pluginRemote
+)
+
+// TODO this isn't very robust
+func getPluginKind(descriptor pluginSource) int {
+	if descriptor.Source == "" {
+		return pluginUnknown
 	}
 
-	fileName := path.Base(pkg)
-	cmdBuild := exec.Command("go", "build", "-C", pkgCache, "-o", path.Join(root, fileName), "-buildmode", "plugin")
-	println(strings.Join([]string{"go", "build", "-C", pkgCache, "-o", path.Join(root, fileName), "-buildmode", "plugin"}, " "))
-	if err := cmdBuild.Run(); err != nil {
-		return "", fmt.Errorf("failed to build %s: %sstdout: \n%s\nstderr: %s", pkgCache, err, cmdBuild.Stdout, cmdBuild.Stderr)
+	if build.IsLocalImport(descriptor.Source) {
+		return pluginLocal
 	}
 
-	return fileName, nil
+	return pluginRemote
 }
 
-func loadPlugin(_ *build.Context, cachePath, basePath string, descriptor pluginSource) (*sdk.Plugin, *hcl.Diagnostic) {
-	if descriptor.Source == "" {
+/*
+Fetch plugins, cloning and building them if necessary
+Returns an absolute filepath pointing to a loadable shared library
+*/
+func fetchPlugin(cachePath, basePath string, descriptor pluginSource) (string, error) {
+	switch getPluginKind(descriptor) {
+	case pluginLocal:
+		soPath := descriptor.Source
+
+		if !filepath.IsAbs(soPath) {
+			soPath = filepath.Join(basePath, soPath)
+		}
+
+		return filepath.Abs(soPath)
+
+	case pluginRemote:
+		soPath, err := filepath.Abs(path.Join(basePath, path.Base(descriptor.Source)+".so"))
+		if err != nil {
+			return "", err
+		}
+
+		pkgCache := path.Join(cachePath, descriptor.Source)
+		cmdClone := exec.Command("git", "clone", descriptor.Source, pkgCache)
+		println(strings.Join([]string{"git", "clone", descriptor.Source, pkgCache}, " "))
+		if err := cmdClone.Run(); err != nil {
+			return "", fmt.Errorf("failed to clone %s: %s\nstdout: %v\nstderr: %v", descriptor.Source, err, cmdClone.Stdout, cmdClone.Stderr)
+		}
+
+		cmdBuild := exec.Command("go", "build", "-C", pkgCache, "-o", soPath, "-buildmode", "plugin")
+		println(strings.Join([]string{"go", "build", "-C", pkgCache, "-o", soPath, "-buildmode", "plugin"}, " "))
+		if err := cmdBuild.Run(); err != nil {
+			return "", fmt.Errorf("failed to build %s: %s\nstdout: %v\nstderr: %v", pkgCache, err, cmdBuild.Stdout, cmdBuild.Stderr)
+		}
+
+		return soPath, nil
+
+	default:
+		return "", fmt.Errorf(
+			"unable to find a suitable way to fetch %s! descriptor:\n%#v",
+			descriptor.Name, descriptor,
+		)
+	}
+}
+
+func loadPlugin(cachePath, basePath string, descriptor pluginSource) (*sdk.Plugin, *hcl.Diagnostic) {
+	pluginPath, err := fetchPlugin(cachePath, basePath, descriptor)
+	if err != nil {
 		return nil, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
-			Summary:  "no plugin loader found",
+			Summary:  "cannot fetch plugin",
 			Detail: fmt.Sprintf(
-				"unable to find a suitable way to load the plugin %s with the descriptor\n%#v",
-				descriptor.Name, descriptor,
+				"failed fetching the library providing %s ( %s ):\n%s",
+				descriptor.Name, descriptor.Source, err,
 			),
-		}
-	}
-
-	var pluginPath string
-	if !build.IsLocalImport(descriptor.Source) {
-		println("WANT REMOTE")
-		filename, err := fetchPlugin(cachePath, basePath, descriptor.Source)
-		if err != nil {
-			return nil, &hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "failed to import package",
-				Detail: fmt.Sprintf(
-					"unable to import %s/%s ( sourced by plugin %s):\n%s",
-					basePath, descriptor.Source, descriptor.Name, err,
-				),
-			}
-		}
-
-		pluginPath = path.Join(basePath, filename)
-	} else {
-		println("WANT LOCAL")
-		relPath := descriptor.Source
-		if !filepath.IsAbs(relPath) {
-			relPath = filepath.Join(basePath, relPath)
-		}
-
-		var err error
-		pluginPath, err = filepath.Abs(relPath)
-		if err != nil {
-			return nil, &hcl.Diagnostic{
-				Severity: hcl.DiagError,
-				Summary:  "failed to import package",
-				Detail: fmt.Sprintf(
-					"unable to import %s/%s ( sourced by plugin %s):\n%s",
-					basePath, relPath, descriptor.Name, err,
-				),
-			}
 		}
 	}
 
@@ -95,8 +98,8 @@ func loadPlugin(_ *build.Context, cachePath, basePath string, descriptor pluginS
 			Severity: hcl.DiagError,
 			Summary:  "cannot load plugin",
 			Detail: fmt.Sprintf(
-				"failed loading the library providing %s ( loading file %s ):\n%s",
-				descriptor.Name, descriptor.Source, err,
+				"failed loading the library providing %s ( %s @ %s ):\n%s",
+				descriptor.Name, descriptor.Source, pluginPath, err,
 			),
 		}
 	}
@@ -113,14 +116,25 @@ func loadPlugin(_ *build.Context, cachePath, basePath string, descriptor pluginS
 		}
 	}
 
+	if makePluginSym == nil {
+		return nil, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "cannot load provider func",
+			Detail: fmt.Sprintf(
+				"failed loading the provider func for %s:\nLookup \"Plugin\" is nil",
+				descriptor.Name,
+			),
+		}
+	}
+
 	makePlugin, ok := makePluginSym.(func() *sdk.Plugin)
 	if !ok {
 		return nil, &hcl.Diagnostic{
 			Severity: hcl.DiagError,
 			Summary:  "cannot load provider func",
 			Detail: fmt.Sprintf(
-				"failed loading the provider func for %s:\n%s",
-				descriptor.Name, err,
+				"failed loading the provider func for %s:\nnot OK: %+v",
+				descriptor.Name, makePluginSym,
 			),
 		}
 	}
@@ -128,56 +142,17 @@ func loadPlugin(_ *build.Context, cachePath, basePath string, descriptor pluginS
 	return makePlugin(), nil
 }
 
-// TODO pull the build cache path making code out of here
-func loadPluginsLookup(basePath string, descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagnostics) {
-	cachePathRoot := path.Join(os.TempDir(), "psyduck-build")
-	err := os.MkdirAll(cachePathRoot, os.ModePerm)
-	if err != nil {
-		return nil, []*hcl.Diagnostic{{
-			Severity: hcl.DiagError,
-			Summary:  "failed to create build cache root",
-			Detail: fmt.Sprintf(
-				"failed to create build cache root at %s:\n%s",
-				cachePathRoot, err,
-			),
-		}}
-	}
-
-	cachePath, err := os.MkdirTemp(cachePathRoot, "*")
-	if err != nil {
-		return nil, []*hcl.Diagnostic{{
-			Severity: hcl.DiagError,
-			Summary:  "failed to create build cache dir",
-			Detail: fmt.Sprintf(
-				"failed to create build cache dir at %s:\n%s",
-				cachePathRoot, err,
-			),
-		}}
-	}
-
+func loadPlugins(cachePath, basePath string, descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagnostics) {
 	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
-	diags := make(hcl.Diagnostics, len(descriptors.Blocks)+1)
+	diags := make(hcl.Diagnostics, len(descriptors.Blocks))
 	diagIndex := 0
 	for _, descriptor := range descriptors.Blocks {
-		if plugin, diag := loadPlugin(&build.Default, cachePath, basePath, descriptor); diag != nil {
+		if plugin, diag := loadPlugin(cachePath, basePath, descriptor); diag != nil {
 			diags[diagIndex] = diag
 			diagIndex++
 		} else {
 			plugins[plugin.Name] = plugin
 		}
-	}
-
-	if err := os.RemoveAll(cachePath); err != nil {
-		diags[diagIndex] = &hcl.Diagnostic{
-			Severity: hcl.DiagWarning,
-			Summary:  "failed to cleanup build cache dir",
-			Detail: fmt.Sprintf(
-				"failed to cleanup build cache dir at %s:\n%s",
-				cachePath, err,
-			),
-		}
-
-		diagIndex++
 	}
 
 	return plugins, diags[:diagIndex]
@@ -193,7 +168,7 @@ func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext)
 	}
 }
 
-func LoadPluginsLookup(basePath, filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
+func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
 	basePathAbs, err := filepath.Abs(basePath)
 	if err != nil {
 		return nil, []*hcl.Diagnostic{{
@@ -209,6 +184,27 @@ func LoadPluginsLookup(basePath, filename string, literal []byte, context *hcl.E
 	if descriptors, diags := readPluginBlocks(filename, literal, context); diags.HasErrors() {
 		return nil, diags
 	} else {
-		return loadPluginsLookup(basePathAbs, descriptors)
+		cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
+		if err != nil {
+			return nil, []*hcl.Diagnostic{{
+				Severity: hcl.DiagError,
+				Summary:  "failed to create build cache dir",
+				Detail:   fmt.Sprintf("failed to create build cache dir:\n%s", err),
+			}}
+		}
+
+		loaded, diags := loadPlugins(cachePath, basePathAbs, descriptors)
+		if err := os.RemoveAll(cachePath); err != nil {
+			diags = append(diags, &hcl.Diagnostic{
+				Severity: hcl.DiagWarning,
+				Summary:  "failed to cleanup build cache dir",
+				Detail: fmt.Sprintf(
+					"failed to cleanup build cache dir at %s:\n%s",
+					cachePath, err,
+				),
+			})
+		}
+
+		return loaded, diags
 	}
 }
