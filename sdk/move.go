@@ -46,7 +46,7 @@ func ProduceChunk(next func() ([]byte, bool, error), parse SpecParser, data chan
 			if config.ExitOnError {
 				return
 			}
-		} else {
+		} else { // TODO this is dumb and confusing, just exit early
 			data <- dataNext
 
 			if !more {
