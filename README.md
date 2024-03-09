@@ -12,7 +12,7 @@ The current feature TODO looks like
 - `[x]` plugin loader + exposed SDK tools for building plugiins
 - `[x]` many producers -> many transformers -> many consumers
 - `[.]` a [standard library](https://github.com/gastrodon/psyduck-std)
-- `[ ]` a DSL for describing pipelines using HCL
+- `[.]` a DSL for describing pipelines using HCL
 - `[ ]` loading compiled plugins @ runtime
 - `[ ]` listen for new pipelines via http ( maybe? )
 - `[ ]` psyduck node distributing pipeline work ( also maybe? )
