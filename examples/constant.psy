@@ -2,13 +2,9 @@ plugin "psyduck" {
   source = "git@github.com:psyduck-std/psyduck"
 }
 
-consume "psyduck-trash" "trash" {
+consume "psyduck-trash" "trash" {}
 
-}
-
-transform "psyduck-inspect" "inspect" {
-
-}
+transform "psyduck-inspect" "inspect" {}
 
 produce "psyduck-constant" "1" {
   value = "1"
