@@ -32,10 +32,7 @@ func run(ctx *cli.Context) error {
 		return diags
 	}
 
-	library := core.NewLibrary()
-	for _, plugin := range plugins {
-		library.Load(plugin)
-	}
+	library := core.NewLibrary(plugins)
 
 	target := ctx.String("target")
 	descriptor, ok := descriptors[target]

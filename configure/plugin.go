@@ -142,20 +142,21 @@ func loadPlugin(cachePath, basePath string, descriptor pluginSource) (*sdk.Plugi
 	return makePlugin(), nil
 }
 
-func loadPlugins(cachePath, basePath string, descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagnostics) {
-	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
+func loadPlugins(cachePath, basePath string, descriptors *Plugins) ([]*sdk.Plugin, hcl.Diagnostics) {
+	plugins := make([]*sdk.Plugin, len(descriptors.Blocks))
 	diags := make(hcl.Diagnostics, len(descriptors.Blocks))
-	diagIndex := 0
+	index, diagIndex := 0, 0
 	for _, descriptor := range descriptors.Blocks {
 		if plugin, diag := loadPlugin(cachePath, basePath, descriptor); diag != nil {
 			diags[diagIndex] = diag
 			diagIndex++
 		} else {
-			plugins[plugin.Name] = plugin
+			plugins[index] = plugin
+			index++
 		}
 	}
 
-	return plugins, diags[:diagIndex]
+	return plugins[:index], diags[:diagIndex]
 }
 
 func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext) (*Plugins, hcl.Diagnostics) {
@@ -168,7 +169,7 @@ func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext)
 	}
 }
 
-func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
+func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalContext) ([]*sdk.Plugin, hcl.Diagnostics) {
 	basePathAbs, err := filepath.Abs(basePath)
 	if err != nil {
 		return nil, []*hcl.Diagnostic{{

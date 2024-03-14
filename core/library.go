@@ -8,7 +8,6 @@ import (
 )
 
 type Library struct {
-	Load               func(*sdk.Plugin)
 	ProvideProducer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Producer, error)
 	ProvideConsumer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Consumer, error)
 	ProvideTransformer func(string, *hcl.EvalContext, hcl.Body) (sdk.Transformer, error)
@@ -54,15 +53,20 @@ func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hc
 	}, parser
 }
 
-func NewLibrary() *Library {
-	lookupResource := make(map[string]*sdk.Resource)
+func NewLibrary(plugins []*sdk.Plugin) *Library {
+	size := 0
+	for _, plugin := range plugins {
+		size += len(plugin.Resources)
+	}
+
+	lookupResource := make(map[string]*sdk.Resource, size)
+	for _, plugin := range plugins {
+		for _, resource := range plugin.Resources {
+			lookupResource[resource.Name] = resource
+		}
+	}
 
 	return &Library{
-		Load: func(plugin *sdk.Plugin) {
-			for _, resource := range plugin.Resources {
-				lookupResource[resource.Name] = resource
-			}
-		},
 		ProvideProducer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
