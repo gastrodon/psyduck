@@ -7,6 +7,13 @@ import (
 	"github.com/psyduck-std/sdk"
 )
 
+type Library struct {
+	Load               func(*sdk.Plugin)
+	ProvideProducer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Producer, error)
+	ProvideConsumer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Consumer, error)
+	ProvideTransformer func(string, *hcl.EvalContext, hcl.Body) (sdk.Transformer, error)
+}
+
 func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	attributes := make([]hcl.AttributeSchema, len(specMap))
 
@@ -25,8 +32,8 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	}
 }
 
-func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
-	parser := func(spec sdk.SpecMap, target interface{}) error {
+func makeSpecParser(context *hcl.EvalContext, config hcl.Body) sdk.SpecParser {
+	return func(spec sdk.SpecMap, target interface{}) error {
 		content, _, diags := config.PartialContent(makeBodySchema(spec))
 		if diags.HasErrors() {
 			return diags
@@ -38,7 +45,10 @@ func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hc
 
 		return nil
 	}
+}
 
+func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
+	parser := makeSpecParser(context, config)
 	return func(target interface{}) error {
 		return parser(providedSpecMap, target)
 	}, parser
