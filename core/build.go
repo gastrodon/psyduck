@@ -6,115 +6,71 @@ import (
 	"github.com/psyduck-std/sdk"
 )
 
-/*
-Join a collection of producers into a single in the order received
-*/
-func joinProducers(producers []sdk.Producer) sdk.Producer {
-	return func() (chan []byte, chan error) {
-		joined := make(chan []byte, len(producers))
-		errors := make(chan error)
-		closed := 0
-
-		for index, producer := range producers {
-			chanData, chanError := producer()
-
-			go func(index int) {
-				for {
-					select {
-					case dataNext := <-chanData:
-						if dataNext == nil {
-							closed++
-							if closed == len(producers) {
-								close(joined)
-								close(errors)
-							}
-
-							return
-						}
-
-						joined <- dataNext
-					case errNext := <-chanError:
-						if errNext == nil {
-							continue
-						}
-
-						errors <- errNext
-					}
-				}
-			}(index)
+func all(a []bool) bool {
+	for _, t := range a {
+		if !t {
+			return false
 		}
+	}
 
-		return joined, errors
+	return true
+}
+
+func joinProducers(producers []sdk.Producer, _ []*configure.Resource) sdk.Producer {
+	prodSize := len(producers)
+	funcs := make([]sdk.Producefunc, prodSize)
+	dones := make([]bool, prodSize)
+	for i, producer := range producers {
+		funcs[i] = producer()
+	}
+
+	return func() sdk.Producefunc {
+		i := 0
+
+		return func() ([]byte, bool, error) {
+			// TODO do the not branching math when you are not lazy ( but I'm lazy rn )
+			// I think it's i += (i+len(funcs)) % len(funcs) or something like it
+			if all(dones) {
+				return nil, true, nil
+			}
+
+			// TODO wary of this code...
+			for i += (i + prodSize) % prodSize; !dones[i]; i += (i + prodSize) % prodSize {
+			}
+
+			// TODO different producers will be done at different times
+			// they should be dropped from the pool, maybe [len(funcs)]bool in which to mark them done
+			// and skip i over the the done ones?
+			// TODO also we are returning whether or not this prodfunc is done
+			// when really we should return done when all prodfuncs are done
+			next, done, err := funcs[i]()
+			if err != nil {
+				return nil, false, err
+			}
+
+			dones[i] = done
+			return next, all(dones), nil
+		}
 	}
 }
 
-/*
-Join a collection of consumers into a single that passes data to consumers in order
-*/
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
-	return func() (chan []byte, chan error, chan bool) {
-		chanData := make([]chan []byte, len(consumers))
-		chanErrors := make([]chan error, len(consumers))
-		chanDones := make([]chan bool, len(consumers))
+	funcs := make([]sdk.Consumefunc, len(consumers))
+	for i, consumer := range consumers {
+		funcs[i] = consumer()
+	}
 
-		for index, consumer := range consumers {
-			chanConsumer, chanError, chanDone := consumer()
-			chanData[index] = chanConsumer
-			chanErrors[index] = chanError
-			chanDones[index] = chanDone
+	return func() sdk.Consumefunc {
+		return func(b []byte) error {
+			for _, f := range funcs {
+				if err := f(b); err != nil {
+					// TODO this behavior should be governed by the exit-on-error config
+					return err
+				}
+			}
+
+			return nil
 		}
-
-		joined := make(chan []byte)
-		go func() {
-			for data := range joined {
-				for index := range chanData {
-					chanData[index] <- data
-				}
-			}
-
-			for index := range chanData {
-				close(chanData[index])
-			}
-		}()
-
-		errors := make(chan error)
-		go func() {
-			for err := range errors {
-				for index := range chanErrors {
-					chanErrors[index] <- err
-				}
-			}
-		}()
-
-		doneAll := make(chan bool)
-		doneCollect := make(chan bool)
-		go func() {
-			doneLimit := len(consumers)
-			for collected := range doneCollect {
-				if !collected {
-					panic("false sent through done channel")
-				}
-
-				doneLimit--
-				if doneLimit <= 0 {
-					if doneLimit < 0 {
-						panic("doneLimit < 0! this should never happen")
-					}
-
-					doneAll <- true
-					return
-				}
-			}
-		}()
-
-		for _, chanDone := range chanDones {
-			go func(each chan (bool)) {
-				done := <-each
-				doneCollect <- done
-			}(chanDone)
-		}
-
-		return joined, errors, doneAll
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gastrodon/psyduck/configure"
 	"github.com/psyduck-std/sdk"
 )
 
@@ -24,28 +25,22 @@ type runConfig struct {
 }
 
 func makeTestProducer(config runConfig, test *testing.T) (sdk.Producer, func() []int) {
-	counts := make([]int, config.ProducerCount)
 	producers := make([]sdk.Producer, config.ProducerCount)
+	counts := make([]int, config.ProducerCount)
 
-	for index := 0; index < config.ProducerCount; index++ {
-		producers[index] = func(slot int) sdk.Producer {
+	for slot := 0; slot < config.ProducerCount; slot++ {
+		producers[slot] = func(i int) sdk.Producer {
 
-			return func() (chan []byte, chan error) {
-				data := make(chan []byte, config.Buffer)
-
-				go func(slot int) {
-					for dataEach := 0; dataEach < config.DataCount; dataEach++ {
-						data <- []byte{byte(dataEach)}
-						counts[slot]++
-					}
-
-					close(data)
-				}(slot)
-
-				return data, nil
+			// each producer owns its own part of counts and its own termination counter
+			return func() sdk.Producefunc {
+				count := 0
+				return func() ([]byte, bool, error) {
+					counts[i]++
+					count++
+					return []byte{byte(i & 0xff)}, count >= config.DataCount, nil
+				}
 			}
-
-		}(index)
+		}(slot)
 	}
 
 	report := func() []int { return counts }
@@ -53,33 +48,22 @@ func makeTestProducer(config runConfig, test *testing.T) (sdk.Producer, func() [
 		return producers[0], report
 	}
 
-	return joinProducers(producers), report
+	return joinProducers(producers, make([]*configure.Resource, len(producers))), report
 }
 
 func makeTestConsumer(config runConfig, test *testing.T) (sdk.Consumer, func() []int) {
-	counts := make([]int, config.ConsumerCount)
 	consumers := make([]sdk.Consumer, config.ConsumerCount)
+	counts := make([]int, config.ConsumerCount)
 
-	for index := 0; index < config.ConsumerCount; index++ {
-		consumers[index] = func(slot int) sdk.Consumer {
-
-			return func() (chan []byte, chan error, chan bool) {
-				data := make(chan []byte)
-				done := make(chan bool)
-
-				go func(slot int) {
-
-					for range data {
-						counts[slot]++
-					}
-
-					done <- true
-				}(slot)
-
-				return data, nil, done
+	for slot := 0; slot < config.ConsumerCount; slot++ {
+		consumers[slot] = func(i int) sdk.Consumer {
+			return func() sdk.Consumefunc {
+				return func([]byte) error {
+					counts[i]++
+					return nil
+				}
 			}
-
-		}(index)
+		}(slot)
 
 	}
 
