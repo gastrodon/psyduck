@@ -9,13 +9,7 @@ import (
 
 type Values func() (int, int)
 
-const (
-	COUNT_DELAY     = 10
-	COUNT_IMMEDIATE = 10_000
-	COUNT_BUFFERED  = 10_000
-)
-
-type runConfig struct {
+type testPipelineCase struct {
 	DataCount     int
 	Buffer        int
 	Delay         bool
@@ -23,18 +17,18 @@ type runConfig struct {
 	ConsumerCount int
 }
 
-func makeTestProducer(config runConfig, test *testing.T) (sdk.Producer, func() []int) {
-	counts := make([]int, config.ProducerCount)
-	producers := make([]sdk.Producer, config.ProducerCount)
+func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
+	counts := make([]int, testcase.ProducerCount)
+	producers := make([]sdk.Producer, testcase.ProducerCount)
 
-	for index := 0; index < config.ProducerCount; index++ {
+	for index := 0; index < testcase.ProducerCount; index++ {
 		producers[index] = func(slot int) sdk.Producer {
 
 			return func() (chan []byte, chan error) {
-				data := make(chan []byte, config.Buffer)
+				data := make(chan []byte, testcase.Buffer)
 
 				go func(slot int) {
-					for dataEach := 0; dataEach < config.DataCount; dataEach++ {
+					for dataEach := 0; dataEach < testcase.DataCount; dataEach++ {
 						data <- []byte{byte(dataEach)}
 						counts[slot]++
 					}
@@ -48,29 +42,23 @@ func makeTestProducer(config runConfig, test *testing.T) (sdk.Producer, func() [
 		}(index)
 	}
 
-	report := func() []int { return counts }
-	if config.ProducerCount == 1 {
-		return producers[0], report
-	}
-
-	return joinProducers(producers), report
+	return joinProducers(producers), func() []int { return counts }
 }
 
-func makeTestConsumer(config runConfig, test *testing.T) (sdk.Consumer, func() []int) {
-	counts := make([]int, config.ConsumerCount)
-	consumers := make([]sdk.Consumer, config.ConsumerCount)
+func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
+	counts := make([]int, testcase.ConsumerCount)
+	consumers := make([]sdk.Consumer, testcase.ConsumerCount)
 
-	for index := 0; index < config.ConsumerCount; index++ {
+	for index := 0; index < testcase.ConsumerCount; index++ {
 		consumers[index] = func(slot int) sdk.Consumer {
 
 			return func() (chan []byte, chan error, chan bool) {
 				data := make(chan []byte)
 				done := make(chan bool)
 
-				go func(slot int) {
-
+				go func(i int) {
 					for range data {
-						counts[slot]++
+						counts[i]++
 					}
 
 					done <- true
@@ -83,28 +71,25 @@ func makeTestConsumer(config runConfig, test *testing.T) (sdk.Consumer, func() [
 
 	}
 
-	report := func() []int { return counts }
-	if config.ConsumerCount == 1 {
-		return consumers[0], report
-	}
-
-	return joinConsumers(consumers), report
+	return joinConsumers(consumers), func() []int { return counts }
 }
 
-func testPipeline(config runConfig, test *testing.T) {
-	producer, reportProducer := makeTestProducer(config, test)
-	consumer, reportConsumer := makeTestConsumer(config, test)
+func testPipeline(testcase testPipelineCase, test *testing.T) {
+	producer, reportProducer := makeTestProducer(testcase)
+	consumer, reportConsumer := makeTestConsumer(testcase)
+	transformer := func(d []byte) ([]byte, error) { return d, nil }
+
+	if testcase.Delay {
+		transformer = func(d []byte) ([]byte, error) {
+			time.Sleep(50 * time.Millisecond)
+			return d, nil
+		}
+	}
 
 	pipeline := &Pipeline{
-		Producer: producer,
-		Consumer: consumer,
-		StackedTransformer: func(data []byte) ([]byte, error) {
-			if config.Delay {
-				time.Sleep(50 * time.Millisecond)
-			}
-
-			return data, nil
-		},
+		Producer:           producer,
+		Consumer:           consumer,
+		StackedTransformer: transformer,
 	}
 
 	if err := RunPipeline(pipeline); err != nil {
@@ -113,42 +98,38 @@ func testPipeline(config runConfig, test *testing.T) {
 
 	producerCount := reportProducer()
 	for index := range producerCount {
-		if producerCount[index] != config.DataCount {
-			test.Fatalf("produce count mismatch at %d! %d / %d", index, producerCount[index], config.DataCount)
+		if producerCount[index] != testcase.DataCount {
+			test.Fatalf("produce count mismatch at %d! %d / %d", index, producerCount[index], testcase.DataCount)
 		}
 
 	}
 
 	consumerCount := reportConsumer()
 	for index := range consumerCount {
-		if consumerCount[index] != config.DataCount*config.ProducerCount {
-			test.Fatalf("consume count mismatch at %d! %d / %d * %d", index, consumerCount[index], config.DataCount, config.ProducerCount)
+		if consumerCount[index] != testcase.DataCount*testcase.ProducerCount {
+			test.Fatalf("consume count mismatch at %d! %d / %d * %d", index, consumerCount[index], testcase.DataCount, testcase.ProducerCount)
 		}
 	}
 }
 
 func Test_RunPipeline(test *testing.T) {
-	cases := []struct {
-		DataCount int
-		Buffer    int
-		Delay     bool
-	}{
-		{COUNT_DELAY, 0, true},
-		{COUNT_IMMEDIATE, 0, false},
-		{COUNT_BUFFERED, COUNT_BUFFERED + 1, false},
+	const (
+		COUNT_DELAY     = 100
+		COUNT_IMMEDIATE = 10_000
+		COUNT_BUFFERED  = 10_000
+	)
+
+	cases := []testPipelineCase{
+		{COUNT_DELAY, 0, true, 1, 1},
+		{COUNT_DELAY, 0, true, 10, 10},
+		{COUNT_IMMEDIATE, 0, false, 1, 1},
+		{COUNT_IMMEDIATE, 0, false, 1, 10},
+		{COUNT_IMMEDIATE, 0, false, 10, 1},
+		{COUNT_IMMEDIATE, 0, false, 100, 10},
+		{COUNT_BUFFERED, COUNT_BUFFERED / 2, false, 10, 1},
 	}
 
 	for _, testcase := range cases {
-		for _, producerCount := range []int{1, 10} {
-			for _, consumerCount := range []int{1, 10} {
-				testPipeline(runConfig{
-					testcase.DataCount,
-					testcase.Buffer,
-					testcase.Delay,
-					producerCount,
-					consumerCount,
-				}, test)
-			}
-		}
+		testPipeline(testcase, test)
 	}
 }
