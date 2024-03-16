@@ -23,7 +23,7 @@ const (
 )
 
 // TODO this isn't very robust
-func getPluginKind(descriptor pluginSource) int {
+func getPluginKind(descriptor pluginBlock) int {
 	if descriptor.Source == "" {
 		return pluginUnknown
 	}
@@ -39,7 +39,7 @@ func getPluginKind(descriptor pluginSource) int {
 Fetch plugins, cloning and building them if necessary
 Returns an absolute filepath pointing to a loadable shared library
 */
-func fetchPlugin(cachePath, basePath string, descriptor pluginSource) (string, error) {
+func fetchPlugin(cachePath, basePath string, descriptor pluginBlock) (string, error) {
 	switch getPluginKind(descriptor) {
 	case pluginLocal:
 		soPath := descriptor.Source
@@ -79,7 +79,7 @@ func fetchPlugin(cachePath, basePath string, descriptor pluginSource) (string, e
 	}
 }
 
-func loadPlugin(cachePath, basePath string, descriptor pluginSource) (*sdk.Plugin, *hcl.Diagnostic) {
+func loadPlugin(cachePath, basePath string, descriptor pluginBlock) (*sdk.Plugin, *hcl.Diagnostic) {
 	pluginPath, err := fetchPlugin(cachePath, basePath, descriptor)
 	if err != nil {
 		return nil, &hcl.Diagnostic{
@@ -142,7 +142,7 @@ func loadPlugin(cachePath, basePath string, descriptor pluginSource) (*sdk.Plugi
 	return makePlugin(), nil
 }
 
-func loadPlugins(cachePath, basePath string, descriptors *Plugins) (map[string]*sdk.Plugin, hcl.Diagnostics) {
+func loadPlugins(cachePath, basePath string, descriptors *pluginBlocks) (map[string]*sdk.Plugin, hcl.Diagnostics) {
 	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
 	diags := make(hcl.Diagnostics, len(descriptors.Blocks))
 	diagIndex := 0
@@ -158,8 +158,8 @@ func loadPlugins(cachePath, basePath string, descriptors *Plugins) (map[string]*
 	return plugins, diags[:diagIndex]
 }
 
-func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext) (*Plugins, hcl.Diagnostics) {
-	target := new(Plugins)
+func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext) (*pluginBlocks, hcl.Diagnostics) {
+	target := new(pluginBlocks)
 	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
 	} else {

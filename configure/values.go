@@ -7,7 +7,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func makeMapVal(values *Values) cty.Value {
+func makeMapVal(values *valueBlocks) cty.Value {
 	length := 0
 	for _, block := range values.Blocks {
 		length += len(block.Entries)
@@ -27,8 +27,8 @@ func makeMapVal(values *Values) cty.Value {
 	return cty.MapVal(valuesMap)
 }
 
-func loadValues(filename string, literal []byte) (*Values, hcl.Diagnostics) {
-	target := new(Values)
+func loadValues(filename string, literal []byte) (*valueBlocks, hcl.Diagnostics) {
+	target := new(valueBlocks)
 	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
 	} else {

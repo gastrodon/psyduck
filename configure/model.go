@@ -5,51 +5,61 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-type pluginSource struct {
+/*
+plugin "psyduck" {
+	source = "git@github.com:psyduck-std/psyduck"
+}
+*/
+
+type pluginBlock struct {
 	Name   string `hcl:"name,label"`
 	Source string `hcl:"source"`
 }
 
-type Plugins struct {
-	Blocks []pluginSource `hcl:"plugin,block"`
+type pluginBlocks struct {
+	Blocks []pluginBlock `hcl:"plugin,block"`
 }
 
-type Values struct {
+/*
+value {
+	foo = "bar"
+}
+*/
+
+type valueBlocks struct {
 	Blocks []struct {
 		Entries map[string]cty.Value `hcl:",remain"`
 	} `hcl:"value,block"`
 }
 
-type ResourceHeader struct {
-	Kind string `cty:"kind"`
-	Name string `cty:"kind"`
+/*
+{produce,consume,transform} "kind" "name" {
+	foo = "bar"
+	ref = value.ref
 }
+*/
 
-type Resource struct {
+type pipelinePart struct {
 	Kind    string   `hcl:"kind,label" cty:"kind"`
 	Name    string   `hcl:"name,label" cty:"kind"`
 	Options hcl.Body `hcl:",remain"`
 }
 
-type Resources struct {
-	Producers    []*Resource `hcl:"produce,block"`
-	Consumers    []*Resource `hcl:"consume,block"`
-	Transformers []*Resource `hcl:"transform,block"`
+type pipelineParts struct {
+	Producers    []*pipelinePart `hcl:"produce,block"`
+	Consumers    []*pipelinePart `hcl:"consume,block"`
+	Transformers []*pipelinePart `hcl:"transform,block"`
 }
 
-type PipelineRef struct {
+type pipelineBlock struct {
 	Producers    []string `cty:"produce"`
 	Consumers    []string `cty:"consume"`
 	Transformers []string `cty:"transform"`
 }
 
 type Pipeline struct {
-	Name         string      `hcl:"name,label"`
-	Producers    []*Resource `hcl:"produce"`
-	Consumers    []*Resource `hcl:"consume"`
-	Transformers []*Resource `hcl:"transform"`
-}
-
-type Pipelines struct {
-	Pipelines []*Pipeline `hcl:"pipeline,block"`
+	Name         string
+	Producers    []*pipelinePart
+	Consumers    []*pipelinePart
+	Transformers []*pipelinePart
 }

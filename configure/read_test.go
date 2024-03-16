@@ -25,8 +25,8 @@ var cases = []struct {
 		Want: map[string]*Pipeline{
 			"test": {
 				Name:         "test",
-				Producers:    []*Resource{{Kind: "test", Name: "p"}},
-				Consumers:    []*Resource{{Kind: "test", Name: "c"}},
+				Producers:    []*pipelinePart{{Kind: "test", Name: "p"}},
+				Consumers:    []*pipelinePart{{Kind: "test", Name: "c"}},
 				Transformers: nil,
 			},
 		},

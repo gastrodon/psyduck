@@ -7,8 +7,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func testableValues(entries map[string]cty.Value) *Values {
-	return &Values{
+func testableValues(entries map[string]cty.Value) *valueBlocks {
+	return &valueBlocks{
 		Blocks: []struct {
 			Entries map[string]cty.Value `hcl:",remain"`
 		}{{Entries: entries}},
@@ -19,7 +19,7 @@ func TestLoadValues(test *testing.T) {
 	cases := []struct {
 		Literal  string
 		Filename string
-		Want     *Values
+		Want     *valueBlocks
 	}{
 		{
 			`value {

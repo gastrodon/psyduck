@@ -12,7 +12,7 @@ func TestReadPluginBlocks(test *testing.T) {
 		Literal  string
 		Filename string
 		Context  *hcl.EvalContext
-		Want     *Plugins
+		Want     *pluginBlocks
 	}{
 		{
 			`plugin "psyduck"  {
@@ -20,8 +20,8 @@ func TestReadPluginBlocks(test *testing.T) {
 			}`,
 			"main.psy",
 			nil,
-			&Plugins{
-				Blocks: []pluginSource{
+			&pluginBlocks{
+				Blocks: []pluginBlock{
 					{Name: "psyduck", Source: "/std.so"},
 				},
 			},

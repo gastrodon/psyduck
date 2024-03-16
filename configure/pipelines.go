@@ -10,7 +10,7 @@ import (
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
-var refSpec = hcldec.BlockObjectSpec{
+var pipelineBlockSpec = &hcldec.BlockObjectSpec{
 	TypeName:   "pipeline",
 	LabelNames: []string{"name"},
 
@@ -33,8 +33,8 @@ var refSpec = hcldec.BlockObjectSpec{
 	},
 }
 
-func lookupRefSlice(refs []string, lookup map[string]*Resource) ([]*Resource, error) {
-	resources := make([]*Resource, len(refs))
+func lookupRefSlice(refs []string, lookup map[string]*pipelinePart) ([]*pipelinePart, error) {
+	resources := make([]*pipelinePart, len(refs))
 
 	for index, ref := range refs {
 		if resource, ok := lookup[ref]; !ok {
@@ -47,7 +47,7 @@ func lookupRefSlice(refs []string, lookup map[string]*Resource) ([]*Resource, er
 	return resources, nil
 }
 
-func lookupPipelines(refs map[string]*PipelineRef, lookup map[string]*Resource) (map[string]*Pipeline, error) {
+func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
 	pipelines := make(map[string]*Pipeline, len(refs))
 	for name, ref := range refs {
 		producers, err := lookupRefSlice(ref.Producers, lookup)
@@ -76,25 +76,24 @@ func lookupPipelines(refs map[string]*PipelineRef, lookup map[string]*Resource) 
 	return pipelines, nil
 }
 
-func loadPipelines(filename string, literal []byte, context *hcl.EvalContext, lookup map[string]*Resource) (map[string]*Pipeline, error) {
+func loadPipelines(filename string, literal []byte, context *hcl.EvalContext, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
 	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
 	} else {
-		if value, _, diags := hcldec.PartialDecode(file.Body, &refSpec, context); diags != nil {
+		if value, _, diags := hcldec.PartialDecode(file.Body, pipelineBlockSpec, context); diags != nil {
 			return nil, diags
 		} else {
-			refs := make(map[string]*PipelineRef, value.LengthInt())
+			refs := make(map[string]*pipelineBlock, value.LengthInt())
 			iter := value.ElementIterator()
 
 			for iter.Next() {
 				key, each := iter.Element()
-				ref := new(PipelineRef)
+				ref := new(pipelineBlock)
 				if err := gocty.FromCtyValue(each, ref); err != nil {
 					return nil, err
 				} else {
 					refs[key.AsString()] = ref
 				}
-
 			}
 
 			return lookupPipelines(refs, lookup)

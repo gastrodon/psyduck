@@ -16,11 +16,11 @@ const (
 	NAMESPACE_VALUE     = "value"
 )
 
-func name(namespace string, resource *Resource) string {
+func name(namespace string, resource *pipelinePart) string {
 	return strings.Join([]string{namespace, resource.Kind, resource.Name}, ".")
 }
 
-func loadResourceSlice(namespace string, resources []*Resource) (cty.Value, error) {
+func loadResourceSlice(namespace string, resources []*pipelinePart) (cty.Value, error) {
 	kinds := make(map[string]map[string]cty.Value, 0)
 	for _, resource := range resources {
 		if _, ok := kinds[resource.Kind]; !ok {
@@ -38,13 +38,13 @@ func loadResourceSlice(namespace string, resources []*Resource) (cty.Value, erro
 	return cty.ObjectVal(refs), nil
 }
 
-func loadResources(filename string, literal []byte, context *hcl.EvalContext) (*Resources, error) {
+func loadResources(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, error) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags != nil {
 		return nil, diags
 	}
 
-	resources := new(Resources)
+	resources := new(pipelineParts)
 	gohcl.DecodeBody(file.Body, context, resources)
 	return resources, nil
 }
@@ -78,12 +78,12 @@ func loadResourcesContext(filename string, literal []byte) (*hcl.EvalContext, er
 	}
 }
 
-func loadResorceLookup(filename string, literal []byte, context *hcl.EvalContext) (map[string]*Resource, error) {
+func loadResorceLookup(filename string, literal []byte, context *hcl.EvalContext) (map[string]*pipelinePart, error) {
 	if resources, err := loadResources(filename, literal, context); err != nil {
 		return nil, err
 	} else {
 		lookupSize := len(resources.Producers) + len(resources.Consumers) + len(resources.Transformers)
-		lookup := make(map[string]*Resource, lookupSize)
+		lookup := make(map[string]*pipelinePart, lookupSize)
 
 		for _, each := range resources.Producers {
 			lookup[name(NAMESPACE_PRODUCE, each)] = each
