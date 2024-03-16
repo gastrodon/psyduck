@@ -10,6 +10,10 @@ import (
 Join a collection of producers into a single in the order received
 */
 func joinProducers(producers []sdk.Producer) sdk.Producer {
+	if len(producers) == 1 {
+		return producers[0]
+	}
+
 	return func() (chan []byte, chan error) {
 		joined := make(chan []byte, len(producers))
 		errors := make(chan error)
@@ -52,6 +56,10 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 Join a collection of consumers into a single that passes data to consumers in order
 */
 func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
+	if len(consumers) == 1 {
+		return consumers[0]
+	}
+
 	return func() (chan []byte, chan error, chan bool) {
 		chanData := make([]chan []byte, len(consumers))
 		chanErrors := make([]chan error, len(consumers))
