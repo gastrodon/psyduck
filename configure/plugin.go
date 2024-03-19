@@ -2,12 +2,12 @@ package configure
 
 import (
 	"fmt"
-	"go/build"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"plugin"
+	"regexp"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -22,17 +22,21 @@ const (
 	pluginRemote
 )
 
+var (
+	pPluginGit = regexp.MustCompile(`git@.+:.*`)
+)
+
 // TODO this isn't very robust
 func getPluginKind(descriptor pluginBlock) int {
 	if descriptor.Source == "" {
 		return pluginUnknown
 	}
 
-	if build.IsLocalImport(descriptor.Source) {
-		return pluginLocal
+	if pPluginGit.Match([]byte(descriptor.Source)) {
+		return pluginRemote
 	}
 
-	return pluginRemote
+	return pluginLocal
 }
 
 /*
