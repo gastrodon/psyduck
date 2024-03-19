@@ -30,6 +30,11 @@ var pipelineBlockSpec = &hcldec.BlockObjectSpec{
 			Type:     cty.List(cty.String),
 			Required: true,
 		},
+		"stop-after": &hcldec.AttrSpec{
+			Name:     "stop-after",
+			Type:     cty.Number,
+			Required: false,
+		},
 	},
 }
 

@@ -55,6 +55,7 @@ type pipelineBlock struct {
 	Producers    []string `cty:"produce"`
 	Consumers    []string `cty:"consume"`
 	Transformers []string `cty:"transform"`
+	StopAfter    *int     `cty:"stop-after"`
 }
 
 type Pipeline struct {
@@ -62,4 +63,5 @@ type Pipeline struct {
 	Producers    []*pipelinePart
 	Consumers    []*pipelinePart
 	Transformers []*pipelinePart
+	StopAfter    int
 }
