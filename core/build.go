@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/gastrodon/psyduck/configure"
@@ -29,6 +30,7 @@ func join[T any](group []chan T) chan T {
 			cLock.Unlock()
 		}
 
+		fmt.Println("tee: all groups closed")
 		close(joined)
 	}(len(group))
 
@@ -36,13 +38,17 @@ func join[T any](group []chan T) chan T {
 		go func(ishadow int, closer chan<- struct{}) { // goroutine forwarder for every c in group
 			defer func() {
 				if err := recover(); err != nil {
+					fmt.Printf("RECOVER tee: recovered from %d: %s\n", ishadow, err)
 					panic(err)
 				}
 			}()
 
 			for msg := range group[ishadow] {
+				fmt.Printf("tee: send %d: %v\n", ishadow, msg)
 				joined <- msg
+				fmt.Printf("tee: send %d: %v OK\n", ishadow, msg)
 			}
+			fmt.Printf("tee: group[%d] was closed\n", ishadow)
 			closer <- struct{}{}
 		}(i, closer)
 	}
@@ -82,7 +88,9 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 			}
 		}
 
+		fmt.Println("joinProducers: closing dataOut")
 		close(dataOut)
+		fmt.Println("joinProducers: closing dataOut OK")
 	}
 }
 
@@ -114,7 +122,9 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 				}
 
 				for i := range split {
+					fmt.Printf("joinConsumers: fwd to split[%d]\n", i)
 					split[i] <- msg
+					fmt.Printf("joinConsumers: fwd to split[%d] OK\n", i)
 				}
 
 			case err := <-tErrs:
@@ -123,7 +133,9 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 		}
 
 		for i := range split {
+			fmt.Printf("joinConsumers: close split[%d]\n", i)
 			close(split[i])
+			fmt.Printf("joinConsumers: close split[%d] OK\n", i)
 		}
 
 		closed, cLock := 0, new(sync.Mutex)
@@ -137,7 +149,9 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 			cLock.Unlock()
 		}
 
+		fmt.Println("joinConsumers: close provided done")
 		close(done)
+		fmt.Println("joinConsumers: close provided done OK")
 	}
 }
 
