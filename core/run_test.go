@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -63,7 +64,7 @@ func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
 	return joinConsumers(consumers), func() []int { return counts }
 }
 
-func testPipeline(testcase testPipelineCase, test *testing.T) {
+func testPipeline(testcase testPipelineCase) error {
 	producer, reportProducer := makeTestProducer(testcase)
 	consumer, reportConsumer := makeTestConsumer(testcase)
 	transformer := func(d []byte) ([]byte, error) { return d, nil }
@@ -82,13 +83,13 @@ func testPipeline(testcase testPipelineCase, test *testing.T) {
 	}
 
 	if err := RunPipeline(pipeline); err != nil {
-		test.Fatal(err)
+		return err
 	}
 
 	producerCount := reportProducer()
 	for index := range producerCount {
 		if producerCount[index] != testcase.DataCount {
-			test.Fatalf("produce count mismatch at %d! %d / %d", index, producerCount[index], testcase.DataCount)
+			return fmt.Errorf("produce count mismatch at %d! %d / %d", index, producerCount[index], testcase.DataCount)
 		}
 
 	}
@@ -96,9 +97,11 @@ func testPipeline(testcase testPipelineCase, test *testing.T) {
 	consumerCount := reportConsumer()
 	for index := range consumerCount {
 		if consumerCount[index] != testcase.DataCount*testcase.ProducerCount {
-			test.Fatalf("consume count mismatch at %d! %d / %d * %d", index, consumerCount[index], testcase.DataCount, testcase.ProducerCount)
+			return fmt.Errorf("consume count mismatch at %d! %d / %d * %d", index, consumerCount[index], testcase.DataCount, testcase.ProducerCount)
 		}
 	}
+
+	return nil
 }
 
 func Test_RunPipeline(test *testing.T) {
@@ -117,7 +120,9 @@ func Test_RunPipeline(test *testing.T) {
 		{COUNT_IMMEDIATE, false, 10, 10},
 	}
 
-	for _, testcase := range cases {
-		testPipeline(testcase, test)
+	for i, testcase := range cases {
+		if err := testPipeline(testcase); err != nil {
+			test.Fatalf("case %d failed: %s", i, err)
+		}
 	}
 }
