@@ -1,0 +1,30 @@
+plugin "amqp" {
+  source = "amqp.so"
+}
+
+consume "amqp-queue" "left" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue = "left"
+}
+
+produce "amqp-queue" "left" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue = "left"
+}
+
+consume "amqp-queue" "right" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue = "right"
+}
+
+pipeline "load-left" {
+  produce = [produce.psyduck-constant.1]
+  consume = [consume.amqp-queue.left]
+  transform = []
+}
+
+pipeline "move-right" {
+  produce = [produce.amqp-queue.left]
+  consume = [consume.amqp-queue.right]
+  transform = []
+}
