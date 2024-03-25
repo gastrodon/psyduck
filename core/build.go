@@ -1,10 +1,54 @@
 package core
 
 import (
+	"sync"
+
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-std/sdk"
 )
+
+func mchan[T any](c int) []chan T {
+	g := make([]chan T, c)
+	for i := range g {
+		g[i] = make(chan T)
+	}
+	return g
+}
+
+func join[T any](group []chan T) chan T {
+	joined := make(chan T)
+	closer := make(chan struct{})
+
+	go func(size int) {
+		closed, cLock := 0, new(sync.Mutex)
+		for closed < size {
+			<-closer
+			cLock.Lock()
+			closed++
+			cLock.Unlock()
+		}
+
+		close(joined)
+	}(len(group))
+
+	for i := range group {
+		go func(ishadow int, closer chan<- struct{}) { // goroutine forwarder for every c in group
+			defer func() {
+				if err := recover(); err != nil {
+					panic(err)
+				}
+			}()
+
+			for msg := range group[ishadow] {
+				joined <- msg
+			}
+			closer <- struct{}{}
+		}(i, closer)
+	}
+
+	return joined
+}
 
 /*
 Join a collection of producers into a single in the order received
@@ -14,41 +58,31 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 		return producers[0]
 	}
 
-	return func() (chan []byte, chan error) {
-		joined := make(chan []byte, len(producers))
-		errors := make(chan error)
-		closed := 0
+	gData := mchan[[]byte](len(producers))
+	gErrs := mchan[error](len(producers))
 
-		for index, producer := range producers {
-			chanData, chanError := producer()
-
-			go func(index int) {
-				for {
-					select {
-					case dataNext := <-chanData:
-						if dataNext == nil {
-							closed++
-							if closed == len(producers) {
-								close(joined)
-								close(errors)
-							}
-
-							return
-						}
-
-						joined <- dataNext
-					case errNext := <-chanError:
-						if errNext == nil {
-							continue
-						}
-
-						errors <- errNext
-					}
-				}
-			}(index)
+	tData := join(gData)
+	tErrs := join(gErrs)
+	return func(dataOut chan<- []byte, errs chan<- error) {
+		for i := 0; i < len(producers); i++ {
+			go producers[i](gData[i], gErrs[i])
 		}
 
-		return joined, errors
+	out:
+		for {
+			select {
+			case msg := <-tData:
+				if msg == nil {
+					break out
+				}
+
+				dataOut <- msg
+			case err := <-tErrs:
+				errs <- err
+			}
+		}
+
+		close(dataOut)
 	}
 }
 
@@ -60,69 +94,50 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 		return consumers[0]
 	}
 
-	return func() (chan []byte, chan error, chan bool) {
-		chanData := make([]chan []byte, len(consumers))
-		chanErrors := make([]chan error, len(consumers))
-		chanDones := make([]chan bool, len(consumers))
+	gErrs := mchan[error](len(consumers))
+	gDone := mchan[struct{}](len(consumers))
+	split := mchan[[]byte](len(consumers))
 
-		for index, consumer := range consumers {
-			chanConsumer, chanError, chanDone := consumer()
-			chanData[index] = chanConsumer
-			chanErrors[index] = chanError
-			chanDones[index] = chanDone
+	tErrs := join(gErrs)
+	tDone := join(gDone)
+	return func(dataRecv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		for i := range split {
+			go consumers[i](split[i], gErrs[i], gDone[i])
 		}
 
-		joined := make(chan []byte)
-		go func() {
-			for data := range joined {
-				for index := range chanData {
-					chanData[index] <- data
-				}
-			}
-
-			for index := range chanData {
-				close(chanData[index])
-			}
-		}()
-
-		errors := make(chan error)
-		go func() {
-			for err := range errors {
-				for index := range chanErrors {
-					chanErrors[index] <- err
-				}
-			}
-		}()
-
-		doneAll := make(chan bool)
-		doneCollect := make(chan bool)
-		go func() {
-			doneLimit := len(consumers)
-			for collected := range doneCollect {
-				if !collected {
-					panic("false sent through done channel")
+	out:
+		for {
+			select {
+			case msg := <-dataRecv:
+				if msg == nil {
+					break out
 				}
 
-				doneLimit--
-				if doneLimit <= 0 {
-					if doneLimit < 0 {
-						panic("doneLimit < 0! this should never happen")
-					}
-
-					doneAll <- true
-					return
+				for i := range split {
+					split[i] <- msg
 				}
-			}
-		}()
 
-		for _, chanDone := range chanDones {
-			go func(each chan (bool)) {
-				done := <-each
-				doneCollect <- done
-			}(chanDone)
+			case err := <-tErrs:
+				errs <- err
+			}
 		}
 
-		return joined, errors, doneAll
+		for i := range split {
+			close(split[i])
+		}
+
+		closed, cLock := 0, new(sync.Mutex)
+		for range tDone {
+			cLock.Lock()
+			closed++
+			if closed == len(consumers) {
+				break
+			}
+
+			cLock.Unlock()
+		}
+
+		close(done)
 	}
 }
 

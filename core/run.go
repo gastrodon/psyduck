@@ -1,29 +1,21 @@
 package core
 
 func RunPipeline(pipeline *Pipeline) error {
-	dataProducer, errorProducer := pipeline.Producer()
-	dataConsumer, errorConsumer, finishConsumer := pipeline.Consumer()
-	consumerClosed := false
+	dataProducer, errorProducer := make(chan []byte), make(chan error)
+	dataConsumer, errorConsumer, finishConsumer := make(chan []byte), make(chan error), make(chan struct{})
+	go pipeline.Producer(dataProducer, errorProducer)
+	go pipeline.Consumer(dataConsumer, errorConsumer, finishConsumer)
 
 	for {
 		select {
-		case done := <-finishConsumer:
-			if !done {
-				panic("false sent on finish channel")
+		case msg := <-dataProducer:
+			if msg == nil {
+				close(dataConsumer)
+				<-finishConsumer
+				return nil
 			}
 
-			return nil
-		case data := <-dataProducer:
-			if data == nil {
-				if !consumerClosed {
-					consumerClosed = true
-					close(dataConsumer)
-				}
-
-				break // TODO use a label to jump out to a block that doesn't consume dataProducer
-			}
-
-			transformed, err := pipeline.StackedTransformer(data)
+			transformed, err := pipeline.StackedTransformer(msg)
 			if err != nil {
 				return err
 			}

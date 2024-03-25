@@ -11,7 +11,6 @@ type Values func() (int, int)
 
 type testPipelineCase struct {
 	DataCount     int
-	Buffer        int
 	Delay         bool
 	ProducerCount int
 	ConsumerCount int
@@ -23,20 +22,16 @@ func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
 
 	for index := 0; index < testcase.ProducerCount; index++ {
 		producers[index] = func(slot int) sdk.Producer {
-
-			return func() (chan []byte, chan error) {
-				data := make(chan []byte, testcase.Buffer)
-
+			return func(send chan<- []byte, errs chan<- error) {
 				go func(slot int) {
 					for dataEach := 0; dataEach < testcase.DataCount; dataEach++ {
-						data <- []byte{byte(dataEach)}
+						send <- []byte{byte(dataEach)}
 						counts[slot]++
 					}
 
-					close(data)
+					close(send)
+					close(errs)
 				}(slot)
-
-				return data, nil
 			}
 
 		}(index)
@@ -51,20 +46,14 @@ func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
 
 	for index := 0; index < testcase.ConsumerCount; index++ {
 		consumers[index] = func(slot int) sdk.Consumer {
-
-			return func() (chan []byte, chan error, chan bool) {
-				data := make(chan []byte)
-				done := make(chan bool)
-
+			return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				go func(i int) {
-					for range data {
+					for range recv {
 						counts[i]++
 					}
 
-					done <- true
+					close(done)
 				}(slot)
-
-				return data, nil, done
 			}
 
 		}(index)
@@ -120,13 +109,12 @@ func Test_RunPipeline(test *testing.T) {
 	)
 
 	cases := []testPipelineCase{
-		{COUNT_DELAY, 0, true, 1, 1},
-		{COUNT_DELAY, 0, true, 10, 10},
-		{COUNT_IMMEDIATE, 0, false, 1, 1},
-		{COUNT_IMMEDIATE, 0, false, 1, 10},
-		{COUNT_IMMEDIATE, 0, false, 10, 1},
-		{COUNT_IMMEDIATE, 0, false, 100, 10},
-		{COUNT_BUFFERED, COUNT_BUFFERED / 2, false, 10, 1},
+		{COUNT_DELAY, true, 1, 1},
+		{COUNT_DELAY, true, 10, 10},
+		{COUNT_IMMEDIATE, false, 1, 1},
+		{COUNT_IMMEDIATE, false, 1, 10},
+		{COUNT_IMMEDIATE, false, 10, 1},
+		{COUNT_IMMEDIATE, false, 10, 10},
 	}
 
 	for _, testcase := range cases {
