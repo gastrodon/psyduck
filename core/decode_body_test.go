@@ -4,19 +4,19 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/psyduck-std/sdk"
+	"github.com/psyduck-etl/sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )
 
 func TestDecodeConfig(test *testing.T) {
 	spec := sdk.SpecMap{
-		"test":     {Name: "test", Type: sdk.String},
-		"count":    {Name: "count", Type: sdk.Integer},
-		"values":   {Name: "values", Type: sdk.List(sdk.Integer)},
-		"map":      {Name: "map", Type: sdk.Map(sdk.Bool)},
-		"default":  {Name: "default", Type: sdk.String, Default: cty.StringVal("default")},
-		"override": {Name: "override", Type: sdk.String, Default: cty.StringVal("default")},
+		"test":     {Name: "test", Type: cty.String},
+		"count":    {Name: "count", Type: cty.Number},
+		"values":   {Name: "values", Type: cty.List(cty.Number)},
+		"map":      {Name: "map", Type: cty.Map(cty.Bool)},
+		"default":  {Name: "default", Type: cty.String, Default: cty.StringVal("default")},
+		"override": {Name: "override", Type: cty.String, Default: cty.StringVal("default")},
 	}
 
 	attrs := hcl.Attributes{

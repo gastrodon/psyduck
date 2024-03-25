@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/psyduck-std/sdk"
+	"github.com/psyduck-etl/sdk"
 )
 
 type Values func() (int, int)

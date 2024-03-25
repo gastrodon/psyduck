@@ -3,7 +3,7 @@ package core
 import (
 	"testing"
 
-	"github.com/psyduck-std/sdk"
+	"github.com/psyduck-etl/sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )
@@ -17,12 +17,12 @@ func TestValidate(test *testing.T) {
 		{
 			Valid: true,
 			Value: cty.NumberIntVal(420_69),
-			Spec:  &sdk.Spec{Type: sdk.Integer},
+			Spec:  &sdk.Spec{Type: cty.Number},
 		},
 		{
 			Valid: true,
 			Value: cty.StringVal("say hello"),
-			Spec:  &sdk.Spec{Type: sdk.String},
+			Spec:  &sdk.Spec{Type: cty.String},
 		},
 		{
 			Valid: true,
@@ -30,7 +30,7 @@ func TestValidate(test *testing.T) {
 				cty.StringVal("huge"),
 				cty.StringVal("pixie"),
 			}),
-			Spec: &sdk.Spec{Type: sdk.List(sdk.String)},
+			Spec: &sdk.Spec{Type: cty.List(cty.String)},
 		},
 		{
 			Valid: true,
@@ -38,12 +38,12 @@ func TestValidate(test *testing.T) {
 				"left":  cty.ListVal([]cty.Value{cty.NumberFloatVal(1.2), cty.NumberFloatVal(0.01)}),
 				"right": cty.ListVal([]cty.Value{cty.NumberFloatVal(3.14), cty.NumberFloatVal(2222222.1)}),
 			}),
-			Spec: &sdk.Spec{Type: sdk.Map(sdk.List(sdk.Float))},
+			Spec: &sdk.Spec{Type: cty.Map(cty.List(cty.Number))},
 		},
 		{
 			Valid: true,
 			Value: cty.BoolVal(false),
-			Spec:  &sdk.Spec{Type: sdk.Bool},
+			Spec:  &sdk.Spec{Type: cty.Bool},
 		},
 		{
 			Valid: true,
@@ -51,17 +51,17 @@ func TestValidate(test *testing.T) {
 				"honda":   cty.StringVal("civic"),
 				"porsche": cty.StringVal("944"),
 			}),
-			Spec: &sdk.Spec{Type: sdk.Map(sdk.String)},
+			Spec: &sdk.Spec{Type: cty.Map(cty.String)},
 		},
 		{
 			Valid: false,
 			Value: cty.NumberIntVal(420_69),
-			Spec:  &sdk.Spec{Type: sdk.String},
+			Spec:  &sdk.Spec{Type: cty.String},
 		},
 		{
 			Valid: false,
 			Value: cty.NilVal,
-			Spec:  &sdk.Spec{Type: sdk.String, Required: true},
+			Spec:  &sdk.Spec{Type: cty.String, Required: true},
 		},
 	}
 

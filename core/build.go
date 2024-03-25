@@ -6,7 +6,7 @@ import (
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/hashicorp/hcl/v2"
-	"github.com/psyduck-std/sdk"
+	"github.com/psyduck-etl/sdk"
 )
 
 type Pipeline struct {
