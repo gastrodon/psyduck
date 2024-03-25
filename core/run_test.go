@@ -77,9 +77,9 @@ func testPipeline(testcase testPipelineCase) error {
 	}
 
 	pipeline := &Pipeline{
-		Producer:           producer,
-		Consumer:           consumer,
-		StackedTransformer: transformer,
+		Producer:    producer,
+		Consumer:    consumer,
+		Transformer: transformer,
 	}
 
 	if err := RunPipeline(pipeline); err != nil {

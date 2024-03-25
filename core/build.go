@@ -9,6 +9,12 @@ import (
 	"github.com/psyduck-std/sdk"
 )
 
+type Pipeline struct {
+	Producer    sdk.Producer
+	Consumer    sdk.Consumer
+	Transformer sdk.Transformer
+}
+
 func mchan[T any](c int) []chan T {
 	g := make([]chan T, c)
 	for i := range g {
@@ -221,8 +227,8 @@ func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, lib
 	}
 
 	return &Pipeline{
-		Producer:           joinProducers(producers),
-		Consumer:           joinConsumers(consumers),
-		StackedTransformer: stackTransform(transformers),
+		Producer:    joinProducers(producers),
+		Consumer:    joinConsumers(consumers),
+		Transformer: stackTransform(transformers),
 	}, nil
 }
