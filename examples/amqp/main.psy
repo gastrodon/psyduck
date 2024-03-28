@@ -1,5 +1,14 @@
+plugin "psyduck" {
+  source = "git@github.com:psyduck-std/psyduck"
+}
+
 plugin "amqp" {
-  source = "amqp.so"
+  source = "git@github.com:psyduck-std/amqp"
+}
+
+produce "psyduck-constant" "1" {
+  value = "val-1"
+  stop-after = 30
 }
 
 consume "amqp-queue" "left" {
