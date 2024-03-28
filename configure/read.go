@@ -7,7 +7,24 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclparse"
 )
+
+func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, error) {
+	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+	if diags != nil {
+		return nil, diags
+	}
+
+	resources := new(pipelineParts)
+	err := gohcl.DecodeBody(file.Body, context, resources)
+	if err != nil {
+		return nil, err
+	}
+
+	return resources, nil
+}
 
 func Literal(filename string, literal []byte) (map[string]*Pipeline, *hcl.EvalContext, error) {
 	valuesContext, err := loadValuesContext(filename, literal)

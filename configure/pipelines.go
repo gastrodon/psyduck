@@ -20,6 +20,11 @@ var pipelineBlockSpec = &hcldec.BlockObjectSpec{
 			Type:     cty.List(cty.String),
 			Required: true,
 		},
+		"produce-from": &hcldec.AttrSpec{
+			Name:     "produce-from",
+			Type:     cty.List(cty.String),
+			Required: false,
+		},
 		"consume": &hcldec.AttrSpec{
 			Name:     "consume",
 			Type:     cty.List(cty.String),
@@ -55,11 +60,6 @@ func lookupRefSlice(refs []string, lookup map[string]*pipelinePart) ([]*pipeline
 func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
 	pipelines := make(map[string]*Pipeline, len(refs))
 	for name, ref := range refs {
-		producers, err := lookupRefSlice(ref.Producers, lookup)
-		if err != nil {
-			return nil, err
-		}
-
 		consumers, err := lookupRefSlice(ref.Consumers, lookup)
 		if err != nil {
 			return nil, err
@@ -70,12 +70,34 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 			return nil, err
 		}
 
-		pipelines[name] = &Pipeline{
-			Name:         name,
-			Producers:    producers,
-			Consumers:    consumers,
-			Transformers: transformers,
+		if ref.RemoteProducer != "" {
+			r, ok := lookup[ref.RemoteProducer]
+			if !ok {
+				return nil, fmt.Errorf("can't find a resource %s", ref.RemoteProducer)
+			}
+
+			pipelines[name] = &Pipeline{
+				Name:           name,
+				RemoteProducer: r,
+				Producers:      nil,
+				Consumers:      consumers,
+				Transformers:   transformers,
+			}
+		} else {
+			producers, err := lookupRefSlice(ref.Producers, lookup)
+			if err != nil {
+				return nil, err
+			}
+
+			pipelines[name] = &Pipeline{
+				Name:           name,
+				RemoteProducer: nil,
+				Producers:      producers,
+				Consumers:      consumers,
+				Transformers:   transformers,
+			}
 		}
+
 	}
 
 	return pipelines, nil

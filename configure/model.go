@@ -52,16 +52,18 @@ type pipelineParts struct {
 }
 
 type pipelineBlock struct {
-	Producers    []string `cty:"produce"`
-	Consumers    []string `cty:"consume"`
-	Transformers []string `cty:"transform"`
-	StopAfter    *int     `cty:"stop-after"`
+	RemoteProducer string   `cty:"produce-from"`
+	Producers      []string `cty:"produce"`
+	Consumers      []string `cty:"consume"`
+	Transformers   []string `cty:"transform"`
+	StopAfter      *int     `cty:"stop-after"`
 }
 
 type Pipeline struct {
-	Name         string
-	Producers    []*pipelinePart
-	Consumers    []*pipelinePart
-	Transformers []*pipelinePart
-	StopAfter    int
+	Name           string
+	RemoteProducer *pipelinePart
+	Producers      []*pipelinePart
+	Consumers      []*pipelinePart
+	Transformers   []*pipelinePart
+	StopAfter      int
 }
