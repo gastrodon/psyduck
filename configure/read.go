@@ -2,6 +2,7 @@ package configure
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -18,9 +19,8 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 	}
 
 	resources := new(pipelineParts)
-	err := gohcl.DecodeBody(file.Body, context, resources)
-	if err != nil {
-		return nil, err
+	if diags := gohcl.DecodeBody(file.Body, context, resources); !diags.HasErrors() {
+		return nil, diags
 	}
 
 	return resources, nil
@@ -29,22 +29,22 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 func Literal(filename string, literal []byte) (map[string]*Pipeline, *hcl.EvalContext, error) {
 	valuesContext, err := loadValuesContext(filename, literal)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to load values ctx: %s", err)
 	}
 
 	resourcesContext, err := loadResourcesContext(filename, literal)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to load resources ctx: %s", err)
 	}
 
 	resourceLookup, err := loadResorceLookup(filename, literal, valuesContext)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to load resources lookup: %s", err)
 	}
 
 	pipelines, err := loadPipelines(filename, literal, resourcesContext, resourceLookup)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("failed to load pipelines: %s", err)
 	}
 
 	return pipelines, valuesContext, nil
@@ -54,7 +54,7 @@ func ReadDirectory(directory string) ([]byte, error) {
 	literal := bytes.NewBuffer(nil)
 	paths, err := os.ReadDir(directory)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read files in %s: %s", directory, err)
 	}
 
 	for _, each := range paths {
@@ -63,11 +63,11 @@ func ReadDirectory(directory string) ([]byte, error) {
 		}
 
 		if content, err := os.ReadFile(path.Join(directory, each.Name())); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed reading %s: %s", each.Name(), err)
 		} else {
 			literal.Write(content)
 		}
 	}
 
-	return literal.Bytes(), err
+	return literal.Bytes(), nil
 }
