@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -12,7 +13,39 @@ import (
 
 var NAME = "psyduck"
 var SUBCOMMANDS = [...]string{
+	"init",
 	"run",
+}
+
+func cmdinit(ctx *cli.Context) error { // init is a different thing in go
+	literal, err := configure.ReadDirectory(ctx.String("chdir"))
+	if err != nil {
+		return err
+	}
+
+	filename := path.Base(ctx.String("chdir"))
+	_, evalCtx, err := configure.Literal(filename, literal)
+	if err != nil {
+		return err
+	}
+
+	initPath := path.Join(ctx.String("chdir"), ".psyduck")
+	err = os.MkdirAll(initPath, os.ModeDir|os.ModePerm)
+	if err != nil {
+		return err
+	}
+
+	pluginPaths, err := configure.CollectPlugins(initPath, filename, literal, evalCtx)
+	if err != nil {
+		return err
+	}
+
+	b, err := json.Marshal(pluginPaths)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path.Join(initPath, "plugin.json"), b, 0o644)
 }
 
 func run(ctx *cli.Context) error {
@@ -22,14 +55,15 @@ func run(ctx *cli.Context) error {
 	}
 
 	filename := path.Base(ctx.String("chdir"))
-	descriptors, exprContext, err := configure.Literal(filename, literal)
+	descriptors, evalCtx, err := configure.Literal(filename, literal)
 	if err != nil {
 		return err
 	}
 
-	plugins, diags := configure.LoadPlugins(ctx.String("plugin"), filename, literal, exprContext)
-	if diags.HasErrors() {
-		return diags
+	initPath := path.Join(ctx.String("chdir"), ".psyduck")
+	plugins, err := configure.LoadPlugins(initPath, filename, literal, evalCtx)
+	if err != nil {
+		return err
 	}
 
 	library := core.NewLibrary()
@@ -43,7 +77,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, exprContext, library)
+	pipeline, err := core.BuildPipeline(descriptor, evalCtx, library)
 	if err != nil {
 		return err
 	}
@@ -86,6 +120,12 @@ func main() {
 						Required: true,
 					},
 				},
+			},
+			{
+				Name:   "init",
+				Usage:  "init a pipeline workspace",
+				Action: cmdinit,
+				Flags:  []cli.Flag{},
 			},
 		},
 	}

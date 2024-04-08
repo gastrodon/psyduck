@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,22 +43,25 @@ func getPluginKind(descriptor pluginBlock) int {
 /*
 Fetch plugins, cloning and building them if necessary
 Returns an absolute filepath pointing to a loadable shared library
+
+cachePath is a tmpdir to work in while building
+binPath is where built .so files will live
 */
-func fetchPlugin(cachePath, basePath string, descriptor pluginBlock) (string, error) {
+func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, error) {
 	switch getPluginKind(descriptor) {
 	case pluginLocal:
 		soPath := descriptor.Source
 
 		if !filepath.IsAbs(soPath) {
-			soPath = filepath.Join(basePath, soPath)
+			soPath = filepath.Join(binPath, soPath)
 		}
 
 		return filepath.Abs(soPath)
 
 	case pluginRemote:
-		soPath, err := filepath.Abs(path.Join(basePath, path.Base(descriptor.Source)+".so"))
+		soPath, err := filepath.Abs(path.Join(binPath, path.Base(descriptor.Source)+".so"))
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to get abspath for .so: %s", err)
 		}
 
 		pkgCache := path.Join(cachePath, descriptor.Source)
@@ -83,83 +87,61 @@ func fetchPlugin(cachePath, basePath string, descriptor pluginBlock) (string, er
 	}
 }
 
-func loadPlugin(cachePath, basePath string, descriptor pluginBlock) (*sdk.Plugin, *hcl.Diagnostic) {
-	pluginPath, err := fetchPlugin(cachePath, basePath, descriptor)
-	if err != nil {
-		return nil, &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "cannot fetch plugin",
-			Detail: fmt.Sprintf(
-				"failed fetching the library providing %s ( %s ):\n%s",
-				descriptor.Name, descriptor.Source, err,
-			),
-		}
-	}
-
+func loadPlugin(pluginPath string, descriptor pluginBlock) (*sdk.Plugin, error) {
 	plugin, err := plugin.Open(pluginPath)
 	if err != nil {
-		return nil, &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "cannot load plugin",
-			Detail: fmt.Sprintf(
-				"failed loading the library providing %s ( %s @ %s ):\n%s",
-				descriptor.Name, descriptor.Source, pluginPath, err,
-			),
-		}
+		return nil, fmt.Errorf("failed loading the library providing %s ( %s @ %s ):\n%s",
+			descriptor.Name, descriptor.Source, pluginPath, err)
 	}
 
 	makePluginSym, err := plugin.Lookup("Plugin")
 	if err != nil {
-		return nil, &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "cannot load provider func",
-			Detail: fmt.Sprintf(
-				"failed loading the provider func for %s:\n%s",
-				descriptor.Name, err,
-			),
-		}
+		return nil, fmt.Errorf("failed loading the provider func for %s:\n%s", descriptor.Name, err)
 	}
 
 	if makePluginSym == nil {
-		return nil, &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "cannot load provider func",
-			Detail: fmt.Sprintf(
-				"failed loading the provider func for %s:\nLookup \"Plugin\" is nil",
-				descriptor.Name,
-			),
-		}
+		return nil, fmt.Errorf("failed loading the provider func for %s:\nLookup \"Plugin\" is nil", descriptor.Name)
 	}
 
 	makePlugin, ok := makePluginSym.(func() *sdk.Plugin)
 	if !ok {
-		return nil, &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  "cannot load provider func",
-			Detail: fmt.Sprintf(
-				"failed loading the provider func for %s:\nnot OK: %+v",
-				descriptor.Name, makePluginSym,
-			),
-		}
+		return nil, fmt.Errorf("failed loading the provider func for %s:\nnot OK: %+v", descriptor.Name, makePluginSym)
 	}
 
 	return makePlugin(), nil
 }
 
-func loadPlugins(cachePath, basePath string, descriptors *pluginBlocks) (map[string]*sdk.Plugin, hcl.Diagnostics) {
-	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
-	diags := make(hcl.Diagnostics, len(descriptors.Blocks))
-	diagIndex := 0
-	for _, descriptor := range descriptors.Blocks {
-		if plugin, diag := loadPlugin(cachePath, basePath, descriptor); diag != nil {
-			diags[diagIndex] = diag
-			diagIndex++
-		} else {
-			plugins[plugin.Name] = plugin
+func collectPlugins(cachePath, binPath string, descriptors *pluginBlocks) (map[string]string, error) {
+	collected := make(map[string]string, len(descriptors.Blocks))
+	for _, desc := range descriptors.Blocks {
+		loc, err := fetchPlugin(cachePath, binPath, desc)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch %s: %s", desc.Name, err)
 		}
+
+		collected[desc.Name] = loc
 	}
 
-	return plugins, diags[:diagIndex]
+	return collected, nil
+}
+
+func loadPlugins(binPaths map[string]string, descriptors *pluginBlocks) (map[string]*sdk.Plugin, error) {
+	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
+	for _, descriptor := range descriptors.Blocks {
+		binPath, ok := binPaths[descriptor.Name]
+		if !ok {
+			return nil, fmt.Errorf("binary not found for plugin %s", descriptor.Name)
+		}
+
+		plugin, err := loadPlugin(binPath, descriptor)
+		if err != nil {
+			return nil, fmt.Errorf("unable to load plugin %s: %s", descriptor.Name, err)
+		}
+
+		plugins[plugin.Name] = plugin
+	}
+
+	return plugins, nil
 }
 
 func readPluginBlocks(filename string, literal []byte, evalCtx *hcl.EvalContext) (*pluginBlocks, hcl.Diagnostics) {
@@ -172,40 +154,54 @@ func readPluginBlocks(filename string, literal []byte, evalCtx *hcl.EvalContext)
 	}
 }
 
-func LoadPlugins(basePath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
-	basePathAbs, err := filepath.Abs(basePath)
-	if err != nil {
-		return nil, []*hcl.Diagnostic{{
-			Severity:    hcl.DiagError,
-			Summary:     "failed to resolve plugin output dir",
-			Detail:      fmt.Sprintf("failed to resolve plugin output dir %s:\n%s", basePath, err),
-			EvalContext: evalCtx,
-		}}
-	}
-
-	if descriptors, diags := readPluginBlocks(filename, literal, evalCtx); diags.HasErrors() {
+func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]string, error) {
+	descriptors, diags := readPluginBlocks(filename, literal, evalCtx)
+	if diags.HasErrors() {
 		return nil, diags
-	} else {
-		cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
-		if err != nil {
-			return nil, []*hcl.Diagnostic{{
-				Severity:    hcl.DiagError,
-				Summary:     "failed to create build cache dir",
-				Detail:      fmt.Sprintf("failed to create build cache dir:\n%s", err),
-				EvalContext: evalCtx,
-			}}
-		}
-
-		loaded, diags := loadPlugins(cachePath, basePathAbs, descriptors)
-		if err := os.RemoveAll(cachePath); err != nil {
-			diags = append(diags, &hcl.Diagnostic{
-				Severity:    hcl.DiagWarning,
-				Summary:     "failed to cleanup build cache dir",
-				Detail:      fmt.Sprintf("failed to cleanup build cache dir at %s:\n%s", cachePath, err),
-				EvalContext: evalCtx,
-			})
-		}
-
-		return loaded, diags
 	}
+
+	cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to cache dir: %s", err)
+	}
+
+	binPath := path.Join(initPath, "plugins")
+	if err := os.MkdirAll(binPath, os.ModeDir|os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create binpath: %s", err)
+	}
+
+	collected, err := collectPlugins(cachePath, binPath, descriptors)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect: %s", err)
+	}
+
+	if err := os.RemoveAll(cachePath); err != nil {
+		return nil, fmt.Errorf("failed to rm cachepath: %s", err)
+	}
+
+	return collected, nil
+}
+
+func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]*sdk.Plugin, error) {
+	descriptors, diags := readPluginBlocks(filename, literal, evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	b, err := os.ReadFile(path.Join(initPath, "plugin.json"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read plugin.json: %s", err)
+	}
+
+	binPaths := make(map[string]string, len(descriptors.Blocks))
+	if err := json.Unmarshal(b, &binPaths); err != nil {
+		return nil, fmt.Errorf("failed to decode binPaths: %s", err)
+	}
+
+	loaded, err := loadPlugins(binPaths, descriptors)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load plugins from json: %s", err)
+	}
+
+	return loaded, nil
 }
