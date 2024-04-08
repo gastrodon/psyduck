@@ -3,10 +3,10 @@ package core
 import (
 	"fmt"
 
-	"github.com/gastrodon/psyduck/core/gocty"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/gocty"
 )
 
 func toListVal(value cty.Value) cty.Value {
