@@ -104,26 +104,28 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 }
 
 func loadPipelines(filename string, literal []byte, evalCtx *hcl.EvalContext, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
-	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
+	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+	if diags.HasErrors() {
 		return nil, diags
-	} else {
-		if value, _, diags := hcldec.PartialDecode(file.Body, pipelineBlockSpec, evalCtx); diags != nil {
-			return nil, diags
+	}
+
+	value, _, diags := hcldec.PartialDecode(file.Body, pipelineBlockSpec, evalCtx)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	refs := make(map[string]*pipelineBlock, value.LengthInt())
+	iter := value.ElementIterator()
+
+	for iter.Next() {
+		key, each := iter.Element()
+		ref := new(pipelineBlock)
+		if err := gocty.FromCtyValue(each, ref); err != nil {
+			return nil, err
 		} else {
-			refs := make(map[string]*pipelineBlock, value.LengthInt())
-			iter := value.ElementIterator()
-
-			for iter.Next() {
-				key, each := iter.Element()
-				ref := new(pipelineBlock)
-				if err := gocty.FromCtyValue(each, ref); err != nil {
-					return nil, err
-				} else {
-					refs[key.AsString()] = ref
-				}
-			}
-
-			return lookupPipelines(refs, lookup)
+			refs[key.AsString()] = ref
 		}
 	}
+
+	return lookupPipelines(refs, lookup)
 }
