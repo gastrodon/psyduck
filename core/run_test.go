@@ -38,7 +38,7 @@ func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
 		}(index)
 	}
 
-	return joinProducers(producers), func() []int { return counts }
+	return joinProducers(producers, pipelineLogger()), func() []int { return counts }
 }
 
 func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
@@ -61,7 +61,7 @@ func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
 
 	}
 
-	return joinConsumers(consumers), func() []int { return counts }
+	return joinConsumers(consumers, pipelineLogger()), func() []int { return counts }
 }
 
 func testPipeline(testcase testPipelineCase) error {

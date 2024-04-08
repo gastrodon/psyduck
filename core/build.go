@@ -1,18 +1,44 @@
 package core
 
 import (
-	"fmt"
+	"os"
 	"sync"
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
+	"github.com/sirupsen/logrus"
 )
 
 type Pipeline struct {
 	Producer    sdk.Producer
 	Consumer    sdk.Consumer
 	Transformer sdk.Transformer
+	logger      *logrus.Logger
+}
+
+func pipelineLogger() *logrus.Logger {
+	l := logrus.New()
+	l.ReportCaller = true
+
+	switch os.Getenv("PSYDUCK_LOG_LEVEL") {
+	case "trace":
+		l.SetLevel(logrus.TraceLevel)
+	case "debug":
+		l.SetLevel(logrus.DebugLevel)
+	case "warn":
+		l.SetLevel(logrus.WarnLevel)
+	case "error":
+		l.SetLevel(logrus.ErrorLevel)
+	case "fatal":
+		l.SetLevel(logrus.FatalLevel)
+	case "panic":
+		l.SetLevel(logrus.PanicLevel)
+	default:
+		l.SetLevel(logrus.InfoLevel)
+	}
+
+	return l
 }
 
 func mchan[T any](c int) []chan T {
@@ -23,7 +49,7 @@ func mchan[T any](c int) []chan T {
 	return g
 }
 
-func join[T any](group []chan T) chan T {
+func join[T any](group []chan T, ent *logrus.Entry) chan T {
 	joined := make(chan T)
 	closer := make(chan struct{})
 
@@ -36,23 +62,17 @@ func join[T any](group []chan T) chan T {
 			cLock.Unlock()
 		}
 
-		fmt.Println("tee: all groups closed")
+		ent.Trace("closing all of the groups")
 		close(joined)
 	}(len(group))
 
 	for i := range group {
 		go func(ishadow int, closer chan<- struct{}) { // goroutine forwarder for every c in group
-			defer func() {
-				if err := recover(); err != nil {
-					fmt.Printf("RECOVER tee: recovered from %d: %s\n", ishadow, err)
-					panic(err)
-				}
-			}()
-
 			for msg := range group[ishadow] {
 				joined <- msg
 			}
 
+			ent.Tracef("forwarder %d exhausted", ishadow)
 			closer <- struct{}{}
 		}(i, closer)
 	}
@@ -63,7 +83,7 @@ func join[T any](group []chan T) chan T {
 /*
 Join a collection of producers into a single in the order received
 */
-func joinProducers(producers []sdk.Producer) sdk.Producer {
+func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer {
 	if len(producers) == 1 {
 		return producers[0]
 	}
@@ -71,8 +91,8 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 	gData := mchan[[]byte](len(producers))
 	gErrs := mchan[error](len(producers))
 
-	tData := join(gData)
-	tErrs := join(gErrs)
+	tData := join(gData, logger.WithField("joined", "data"))
+	tErrs := join(gErrs, logger.WithField("joined", "errs"))
 	return func(dataOut chan<- []byte, errs chan<- error) {
 		for i := 0; i < len(producers); i++ {
 			go producers[i](gData[i], gErrs[i])
@@ -83,25 +103,28 @@ func joinProducers(producers []sdk.Producer) sdk.Producer {
 			select {
 			case msg := <-tData:
 				if msg == nil {
+					logger.Trace("tData closed, breaking out")
 					break out
 				}
 
 				dataOut <- msg
 			case err := <-tErrs:
-				errs <- err
+				if err != nil {
+					logger.Error(err)
+					errs <- err
+				}
 			}
 		}
 
-		fmt.Println("joinProducers: closing dataOut")
+		logger.Trace("closing dataOut")
 		close(dataOut)
-		fmt.Println("joinProducers: closing dataOut OK")
 	}
 }
 
 /*
 Join a collection of consumers into a single that passes data to consumers in order
 */
-func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
+func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer {
 	if len(consumers) == 1 {
 		return consumers[0]
 	}
@@ -110,8 +133,8 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 	gDone := mchan[struct{}](len(consumers))
 	split := mchan[[]byte](len(consumers))
 
-	tErrs := join(gErrs)
-	tDone := join(gDone)
+	tErrs := join(gErrs, logger.WithField("joined", "errs"))
+	tDone := join(gDone, logger.WithField("joined", "done"))
 	return func(dataRecv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		for i := range split {
 			go consumers[i](split[i], gErrs[i], gDone[i])
@@ -122,24 +145,24 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 			select {
 			case msg := <-dataRecv:
 				if msg == nil {
+					logger.Trace("dataRecv closed, jumping out")
 					break out
 				}
 
 				for i := range split {
-					fmt.Printf("joinConsumers: fwd to split[%d]\n", i)
 					split[i] <- msg
-					fmt.Printf("joinConsumers: fwd to split[%d] OK\n", i)
+					logger.Tracef("fwd to split[%d]\n", i)
 				}
 
 			case err := <-tErrs:
+				logger.Error(err)
 				errs <- err
 			}
 		}
 
 		for i := range split {
-			fmt.Printf("joinConsumers: close split[%d]\n", i)
+			logger.Tracef("closing split[%d]\n", i)
 			close(split[i])
-			fmt.Printf("joinConsumers: close split[%d] OK\n", i)
 		}
 
 		closed, cLock := 0, new(sync.Mutex)
@@ -153,9 +176,8 @@ func joinConsumers(consumers []sdk.Consumer) sdk.Consumer {
 			cLock.Unlock()
 		}
 
-		fmt.Println("joinConsumers: close provided done")
+		logger.Trace("closing provided done")
 		close(done)
-		fmt.Println("joinConsumers: close provided done OK")
 	}
 }
 
@@ -193,10 +215,10 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, library *Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library *Library) (*Pipeline, error) {
 	producers := make([]sdk.Producer, len(descriptor.Producers))
 	for index, produceDescriptor := range descriptor.Producers {
-		producer, err := library.ProvideProducer(produceDescriptor.Kind, context, produceDescriptor.Options)
+		producer, err := library.ProvideProducer(produceDescriptor.Kind, evalCtx, produceDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -206,7 +228,7 @@ func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, lib
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, context, consumeDescriptor.Options)
+		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -216,7 +238,7 @@ func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, lib
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, context, transformDescriptor.Options)
+		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -224,9 +246,11 @@ func BuildPipeline(descriptor *configure.Pipeline, context *hcl.EvalContext, lib
 		transformers[index] = transformer
 	}
 
+	logger := pipelineLogger()
 	return &Pipeline{
-		Producer:    joinProducers(producers),
-		Consumer:    joinConsumers(consumers),
+		Producer:    joinProducers(producers, logger),
+		Consumer:    joinConsumers(consumers, logger),
 		Transformer: stackTransform(transformers),
+		logger:      logger,
 	}, nil
 }
