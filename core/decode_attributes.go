@@ -46,9 +46,10 @@ func decodeAttributes(spec sdk.SpecMap, context *hcl.EvalContext, attributes hcl
 		if fieldValue.IsNull() {
 			if fieldSpec.Required {
 				diags = diags.Append(&hcl.Diagnostic{
-					Severity: hcl.DiagError,
-					Summary:  "value required",
-					Detail:   fmt.Sprintf("a value is required for %s", fieldSpec.Name),
+					Severity:    hcl.DiagError,
+					Summary:     "value required",
+					Detail:      fmt.Sprintf("a value is required for %s", fieldSpec.Name),
+					EvalContext: context,
 				})
 			} else {
 				valuesDecode[name] = fieldSpec.Default
@@ -72,7 +73,12 @@ func decodeAttributes(spec sdk.SpecMap, context *hcl.EvalContext, attributes hcl
 	}
 
 	if err := gocty.FromCtyValueTagged(cty.ObjectVal(valuesDecode), target, "psy"); err != nil {
-		panic(err)
+		diags.Append(&hcl.Diagnostic{
+			Severity:    hcl.DiagError,
+			Summary:     "fromCtyValueTagged failed",
+			Detail:      fmt.Sprintf("failed to decode cty value: %s", err),
+			EvalContext: context,
+		})
 	}
 
 	return diags

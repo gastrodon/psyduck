@@ -176,12 +176,10 @@ func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalCon
 	basePathAbs, err := filepath.Abs(basePath)
 	if err != nil {
 		return nil, []*hcl.Diagnostic{{
-			Severity: hcl.DiagError,
-			Summary:  "failed to resolve plugin output dir",
-			Detail: fmt.Sprintf(
-				"failed to resolve plugin output dir %s:\n%s",
-				basePath, err,
-			),
+			Severity:    hcl.DiagError,
+			Summary:     "failed to resolve plugin output dir",
+			Detail:      fmt.Sprintf("failed to resolve plugin output dir %s:\n%s", basePath, err),
+			EvalContext: context,
 		}}
 	}
 
@@ -191,21 +189,20 @@ func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalCon
 		cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
 		if err != nil {
 			return nil, []*hcl.Diagnostic{{
-				Severity: hcl.DiagError,
-				Summary:  "failed to create build cache dir",
-				Detail:   fmt.Sprintf("failed to create build cache dir:\n%s", err),
+				Severity:    hcl.DiagError,
+				Summary:     "failed to create build cache dir",
+				Detail:      fmt.Sprintf("failed to create build cache dir:\n%s", err),
+				EvalContext: context,
 			}}
 		}
 
 		loaded, diags := loadPlugins(cachePath, basePathAbs, descriptors)
 		if err := os.RemoveAll(cachePath); err != nil {
 			diags = append(diags, &hcl.Diagnostic{
-				Severity: hcl.DiagWarning,
-				Summary:  "failed to cleanup build cache dir",
-				Detail: fmt.Sprintf(
-					"failed to cleanup build cache dir at %s:\n%s",
-					cachePath, err,
-				),
+				Severity:    hcl.DiagWarning,
+				Summary:     "failed to cleanup build cache dir",
+				Detail:      fmt.Sprintf("failed to cleanup build cache dir at %s:\n%s", cachePath, err),
+				EvalContext: context,
 			})
 		}
 
