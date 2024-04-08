@@ -1,8 +1,10 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/hashicorp/hcl/v2"
@@ -205,6 +207,63 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
+func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, library *Library, logger *logrus.Logger) (sdk.Producer, error) {
+	if descriptor.RemoteProducer != nil {
+		logger.Trace("getting remote producer")
+		p, err := library.ProvideProducer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
+		if err != nil {
+			return nil, err
+		}
+
+		// this is already scuffed
+		t := time.NewTimer(10 * time.Second)
+		defer t.Stop()
+		send, errs := make(chan []byte), make(chan error)
+		go p(send, errs)
+		select {
+		case <-t.C:
+			return nil, fmt.Errorf("timeout getting anything from the meta-producer") // stupid name? hardcoded timeout? I will fix it later TODO
+		case err := <-errs:
+			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
+		case msg := <-send:
+			parts, err := configure.Partial("remote-producer", msg, context)
+			if err != nil {
+				return nil, fmt.Errorf("failed to configure remote: %s", err)
+			}
+
+			return collectProducer(&configure.Pipeline{
+				Name:           descriptor.Name,
+				RemoteProducer: nil,
+				Producers:      parts.Producers,
+				Consumers:      descriptor.Consumers,
+				Transformers:   descriptor.Transformers,
+				StopAfter:      descriptor.StopAfter,
+			}, context, library, logger)
+		}
+	}
+
+	logger.Trace("config literal producer")
+	switch len(descriptor.Producers) {
+	case 0:
+		return nil, fmt.Errorf("1 or more producer is required")
+	case 1:
+		logger.Trace("only one producer")
+		return library.ProvideProducer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
+	default:
+		producers := make([]sdk.Producer, len(descriptor.Producers))
+		for index, produceDescriptor := range descriptor.Producers {
+			producer, err := library.ProvideProducer(produceDescriptor.Kind, context, produceDescriptor.Options)
+			if err != nil {
+				return nil, err
+			}
+
+			producers[index] = producer
+		}
+
+		return joinProducers(producers, logger), nil
+	}
+}
+
 /*
 descriptor is a parsed `pipeline {}` block of hcl
 context is an hcl evaluation context, used to resolve values in descriptor
@@ -216,14 +275,10 @@ Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
 func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library *Library) (*Pipeline, error) {
-	producers := make([]sdk.Producer, len(descriptor.Producers))
-	for index, produceDescriptor := range descriptor.Producers {
-		producer, err := library.ProvideProducer(produceDescriptor.Kind, evalCtx, produceDescriptor.Options)
-		if err != nil {
-			return nil, err
-		}
-
-		producers[index] = producer
+	logger := pipelineLogger()
+	producer, err := collectProducer(descriptor, evalCtx, library, logger)
+	if err != nil {
+		return nil, err
 	}
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
@@ -246,9 +301,8 @@ func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, lib
 		transformers[index] = transformer
 	}
 
-	logger := pipelineLogger()
 	return &Pipeline{
-		Producer:    joinProducers(producers, logger),
+		Producer:    producer,
 		Consumer:    joinConsumers(consumers, logger),
 		Transformer: stackTransform(transformers),
 		logger:      logger,
