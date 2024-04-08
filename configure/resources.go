@@ -38,14 +38,14 @@ func loadResourceSlice(namespace string, resources []*pipelinePart) (cty.Value, 
 	return cty.ObjectVal(refs), nil
 }
 
-func loadResources(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, error) {
+func loadResources(filename string, literal []byte, evalCtx *hcl.EvalContext) (*pipelineParts, error) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags != nil {
 		return nil, diags
 	}
 
 	resources := new(pipelineParts)
-	gohcl.DecodeBody(file.Body, context, resources)
+	gohcl.DecodeBody(file.Body, evalCtx, resources)
 	return resources, nil
 }
 
@@ -78,8 +78,8 @@ func loadResourcesContext(filename string, literal []byte) (*hcl.EvalContext, er
 	}
 }
 
-func loadResorceLookup(filename string, literal []byte, context *hcl.EvalContext) (map[string]*pipelinePart, error) {
-	if resources, err := loadResources(filename, literal, context); err != nil {
+func loadResorceLookup(filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]*pipelinePart, error) {
+	if resources, err := loadResources(filename, literal, evalCtx); err != nil {
 		return nil, err
 	} else {
 		lookupSize := len(resources.Producers) + len(resources.Consumers) + len(resources.Transformers)

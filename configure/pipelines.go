@@ -81,11 +81,11 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 	return pipelines, nil
 }
 
-func loadPipelines(filename string, literal []byte, context *hcl.EvalContext, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
+func loadPipelines(filename string, literal []byte, evalCtx *hcl.EvalContext, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
 	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
 	} else {
-		if value, _, diags := hcldec.PartialDecode(file.Body, pipelineBlockSpec, context); diags != nil {
+		if value, _, diags := hcldec.PartialDecode(file.Body, pipelineBlockSpec, evalCtx); diags != nil {
 			return nil, diags
 		} else {
 			refs := make(map[string]*pipelineBlock, value.LengthInt())

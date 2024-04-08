@@ -162,28 +162,28 @@ func loadPlugins(cachePath, basePath string, descriptors *pluginBlocks) (map[str
 	return plugins, diags[:diagIndex]
 }
 
-func readPluginBlocks(filename string, literal []byte, context *hcl.EvalContext) (*pluginBlocks, hcl.Diagnostics) {
+func readPluginBlocks(filename string, literal []byte, evalCtx *hcl.EvalContext) (*pluginBlocks, hcl.Diagnostics) {
 	target := new(pluginBlocks)
 	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
 		return nil, diags
 	} else {
-		gohcl.DecodeBody(file.Body, context, target)
+		gohcl.DecodeBody(file.Body, evalCtx, target)
 		return target, make(hcl.Diagnostics, 0)
 	}
 }
 
-func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
+func LoadPlugins(basePath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]*sdk.Plugin, hcl.Diagnostics) {
 	basePathAbs, err := filepath.Abs(basePath)
 	if err != nil {
 		return nil, []*hcl.Diagnostic{{
 			Severity:    hcl.DiagError,
 			Summary:     "failed to resolve plugin output dir",
 			Detail:      fmt.Sprintf("failed to resolve plugin output dir %s:\n%s", basePath, err),
-			EvalContext: context,
+			EvalContext: evalCtx,
 		}}
 	}
 
-	if descriptors, diags := readPluginBlocks(filename, literal, context); diags.HasErrors() {
+	if descriptors, diags := readPluginBlocks(filename, literal, evalCtx); diags.HasErrors() {
 		return nil, diags
 	} else {
 		cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
@@ -192,7 +192,7 @@ func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalCon
 				Severity:    hcl.DiagError,
 				Summary:     "failed to create build cache dir",
 				Detail:      fmt.Sprintf("failed to create build cache dir:\n%s", err),
-				EvalContext: context,
+				EvalContext: evalCtx,
 			}}
 		}
 
@@ -202,7 +202,7 @@ func LoadPlugins(basePath, filename string, literal []byte, context *hcl.EvalCon
 				Severity:    hcl.DiagWarning,
 				Summary:     "failed to cleanup build cache dir",
 				Detail:      fmt.Sprintf("failed to cleanup build cache dir at %s:\n%s", cachePath, err),
-				EvalContext: context,
+				EvalContext: evalCtx,
 			})
 		}
 

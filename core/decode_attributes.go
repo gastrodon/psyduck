@@ -21,20 +21,20 @@ func toListVal(value cty.Value) cty.Value {
 	return cty.ListVal(items)
 }
 
-func getAttributeValue(attributes hcl.Attributes, name string, context *hcl.EvalContext) (cty.Value, hcl.Diagnostics) {
+func getAttributeValue(attributes hcl.Attributes, name string, evalCtx *hcl.EvalContext) (cty.Value, hcl.Diagnostics) {
 	if attr, ok := attributes[name]; ok {
-		return attr.Expr.Value(context)
+		return attr.Expr.Value(evalCtx)
 	} else {
 		return cty.NilVal, nil
 	}
 }
 
-func decodeAttributes(spec sdk.SpecMap, context *hcl.EvalContext, attributes hcl.Attributes, target interface{}) hcl.Diagnostics {
+func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl.Attributes, target interface{}) hcl.Diagnostics {
 	diags := hcl.Diagnostics{}
 
 	valuesDecode := make(map[string]cty.Value)
 	for name, fieldSpec := range spec {
-		fieldValue, diagsValue := getAttributeValue(attributes, name, context)
+		fieldValue, diagsValue := getAttributeValue(attributes, name, evalCtx)
 		if diagsValue.HasErrors() {
 			for _, each := range diagsValue {
 				diags = diags.Append(each)
@@ -49,7 +49,7 @@ func decodeAttributes(spec sdk.SpecMap, context *hcl.EvalContext, attributes hcl
 					Severity:    hcl.DiagError,
 					Summary:     "value required",
 					Detail:      fmt.Sprintf("a value is required for %s", fieldSpec.Name),
-					EvalContext: context,
+					EvalContext: evalCtx,
 				})
 			} else {
 				valuesDecode[name] = fieldSpec.Default
@@ -77,7 +77,7 @@ func decodeAttributes(spec sdk.SpecMap, context *hcl.EvalContext, attributes hcl
 			Severity:    hcl.DiagError,
 			Summary:     "fromCtyValueTagged failed",
 			Detail:      fmt.Sprintf("failed to decode cty value: %s", err),
-			EvalContext: context,
+			EvalContext: evalCtx,
 		})
 	}
 

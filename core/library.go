@@ -34,14 +34,14 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	}
 }
 
-func makeParser(providedSpecMap sdk.SpecMap, context *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
+func makeParser(providedSpecMap sdk.SpecMap, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
 	parser := func(spec sdk.SpecMap, target interface{}) error {
 		content, _, diags := config.PartialContent(makeBodySchema(spec))
 		if diags.HasErrors() {
 			return diags
 		}
 
-		if diags := decodeAttributes(spec, context, content.Attributes, target); diags.HasErrors() {
+		if diags := decodeAttributes(spec, evalCtx, content.Attributes, target); diags.HasErrors() {
 			return diags
 		}
 
@@ -62,7 +62,7 @@ func NewLibrary() *Library {
 				lookupResource[resource.Name] = resource
 			}
 		},
-		ProvideProducer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
+		ProvideProducer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -72,9 +72,9 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 			}
 
-			return found.ProvideProducer(makeParser(found.Spec, context, config))
+			return found.ProvideProducer(makeParser(found.Spec, evalCtx, config))
 		},
-		ProvideConsumer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
+		ProvideConsumer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -84,9 +84,9 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideConsumer(makeParser(found.Spec, context, config))
+			return found.ProvideConsumer(makeParser(found.Spec, evalCtx, config))
 		},
-		ProvideTransformer: func(name string, context *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
+		ProvideTransformer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -96,7 +96,7 @@ func NewLibrary() *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideTransformer(makeParser(found.Spec, context, config))
+			return found.ProvideTransformer(makeParser(found.Spec, evalCtx, config))
 		},
 	}
 }
