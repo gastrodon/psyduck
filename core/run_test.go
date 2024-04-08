@@ -126,3 +126,37 @@ func Test_RunPipeline(test *testing.T) {
 		}
 	}
 }
+
+func Test_RunPipeline_filtering(test *testing.T) {
+	received, limit, fac := byte(0), byte(100), byte(2)
+	testcase := &Pipeline{
+		Producer: func(send chan<- []byte, errs chan<- error) {
+			for i := byte(0); i < limit; i++ {
+				send <- []byte{i}
+			}
+			close(send)
+		},
+		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			for range recv {
+				received++
+			}
+
+			close(done)
+		},
+		Transformer: func(in []byte) ([]byte, error) {
+			if in[0]%fac != fac-1 {
+				return nil, nil
+
+			}
+			return in, nil
+		},
+	}
+
+	if err := RunPipeline(testcase); err != nil {
+		test.Fatal(err)
+	}
+
+	if received != limit/fac {
+		test.Fatalf("recieved %d != %d/%d!", received, limit, fac)
+	}
+}

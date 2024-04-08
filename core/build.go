@@ -175,7 +175,7 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 
 	return func(data []byte) ([]byte, error) {
 		transformed, err := stackTransform(transformers[:tail])(data)
-		if err != nil {
+		if err != nil || transformed == nil {
 			return nil, err
 		}
 

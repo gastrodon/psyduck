@@ -33,6 +33,10 @@ func RunPipeline(pipeline *Pipeline) error {
 				errs <- fmt.Errorf("transformer supplied error: %s", err)
 			}
 
+			if transformed == nil {
+				continue
+			}
+
 			dataConsumer <- transformed
 		}
 
