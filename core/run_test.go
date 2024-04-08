@@ -160,3 +160,100 @@ func Test_RunPipeline_filtering(test *testing.T) {
 		test.Fatalf("recieved %d != %d/%d!", received, limit, fac)
 	}
 }
+
+func Test_RunPipeline_producerError(test *testing.T) {
+	recieved, errText := byte(0), "limit reached"
+	testcase := &Pipeline{
+		Producer: func(send chan<- []byte, errs chan<- error) {
+			for i := byte(0); i < 100; i++ {
+				send <- []byte{i}
+			}
+
+			errs <- fmt.Errorf(errText)
+		},
+		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			for range recv {
+				recieved++
+			}
+			close(done)
+		},
+		Transformer: func(in []byte) ([]byte, error) { return in, nil },
+	}
+
+	errWant := fmt.Errorf("producer supplied error: %s", errText)
+	if err := RunPipeline(testcase); err == nil {
+		test.Fatal("no error returned")
+	} else if err.Error() != errWant.Error() {
+		test.Fatalf("other error: %s != %s!", err, errWant)
+	}
+}
+
+func Test_RunPipeline_consumerError(test *testing.T) {
+	recieved, limit, errText := byte(0), byte(50), "limit reached"
+	testcase := &Pipeline{
+		Producer: func(send chan<- []byte, errs chan<- error) {
+			for i := byte(0); i < 100; i++ {
+				send <- []byte{i}
+			}
+
+		},
+		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			for range recv {
+				recieved++
+
+				if recieved == limit {
+					errs <- fmt.Errorf(errText)
+					return
+				}
+			}
+			close(done)
+		},
+		Transformer: func(in []byte) ([]byte, error) { return in, nil },
+	}
+
+	errWant := fmt.Errorf("consumer supplied error: %s", errText)
+	if err := RunPipeline(testcase); err == nil {
+		test.Fatal("no error returned")
+	} else if err.Error() != errWant.Error() {
+		test.Fatalf("other error: %s != %s!", err, errWant)
+	}
+
+	if recieved > limit {
+		test.Fatalf("recieved too many: %d > %d!", recieved, limit)
+	}
+}
+
+func Test_RunPipeline_transformerError(test *testing.T) {
+	recieved, limit, errText := byte(0), byte(50), "limit reached"
+	testcase := &Pipeline{
+		Producer: func(send chan<- []byte, errs chan<- error) {
+			for i := byte(0); i < 100; i++ {
+				send <- []byte{i}
+			}
+
+		},
+		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			for range recv {
+				recieved++
+			}
+			close(done)
+		},
+		Transformer: func(in []byte) ([]byte, error) {
+			if recieved == limit {
+				return nil, fmt.Errorf(errText)
+			}
+			return in, nil
+		},
+	}
+
+	errWant := fmt.Errorf("transformer supplied error: %s", errText)
+	if err := RunPipeline(testcase); err == nil {
+		test.Fatal("no error returned")
+	} else if err.Error() != errWant.Error() {
+		test.Fatalf("other error: %s != %s!", err, errWant)
+	}
+
+	if recieved > limit {
+		test.Fatalf("recieved too many: %d > %d!", recieved, limit)
+	}
+}
