@@ -50,11 +50,9 @@ func join[T any](group []chan T) chan T {
 			}()
 
 			for msg := range group[ishadow] {
-				fmt.Printf("tee: send %d: %v\n", ishadow, msg)
 				joined <- msg
-				fmt.Printf("tee: send %d: %v OK\n", ishadow, msg)
 			}
-			fmt.Printf("tee: group[%d] was closed\n", ishadow)
+
 			closer <- struct{}{}
 		}(i, closer)
 	}
