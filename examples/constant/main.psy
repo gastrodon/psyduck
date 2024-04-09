@@ -1,5 +1,5 @@
 plugin "psyduck" {
-  source = "git@github.com:psyduck-std/psyduck"
+  source = "https://github.com/psyduck-std/psyduck"
 }
 
 consume "psyduck-trash" "trash" {}

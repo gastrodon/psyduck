@@ -24,7 +24,8 @@ const (
 )
 
 var (
-	pPluginGit = regexp.MustCompile(`git@.+:.*`)
+	pPluginGitSSH   = regexp.MustCompile(`git@.+:.*`)
+	pPluginGitHTTPS = regexp.MustCompile(`https:\/\/.*`)
 )
 
 // TODO this isn't very robust
@@ -33,7 +34,7 @@ func getPluginKind(descriptor pluginBlock) int {
 		return pluginUnknown
 	}
 
-	if pPluginGit.Match([]byte(descriptor.Source)) {
+	if pPluginGitSSH.Match([]byte(descriptor.Source)) || pPluginGitHTTPS.Match([]byte(descriptor.Source)) {
 		return pluginRemote
 	}
 

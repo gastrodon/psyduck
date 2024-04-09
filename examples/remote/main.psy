@@ -1,9 +1,9 @@
 plugin "psyduck" {
-  source = "git@github.com:psyduck-std/psyduck"
+  source = "https://github.com/psyduck-std/psyduck"
 }
 
 plugin "amqp" {
-  source = "git@github.com:psyduck-std/amqp"
+  source = "https://github.com/psyduck-std/amqp"
 }
 
 produce "psyduck-increment" "inc" {
