@@ -1,11 +1,9 @@
 plugin "psyduck" {
-  // source = "git@github.com:psyduck-std/psyduck"
-  source = "/home/eva/Documents/code/psyduck-std/psyduck"
+  source = "git@github.com:psyduck-std/psyduck"
 }
 
 plugin "amqp" {
-  // source = "git@github.com:psyduck-std/amqp"
-  source = "/home/eva/Documents/code/psyduck-std/amqp"
+  source = "git@github.com:psyduck-std/amqp"
 }
 
 produce "psyduck-increment" "inc" {
