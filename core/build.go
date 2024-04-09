@@ -212,7 +212,7 @@ func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, l
 		logger.Trace("getting remote producer")
 		p, err := library.ProvideProducer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
 
 		// this is already scuffed

@@ -62,18 +62,18 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 	for name, ref := range refs {
 		consumers, err := lookupRefSlice(ref.Consumers, lookup)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed looking up consumer ref slice: %s", err)
 		}
 
 		transformers, err := lookupRefSlice(ref.Transformers, lookup)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed looking up transformer ref slice: %s", err)
 		}
 
 		if ref.RemoteProducer != nil {
 			r, ok := lookup[*ref.RemoteProducer]
 			if !ok {
-				return nil, fmt.Errorf("can't find a resource %s", *ref.RemoteProducer)
+				return nil, fmt.Errorf("can't find a remote provider %s", *ref.RemoteProducer)
 			}
 
 			pipelines[name] = &Pipeline{
@@ -86,7 +86,7 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 		} else {
 			producers, err := lookupRefSlice(ref.Producers, lookup)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("can't find a provider ref slice: %s", err)
 			}
 
 			pipelines[name] = &Pipeline{
@@ -121,7 +121,7 @@ func loadPipelines(filename string, literal []byte, evalCtx *hcl.EvalContext, lo
 		key, each := iter.Element()
 		ref := new(pipelineBlock)
 		if err := gocty.FromCtyValue(each, ref); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to decode cty value: %s", err)
 		} else {
 			refs[key.AsString()] = ref
 		}

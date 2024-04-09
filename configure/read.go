@@ -14,12 +14,12 @@ import (
 
 func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, error) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
-	if diags != nil {
+	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	resources := new(pipelineParts)
-	if diags := gohcl.DecodeBody(file.Body, context, resources); !diags.HasErrors() {
+	if diags := gohcl.DecodeBody(file.Body, context, resources); diags.HasErrors() {
 		return nil, diags
 	}
 
