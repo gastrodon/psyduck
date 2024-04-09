@@ -1,0 +1,49 @@
+plugin "psyduck" {
+  // source = "git@github.com:psyduck-std/psyduck"
+  source = "/home/eva/Documents/code/psyduck-std/psyduck"
+}
+
+plugin "amqp" {
+  // source = "git@github.com:psyduck-std/amqp"
+  source = "/home/eva/Documents/code/psyduck-std/amqp"
+}
+
+produce "psyduck-increment" "inc" {
+  stop-after = 8
+}
+
+consume "amqp-queue" "src-constant" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue = "src-constant"
+}
+
+transform "psyduck-sprintf" "src" {
+  format = <<-EOF
+  produce "psyduck-constant" "remote" {
+    value = "%d"
+    stop-after = 10
+  }
+  EOF
+}
+
+transform "psyduck-inspect" "inspect" {}
+
+pipeline "ready-remote" {
+  produce = [produce.psyduck-increment.inc]
+  consume = [consume.amqp-queue.src-constant]
+  transform = [transform.psyduck-sprintf.src, transform.psyduck-inspect.inspect]
+}
+
+produce "amqp-queue" "src-constants" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue = "src-constant"
+  stop-after = 1
+}
+
+consume "psyduck-trash" "trash" {}
+
+pipeline "consume-remote" {
+  produce-from = produce.amqp-queue.src-constants
+  consume = [consume.psyduck-trash.trash]
+  transform = [transform.psyduck-inspect.inspect]
+}
