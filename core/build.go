@@ -248,7 +248,7 @@ func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, l
 		return nil, fmt.Errorf("1 or more producer is required")
 	case 1:
 		logger.Trace("only one producer")
-		return library.ProvideProducer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
+		return library.ProvideProducer(descriptor.Producers[0].Kind, context, descriptor.Producers[0].Options)
 	default:
 		producers := make([]sdk.Producer, len(descriptor.Producers))
 		for index, produceDescriptor := range descriptor.Producers {
