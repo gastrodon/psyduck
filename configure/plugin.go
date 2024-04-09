@@ -40,6 +40,21 @@ func getPluginKind(descriptor pluginBlock) int {
 	return pluginLocal
 }
 
+func buildPlugin(codePath, binPath string, descriptor pluginBlock) (string, error) {
+	soPath, err := filepath.Abs(path.Join(binPath, path.Base(descriptor.Source)+".so"))
+	if err != nil {
+		return "", fmt.Errorf("failed to get abspath for .so: %s", err)
+	}
+
+	cmdBuild := exec.Command("go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin")
+	println(strings.Join([]string{"go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin"}, " "))
+	if err := cmdBuild.Run(); err != nil {
+		return "", fmt.Errorf("failed to build %s: %s\nstdout: %v\nstderr: %v", codePath, err, cmdBuild.Stdout, cmdBuild.Stderr)
+	}
+
+	return soPath, nil
+}
+
 /*
 Fetch plugins, cloning and building them if necessary
 Returns an absolute filepath pointing to a loadable shared library
@@ -50,20 +65,27 @@ binPath is where built .so files will live
 func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, error) {
 	switch getPluginKind(descriptor) {
 	case pluginLocal:
-		soPath := descriptor.Source
+		stat, err := os.Stat(descriptor.Source)
+		if err != nil {
+			return "", err
+		}
 
+		if stat.IsDir() {
+			soPath, err := buildPlugin(descriptor.Source, binPath, descriptor)
+			if err != nil {
+				return "", fmt.Errorf("failed to build local plugin: %s", err)
+			}
+
+			return soPath, nil
+		}
+
+		soPath := descriptor.Source
 		if !filepath.IsAbs(soPath) {
 			soPath = filepath.Join(binPath, soPath)
 		}
 
 		return filepath.Abs(soPath)
-
 	case pluginRemote:
-		soPath, err := filepath.Abs(path.Join(binPath, path.Base(descriptor.Source)+".so"))
-		if err != nil {
-			return "", fmt.Errorf("failed to get abspath for .so: %s", err)
-		}
-
 		pkgCache := path.Join(cachePath, descriptor.Source)
 		cmdClone := exec.Command("git", "clone", descriptor.Source, pkgCache)
 		println(strings.Join([]string{"git", "clone", descriptor.Source, pkgCache}, " "))
@@ -71,14 +93,7 @@ func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, err
 			return "", fmt.Errorf("failed to clone %s: %s\nstdout: %v\nstderr: %v", descriptor.Source, err, cmdClone.Stdout, cmdClone.Stderr)
 		}
 
-		cmdBuild := exec.Command("go", "build", "-C", pkgCache, "-o", soPath, "-buildmode", "plugin")
-		println(strings.Join([]string{"go", "build", "-C", pkgCache, "-o", soPath, "-buildmode", "plugin"}, " "))
-		if err := cmdBuild.Run(); err != nil {
-			return "", fmt.Errorf("failed to build %s: %s\nstdout: %v\nstderr: %v", pkgCache, err, cmdBuild.Stdout, cmdBuild.Stderr)
-		}
-
-		return soPath, nil
-
+		return buildPlugin(pkgCache, binPath, descriptor)
 	default:
 		return "", fmt.Errorf(
 			"unable to find a suitable way to fetch %s! descriptor:\n%#v",
