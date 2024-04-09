@@ -52,7 +52,7 @@ type pipelineParts struct {
 }
 
 type pipelineBlock struct {
-	RemoteProducer string   `cty:"produce-from"`
+	RemoteProducer *string  `cty:"produce-from"`
 	Producers      []string `cty:"produce"`
 	Consumers      []string `cty:"consume"`
 	Transformers   []string `cty:"transform"`

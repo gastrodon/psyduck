@@ -18,11 +18,11 @@ var pipelineBlockSpec = &hcldec.BlockObjectSpec{
 		"produce": &hcldec.AttrSpec{
 			Name:     "produce",
 			Type:     cty.List(cty.String),
-			Required: true,
+			Required: false,
 		},
 		"produce-from": &hcldec.AttrSpec{
 			Name:     "produce-from",
-			Type:     cty.List(cty.String),
+			Type:     cty.String,
 			Required: false,
 		},
 		"consume": &hcldec.AttrSpec{
@@ -70,10 +70,10 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 			return nil, err
 		}
 
-		if ref.RemoteProducer != "" {
-			r, ok := lookup[ref.RemoteProducer]
+		if ref.RemoteProducer != nil {
+			r, ok := lookup[*ref.RemoteProducer]
 			if !ok {
-				return nil, fmt.Errorf("can't find a resource %s", ref.RemoteProducer)
+				return nil, fmt.Errorf("can't find a resource %s", *ref.RemoteProducer)
 			}
 
 			pipelines[name] = &Pipeline{
