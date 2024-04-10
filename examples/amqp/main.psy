@@ -1,9 +1,9 @@
 plugin "psyduck" {
-  source = "https://github.com/psyduck-std/psyduck"
+  source = "https://github.com/psyduck-etl/psyduck"
 }
 
 plugin "amqp" {
-  source = "https://github.com/psyduck-std/amqp"
+  source = "https://github.com/psyduck-etl/amqp"
 }
 
 produce "psyduck-constant" "1" {

@@ -1,0 +1,28 @@
+plugin "psyduck" {
+  // source = "https://github.com/psyduck-etl/psyduck"
+  source = "/home/eva/Documents/code/psyduck-std/psyduck"
+}
+
+value {
+  foo = "bar"
+}
+
+consume "psyduck-trash" "trash" {}
+
+transform "psyduck-inspect" "inspect" {}
+
+produce "psyduck-constant" "value" {
+  value = value.foo
+  stop-after = 30
+}
+
+produce "psyduck-constant" "env" {
+  value = env.PSYDUCK_FOO
+  stop-after = 30
+}
+
+pipeline "1-to-1" {
+  produce = [produce.psyduck-constant.value, produce.psyduck-constant.env]
+  consume = [consume.psyduck-trash.trash]
+  transform = [transform.psyduck-inspect.inspect]
+}
