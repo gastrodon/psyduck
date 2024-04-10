@@ -1,13 +1,10 @@
-FROM golang:alpine AS build
+FROM golang:alpine
 
-WORKDIR /base
+WORKDIR /build
 ADD . .
 
-RUN go get -u ./...
-RUN go build -o /base/psyduck
-
-FROM alpine:latest 
 RUN apk add --no-cache git openssh
-COPY --from=build /base/psyduck /psyduck
+RUN go get -u ./...
+RUN go build -o /psyduck
 
 ENTRYPOINT /psyduck
