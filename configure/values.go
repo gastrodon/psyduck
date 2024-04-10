@@ -1,11 +1,25 @@
 package configure
 
 import (
+	"os"
+	"strings"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/zclconf/go-cty/cty"
 )
+
+func makeMapEnv() cty.Value {
+	env := os.Environ()
+	envMap := make(map[string]cty.Value, len(env))
+	for _, kv := range env {
+		split := strings.Split(kv, "=")
+		envMap[split[0]] = cty.StringVal(split[1])
+	}
+
+	return cty.ObjectVal(envMap)
+}
 
 func makeMapVal(values *valueBlocks) cty.Value {
 	length := 0
@@ -31,7 +45,6 @@ func loadValues(filename string, literal []byte) (*valueBlocks, hcl.Diagnostics)
 		gohcl.DecodeBody(file.Body, nil, target)
 		return target, nil
 	}
-
 }
 
 func loadValuesContext(filename string, literal []byte) (*hcl.EvalContext, error) {
@@ -41,6 +54,7 @@ func loadValuesContext(filename string, literal []byte) (*hcl.EvalContext, error
 		return &hcl.EvalContext{
 			Variables: map[string]cty.Value{
 				NAMESPACE_VALUE: makeMapVal(values),
+				NAMESPACE_ENV:   makeMapEnv(),
 			},
 		}, nil
 	}

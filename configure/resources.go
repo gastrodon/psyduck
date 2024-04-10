@@ -14,6 +14,7 @@ const (
 	NAMESPACE_CONSUME   = "consume"
 	NAMESPACE_TRANSFORM = "transform"
 	NAMESPACE_VALUE     = "value"
+	NAMESPACE_ENV       = "env"
 )
 
 func name(namespace string, resource *pipelinePart) string {

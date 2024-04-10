@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,36 @@ func Test_LoadValuesContext(test *testing.T) {
 	assert.Nil(test, err, "%s", err)
 	assert.NotNil(test, values, "values is nil!")
 
+	// panic(fmt.Sprintf("%+v", values.Variables["value"]))
+
 	for k, v := range want {
 		assert.Equal(test, v, values.Variables["value"].GetAttr(k))
 	}
+}
+func Test_LoadValuesContext_Number(test *testing.T) {
+	filename := "main.psy"
+	literal := `
+	value {
+		v = 1234
+	}`
+
+	values, err := loadValuesContext(filename, []byte(literal))
+	assert.Nil(test, err, "%s", err)
+	assert.NotNil(test, values, "values is nil!")
+
+	i, _ := values.Variables["value"].GetAttr("v").AsBigFloat().Int64()
+	assert.Equal(test, int64(1234), i)
+}
+
+func Test_LoadValuesContext_Env(test *testing.T) {
+	filename := "main.psy"
+	literal := ``
+
+	os.Setenv("FOO", "bar")
+	defer os.Unsetenv("FOO")
+	values, err := loadValuesContext(filename, []byte(literal))
+	assert.Nil(test, err, "%s", err)
+	assert.NotNil(test, values, "values is nil!")
+
+	assert.Equal(test, cty.StringVal("bar"), values.Variables["env"].GetAttr("FOO"))
 }
