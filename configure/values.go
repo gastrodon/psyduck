@@ -20,11 +20,7 @@ func makeMapVal(values *valueBlocks) cty.Value {
 		}
 	}
 
-	if len(valuesMap) == 0 {
-		return cty.MapValEmpty(cty.String)
-	}
-
-	return cty.MapVal(valuesMap)
+	return cty.ObjectVal(valuesMap)
 }
 
 func loadValues(filename string, literal []byte) (*valueBlocks, hcl.Diagnostics) {

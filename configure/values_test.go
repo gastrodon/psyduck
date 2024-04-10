@@ -7,35 +7,23 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func testableValues(entries map[string]cty.Value) *valueBlocks {
-	return &valueBlocks{
-		Blocks: []struct {
-			Entries map[string]cty.Value `hcl:",remain"`
-		}{{Entries: entries}},
-	}
-}
-
-func TestLoadValues(test *testing.T) {
-	cases := []struct {
-		Literal  string
-		Filename string
-		Want     *valueBlocks
-	}{
-		{
-			`value {
-				tags = "foo=bar"
-			}`,
-			"main.psy",
-			testableValues(map[string]cty.Value{
-				"tags": cty.StringVal("foo=bar"),
-			}),
-		},
+func Test_LoadValuesContext(test *testing.T) {
+	filename := "main.psy"
+	literal := `
+	value {
+		tags = "foo=bar"
+		tags_list = ["foo", "bar"]
+	}`
+	want := map[string]cty.Value{
+		"tags":      cty.StringVal("foo=bar"),
+		"tags_list": cty.TupleVal([]cty.Value{cty.StringVal("foo"), cty.StringVal("bar")}),
 	}
 
-	for _, testcase := range cases {
-		values, err := loadValues(testcase.Filename, []byte(testcase.Literal))
-		assert.Nil(test, err, "%s", err)
-		assert.NotNil(test, values, "values is nil!")
-		assert.Equal(test, values, testcase.Want)
+	values, err := loadValuesContext(filename, []byte(literal))
+	assert.Nil(test, err, "%s", err)
+	assert.NotNil(test, values, "values is nil!")
+
+	for k, v := range want {
+		assert.Equal(test, v, values.Variables["value"].GetAttr(k))
 	}
 }
