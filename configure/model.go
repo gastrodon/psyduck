@@ -57,6 +57,7 @@ type pipelineBlock struct {
 	Consumers      []string `cty:"consume"`
 	Transformers   []string `cty:"transform"`
 	StopAfter      *int     `cty:"stop-after"`
+	ExitOnError    *bool    `cty:"exit-on-error"`
 }
 
 type Pipeline struct {
@@ -66,4 +67,5 @@ type Pipeline struct {
 	Consumers      []*pipelinePart
 	Transformers   []*pipelinePart
 	StopAfter      int
+	ExitOnError    bool
 }

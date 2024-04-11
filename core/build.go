@@ -17,6 +17,8 @@ type Pipeline struct {
 	Consumer    sdk.Consumer
 	Transformer sdk.Transformer
 	logger      *logrus.Logger
+	StopAfter   int
+	ExitOnError bool
 }
 
 func pipelineLogger() *logrus.Logger {
@@ -306,5 +308,7 @@ func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, lib
 		Consumer:    joinConsumers(consumers, logger),
 		Transformer: stackTransform(transformers),
 		logger:      logger,
+		StopAfter:   descriptor.StopAfter,
+		ExitOnError: descriptor.ExitOnError,
 	}, nil
 }

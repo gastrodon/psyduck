@@ -57,6 +57,14 @@ func lookupRefSlice(refs []string, lookup map[string]*pipelinePart) ([]*pipeline
 	return resources, nil
 }
 
+func derefOr[T any](v *T, d T) T {
+	if v != nil {
+		return *v
+	}
+
+	return d
+}
+
 func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
 	pipelines := make(map[string]*Pipeline, len(refs))
 	for name, ref := range refs {
@@ -82,6 +90,8 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 				Producers:      nil,
 				Consumers:      consumers,
 				Transformers:   transformers,
+				ExitOnError:    derefOr(ref.ExitOnError, false),
+				StopAfter:      derefOr(ref.StopAfter, 0),
 			}
 		} else {
 			producers, err := lookupRefSlice(ref.Producers, lookup)
@@ -95,6 +105,8 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 				Producers:      producers,
 				Consumers:      consumers,
 				Transformers:   transformers,
+				ExitOnError:    derefOr(ref.ExitOnError, false),
+				StopAfter:      derefOr(ref.StopAfter, 0),
 			}
 		}
 

@@ -46,7 +46,10 @@ func RunPipeline(pipeline *Pipeline) error {
 	}()
 
 	for err := range errs {
-		return err
+		pipeline.logger.Error(err)
+		if pipeline.ExitOnError {
+			return err
+		}
 	}
 
 	return nil
