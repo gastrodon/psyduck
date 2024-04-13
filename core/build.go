@@ -144,22 +144,29 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 			go consumers[i](split[i], gErrs[i], gDone[i])
 		}
 
-	out:
-		for {
-			select {
-			case msg := <-dataRecv:
-				if msg == nil {
-					logger.Trace("dataRecv closed, jumping out")
-					break out
-				}
+		handle := make(chan error)
 
+		go func() {
+			for msg := range dataRecv {
 				for i := range split {
 					split[i] <- msg
 					logger.Tracef("fwd to split[%d]\n", i)
 				}
+			}
 
-			case err := <-tErrs:
-				logger.Error(err)
+			close(handle)
+		}()
+
+		go func() {
+			for err := range tErrs {
+				if err != nil {
+					handle <- err
+				}
+			}
+		}()
+
+		for err := range handle {
+			if err != nil {
 				errs <- err
 			}
 		}

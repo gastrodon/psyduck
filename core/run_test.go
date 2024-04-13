@@ -2,10 +2,12 @@ package core
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
+	"github.com/sirupsen/logrus"
 )
 
 type Values func() (int, int)
@@ -161,99 +163,105 @@ func Test_RunPipeline_filtering(test *testing.T) {
 	}
 }
 
-func Test_RunPipeline_producerError(test *testing.T) {
-	recieved, errText := byte(0), "limit reached"
-	testcase := &Pipeline{
-		Producer: func(send chan<- []byte, errs chan<- error) {
-			for i := byte(0); i < 100; i++ {
-				send <- []byte{i}
+type testHook struct {
+	fn func()
+}
+
+func (testHook) Levels() []logrus.Level {
+	return []logrus.Level{logrus.ErrorLevel}
+}
+
+func (hook testHook) Fire(*logrus.Entry) error {
+	hook.fn()
+	return nil
+}
+
+func pipelineTestLogger(fn func()) *logrus.Logger {
+	log := pipelineLogger()
+	log.Hooks.Add(testHook{fn})
+	return log
+}
+
+func Test_RunPipeline_error(test *testing.T) {
+	errText := "error made"
+	produceErr := func(n int) sdk.Producer {
+		return func(send chan<- []byte, errs chan<- error) {
+			for i := 0; i < n; i++ {
+				send <- []byte{0}
 			}
 
 			errs <- fmt.Errorf(errText)
-		},
-		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			for range recv {
-				recieved++
-			}
-			close(done)
-		},
-		Transformer: func(in []byte) ([]byte, error) { return in, nil },
+		}
 	}
 
-	errWant := fmt.Errorf("producer supplied error: %s", errText)
-	if err := RunPipeline(testcase); err == nil {
-		test.Fatal("no error returned")
-	} else if err.Error() != errWant.Error() {
-		test.Fatalf("other error: %s != %s!", err, errWant)
-	}
-}
-
-func Test_RunPipeline_consumerError(test *testing.T) {
-	recieved, limit, errText := byte(0), byte(50), "limit reached"
-	testcase := &Pipeline{
-		Producer: func(send chan<- []byte, errs chan<- error) {
-			for i := byte(0); i < 100; i++ {
-				send <- []byte{i}
+	consumeErr := func(n int) sdk.Consumer {
+		return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			for i := 0; i < n; i++ {
+				<-recv
 			}
 
-		},
-		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			for range recv {
-				recieved++
-
-				if recieved == limit {
-					errs <- fmt.Errorf(errText)
-					return
-				}
-			}
-			close(done)
-		},
-		Transformer: func(in []byte) ([]byte, error) { return in, nil },
+			errs <- fmt.Errorf(errText)
+		}
 	}
 
-	errWant := fmt.Errorf("consumer supplied error: %s", errText)
-	if err := RunPipeline(testcase); err == nil {
-		test.Fatal("no error returned")
-	} else if err.Error() != errWant.Error() {
-		test.Fatalf("other error: %s != %s!", err, errWant)
-	}
-
-	if recieved > limit {
-		test.Fatalf("recieved too many: %d > %d!", recieved, limit)
-	}
-}
-
-func Test_RunPipeline_transformerError(test *testing.T) {
-	recieved, limit, errText := byte(0), byte(50), "limit reached"
-	testcase := &Pipeline{
-		Producer: func(send chan<- []byte, errs chan<- error) {
-			for i := byte(0); i < 100; i++ {
-				send <- []byte{i}
-			}
-
-		},
-		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			for range recv {
-				recieved++
-			}
-			close(done)
-		},
-		Transformer: func(in []byte) ([]byte, error) {
-			if recieved == limit {
+	transformeErr := func(n int) sdk.Transformer {
+		i := 0
+		return func(in []byte) ([]byte, error) {
+			if i >= n {
 				return nil, fmt.Errorf(errText)
 			}
+			i++
 			return in, nil
-		},
+		}
 	}
 
-	errWant := fmt.Errorf("transformer supplied error: %s", errText)
-	if err := RunPipeline(testcase); err == nil {
-		test.Fatal("no error returned")
-	} else if err.Error() != errWant.Error() {
-		test.Fatalf("other error: %s != %s!", err, errWant)
+	testcases := [...]struct {
+		pipeline *Pipeline
+		want     error
+	}{
+		{&Pipeline{
+			Producer:    produceErr(50),
+			Consumer:    consumeErr(math.MaxInt32),
+			Transformer: transformeErr(math.MaxInt32),
+			ExitOnError: true,
+		}, fmt.Errorf("producer supplied error: %s", errText)},
+		{&Pipeline{
+			Producer:    produceErr(math.MaxInt32),
+			Consumer:    consumeErr(50),
+			Transformer: transformeErr(math.MaxInt32),
+			ExitOnError: true,
+		}, fmt.Errorf("consumer supplied error: %s", errText)},
+		{&Pipeline{
+			Producer:    produceErr(math.MaxInt32),
+			Consumer:    consumeErr(math.MaxInt32),
+			Transformer: transformeErr(50),
+			ExitOnError: true,
+		}, fmt.Errorf("transformer supplied error: %s", errText)},
+		{&Pipeline{
+			Producer:    joinProducers([]sdk.Producer{produceErr(50), produceErr(math.MaxInt32)}, logrus.StandardLogger()),
+			Consumer:    consumeErr(math.MaxInt32),
+			Transformer: transformeErr(math.MaxInt32),
+			ExitOnError: true,
+		}, fmt.Errorf("producer supplied error: %s", errText)},
+		{&Pipeline{
+			Producer:    produceErr(math.MaxInt32),
+			Consumer:    joinConsumers([]sdk.Consumer{consumeErr(math.MaxInt32), consumeErr(50)}, logrus.StandardLogger()),
+			Transformer: transformeErr(math.MaxInt32),
+			ExitOnError: true,
+		}, fmt.Errorf("consumer supplied error: %s", errText)},
 	}
 
-	if recieved > limit {
-		test.Fatalf("recieved too many: %d > %d!", recieved, limit)
+	for _, testcase := range testcases {
+		didFire := false
+		testcase.pipeline.logger = pipelineTestLogger(func() {
+			didFire = true
+		})
+		if err := RunPipeline(testcase.pipeline); err == nil {
+			test.Fatal("no error returned")
+		} else if err.Error() != testcase.want.Error() {
+			test.Fatalf("other error: %s != %s!", err, testcase.want)
+		} else if !didFire {
+			test.Fatal("logger hook did not fire")
+		}
 	}
 }
