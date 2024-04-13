@@ -66,7 +66,11 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	target := ctx.String("target")
+	if !ctx.Args().Present() {
+		return fmt.Errorf("target required")
+	}
+
+	target := ctx.Args().First()
 	descriptor, ok := descriptors[target]
 	if !ok {
 		return fmt.Errorf("can't find target %s", target)
@@ -105,16 +109,11 @@ func main() {
 		},
 		Commands: []*cli.Command{
 			{
-				Name:   "run",
-				Usage:  "run a pipeline job",
-				Action: run,
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "target",
-						Usage:    "pipeline that we want to run",
-						Required: true,
-					},
-				},
+				Name:      "run",
+				Usage:     "run a pipeline job",
+				Action:    run,
+				Args:      true,
+				ArgsUsage: "pipeline name",
 			},
 			{
 				Name:   "init",
