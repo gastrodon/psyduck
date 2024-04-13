@@ -141,9 +141,9 @@ func collectPlugins(cachePath, binPath string, descriptors *pluginBlocks) (map[s
 	return collected, nil
 }
 
-func loadPlugins(binPaths map[string]string, descriptors *pluginBlocks) (map[string]*sdk.Plugin, error) {
-	plugins := make(map[string]*sdk.Plugin, len(descriptors.Blocks))
-	for _, descriptor := range descriptors.Blocks {
+func loadPlugins(binPaths map[string]string, descriptors *pluginBlocks) ([]*sdk.Plugin, error) {
+	plugins := make([]*sdk.Plugin, len(descriptors.Blocks))
+	for i, descriptor := range descriptors.Blocks {
 		binPath, ok := binPaths[descriptor.Name]
 		if !ok {
 			return nil, fmt.Errorf("binary not found for plugin %s", descriptor.Name)
@@ -154,7 +154,7 @@ func loadPlugins(binPaths map[string]string, descriptors *pluginBlocks) (map[str
 			return nil, fmt.Errorf("unable to load plugin %s: %s", descriptor.Name, err)
 		}
 
-		plugins[plugin.Name] = plugin
+		plugins[i] = plugin
 	}
 
 	return plugins, nil
@@ -198,7 +198,7 @@ func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.Eval
 	return collected, nil
 }
 
-func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]*sdk.Plugin, error) {
+func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
 	descriptors, diags := readPluginBlocks(filename, literal, evalCtx)
 	if diags.HasErrors() {
 		return nil, diags

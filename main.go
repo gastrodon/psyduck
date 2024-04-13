@@ -66,18 +66,13 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	library := core.NewLibrary()
-	for _, plugin := range plugins {
-		library.Load(plugin)
-	}
-
 	target := ctx.String("target")
 	descriptor, ok := descriptors[target]
 	if !ok {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, evalCtx, library)
+	pipeline, err := core.BuildPipeline(descriptor, evalCtx, core.NewLibrary(plugins))
 	if err != nil {
 		return err
 	}

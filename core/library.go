@@ -53,15 +53,15 @@ func makeParser(providedSpecMap sdk.SpecMap, evalCtx *hcl.EvalContext, config hc
 	}, parser
 }
 
-func NewLibrary() *Library {
+func NewLibrary(plugins []*sdk.Plugin) *Library {
 	lookupResource := make(map[string]*sdk.Resource)
+	for _, plugin := range plugins {
+		for _, resource := range plugin.Resources {
+			lookupResource[resource.Name] = resource
+		}
+	}
 
 	return &Library{
-		Load: func(plugin *sdk.Plugin) {
-			for _, resource := range plugin.Resources {
-				lookupResource[resource.Name] = resource
-			}
-		},
 		ProvideProducer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
