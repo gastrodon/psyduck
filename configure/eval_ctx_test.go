@@ -8,7 +8,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func Test_LoadValuesContext(test *testing.T) {
+func Test_makeEvalCtx(test *testing.T) {
 	filename := "main.psy"
 	literal := `
 	value {
@@ -20,7 +20,7 @@ func Test_LoadValuesContext(test *testing.T) {
 		"tags_list": cty.TupleVal([]cty.Value{cty.StringVal("foo"), cty.StringVal("bar")}),
 	}
 
-	values, err := loadValuesContext(filename, []byte(literal))
+	values, err := makeEvalCtx(filename, []byte(literal))
 	assert.Nil(test, err, "%s", err)
 	assert.NotNil(test, values, "values is nil!")
 
@@ -30,14 +30,14 @@ func Test_LoadValuesContext(test *testing.T) {
 		assert.Equal(test, v, values.Variables["value"].GetAttr(k))
 	}
 }
-func Test_LoadValuesContext_Number(test *testing.T) {
+func Test_makeEvalCtx_Number(test *testing.T) {
 	filename := "main.psy"
 	literal := `
 	value {
 		v = 1234
 	}`
 
-	values, err := loadValuesContext(filename, []byte(literal))
+	values, err := makeEvalCtx(filename, []byte(literal))
 	assert.Nil(test, err, "%s", err)
 	assert.NotNil(test, values, "values is nil!")
 
@@ -45,13 +45,13 @@ func Test_LoadValuesContext_Number(test *testing.T) {
 	assert.Equal(test, int64(1234), i)
 }
 
-func Test_LoadValuesContext_Env(test *testing.T) {
+func Test_makeEvalCtx_Env(test *testing.T) {
 	filename := "main.psy"
 	literal := ``
 
 	os.Setenv("FOO", "bar")
 	defer os.Unsetenv("FOO")
-	values, err := loadValuesContext(filename, []byte(literal))
+	values, err := makeEvalCtx(filename, []byte(literal))
 	assert.Nil(test, err, "%s", err)
 	assert.NotNil(test, values, "values is nil!")
 

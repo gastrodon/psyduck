@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
-func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, error) {
+func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, hcl.Diagnostics) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
@@ -27,9 +27,9 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 }
 
 func Literal(filename string, literal []byte) (map[string]*Pipeline, *hcl.EvalContext, error) {
-	valuesContext, err := loadValuesContext(filename, literal)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load values ctx: %s", err)
+	valuesContext, diags := makeEvalCtx(filename, literal)
+	if diags.HasErrors() {
+		return nil, nil, fmt.Errorf("failed to load values ctx: %s", diags.Error())
 	}
 
 	resourcesContext, err := loadResourcesContext(filename, literal)
