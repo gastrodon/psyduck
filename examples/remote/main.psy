@@ -1,12 +1,8 @@
-plugin "psyduck" {
-  source = "https://github.com/psyduck-etl/psyduck"
-}
-
 plugin "amqp" {
   source = "https://github.com/psyduck-etl/amqp"
 }
 
-produce "psyduck-increment" "inc" {
+produce "increment" "inc" {
   stop-after = 8
 }
 
@@ -15,21 +11,21 @@ consume "amqp-queue" "src-constant" {
   queue = "src-constant"
 }
 
-transform "psyduck-sprintf" "src" {
+transform "sprintf" "src" {
   format = <<-EOF
-  produce "psyduck-constant" "remote" {
+  produce "constant" "remote" {
     value = "%d"
     stop-after = 10
   }
   EOF
 }
 
-transform "psyduck-inspect" "inspect" {}
+transform "inspect" "inspect" {}
 
 pipeline "ready-remote" {
-  produce = [produce.psyduck-increment.inc]
+  produce = [produce.increment.inc]
   consume = [consume.amqp-queue.src-constant]
-  transform = [transform.psyduck-sprintf.src, transform.psyduck-inspect.inspect]
+  transform = [transform.sprintf.src, transform.inspect.inspect]
 }
 
 produce "amqp-queue" "src-constants" {
@@ -38,10 +34,10 @@ produce "amqp-queue" "src-constants" {
   stop-after = 1
 }
 
-consume "psyduck-trash" "trash" {}
+consume "trash" "trash" {}
 
 pipeline "consume-remote" {
   produce-from = produce.amqp-queue.src-constants
-  consume = [consume.psyduck-trash.trash]
-  transform = [transform.psyduck-inspect.inspect]
+  consume = [consume.trash.trash]
+  transform = [transform.inspect.inspect]
 }

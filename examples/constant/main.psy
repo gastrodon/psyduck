@@ -1,41 +1,37 @@
-plugin "psyduck" {
-  source = "https://github.com/psyduck-etl/psyduck"
-}
+consume "trash" "trash" {}
 
-consume "psyduck-trash" "trash" {}
+transform "inspect" "inspect" {}
 
-transform "psyduck-inspect" "inspect" {}
-
-produce "psyduck-constant" "1" {
+produce "constant" "1" {
   value = "val-1"
   stop-after = 30
 }
 
-produce "psyduck-constant" "2" {
+produce "constant" "2" {
   value = "val-2"
   stop-after = 60
 }
 
 pipeline "1-to-1" {
-  produce = [produce.psyduck-constant.1]
-  consume = [consume.psyduck-trash.trash]
-  transform = [transform.psyduck-inspect.inspect]
+  produce = [produce.constant.1]
+  consume = [consume.trash.trash]
+  transform = [transform.inspect.inspect]
 }
 
 pipeline "1-to-many" {
-  produce = [produce.psyduck-constant.1]
-  consume = [consume.psyduck-trash.trash, consume.psyduck-trash.trash]
-  transform = [transform.psyduck-inspect.inspect]
+  produce = [produce.constant.1]
+  consume = [consume.trash.trash, consume.trash.trash]
+  transform = [transform.inspect.inspect]
 }
 
 pipeline "many-to-1" {
-  produce = [produce.psyduck-constant.1, produce.psyduck-constant.2]
-  consume = [consume.psyduck-trash.trash]
-  transform = [transform.psyduck-inspect.inspect]
+  produce = [produce.constant.1, produce.constant.2]
+  consume = [consume.trash.trash]
+  transform = [transform.inspect.inspect]
 }
 
 pipeline "many-to-many" {
-  produce = [produce.psyduck-constant.1, produce.psyduck-constant.2]
-  consume = [consume.psyduck-trash.trash, consume.psyduck-trash.trash]
-  transform = [transform.psyduck-inspect.inspect]
+  produce = [produce.constant.1, produce.constant.2]
+  consume = [consume.trash.trash, consume.trash.trash]
+  transform = [transform.inspect.inspect]
 }

@@ -6,6 +6,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/psyduck-etl/sdk"
+
+	"github.com/gastrodon/psyduck/stdlib"
 )
 
 type Library struct {
@@ -55,7 +57,7 @@ func makeParser(providedSpecMap sdk.SpecMap, evalCtx *hcl.EvalContext, config hc
 
 func NewLibrary(plugins []*sdk.Plugin) *Library {
 	lookupResource := make(map[string]*sdk.Resource)
-	for _, plugin := range plugins {
+	for _, plugin := range append(plugins, stdlib.Plugin()) {
 		for _, resource := range plugin.Resources {
 			lookupResource[resource.Name] = resource
 		}

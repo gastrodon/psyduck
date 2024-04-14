@@ -1,12 +1,8 @@
-plugin "psyduck" {
-  source = "https://github.com/psyduck-etl/psyduck"
-}
-
 plugin "amqp" {
   source = "https://github.com/psyduck-etl/amqp"
 }
 
-produce "psyduck-constant" "1" {
+produce "constant" "1" {
   value = "val-1"
   stop-after = 30
 }
@@ -27,7 +23,7 @@ consume "amqp-queue" "right" {
 }
 
 pipeline "load-left" {
-  produce = [produce.psyduck-constant.1]
+  produce = [produce.constant.1]
   consume = [consume.amqp-queue.left]
   transform = []
 }
