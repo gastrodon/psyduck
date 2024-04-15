@@ -74,6 +74,6 @@ jobs:
       with:
         files: psyduck
         repository: gastrodon/psyduck
-        tag_name: ${{ github.ref }}
-        release_name: Psyduck ${{ github.ref }}
+        tag_name: ${{ github.ref_name }}
+        release_name: Psyduck ${{ github.ref_name }}
 
