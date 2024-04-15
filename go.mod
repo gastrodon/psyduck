@@ -4,7 +4,7 @@ go 1.22.1
 
 require (
 	github.com/hashicorp/hcl/v2 v2.20.1
-	github.com/psyduck-etl/sdk v0.2.2
+	github.com/psyduck-etl/sdk v0.3.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.27.1
