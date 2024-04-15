@@ -219,7 +219,7 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, library *Library, logger *logrus.Logger) (sdk.Producer, error) {
 	if descriptor.RemoteProducer != nil {
 		logger.Trace("getting remote producer")
-		p, err := library.ProvideProducer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
+		p, err := library.Producer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
 		if err != nil {
 			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
@@ -257,11 +257,11 @@ func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, l
 		return nil, fmt.Errorf("1 or more producer is required")
 	case 1:
 		logger.Trace("only one producer")
-		return library.ProvideProducer(descriptor.Producers[0].Kind, context, descriptor.Producers[0].Options)
+		return library.Producer(descriptor.Producers[0].Kind, context, descriptor.Producers[0].Options)
 	default:
 		producers := make([]sdk.Producer, len(descriptor.Producers))
 		for index, produceDescriptor := range descriptor.Producers {
-			producer, err := library.ProvideProducer(produceDescriptor.Kind, context, produceDescriptor.Options)
+			producer, err := library.Producer(produceDescriptor.Kind, context, produceDescriptor.Options)
 			if err != nil {
 				return nil, err
 			}
@@ -292,7 +292,7 @@ func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, lib
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.ProvideConsumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
+		consumer, err := library.Consumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -302,7 +302,7 @@ func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, lib
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.ProvideTransformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
+		transformer, err := library.Transformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}

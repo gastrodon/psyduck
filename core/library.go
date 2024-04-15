@@ -2,20 +2,18 @@ package core
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hcldec"
 	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
 type Library struct {
-	Load               func(*sdk.Plugin)
-	Spec               func(string) (*hcldec.ObjectSpec, error)
-	ProvideProducer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Producer, error)
-	ProvideConsumer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Consumer, error)
-	ProvideTransformer func(string, *hcl.EvalContext, hcl.Body) (sdk.Transformer, error)
+	Producer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Producer, error)
+	Consumer    func(string, *hcl.EvalContext, hcl.Body) (sdk.Consumer, error)
+	Transformer func(string, *hcl.EvalContext, hcl.Body) (sdk.Transformer, error)
 }
 
 func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
@@ -64,7 +62,7 @@ func NewLibrary(plugins []*sdk.Plugin) *Library {
 	}
 
 	return &Library{
-		ProvideProducer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
+		Producer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Producer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -76,7 +74,7 @@ func NewLibrary(plugins []*sdk.Plugin) *Library {
 
 			return found.ProvideProducer(makeParser(found.Spec, evalCtx, config))
 		},
-		ProvideConsumer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
+		Consumer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
@@ -88,7 +86,7 @@ func NewLibrary(plugins []*sdk.Plugin) *Library {
 
 			return found.ProvideConsumer(makeParser(found.Spec, evalCtx, config))
 		},
-		ProvideTransformer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
+		Transformer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
 			found, ok := lookupResource[name]
 			if !ok {
 				return nil, fmt.Errorf("can't find resource %s", name)
