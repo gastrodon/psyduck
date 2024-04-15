@@ -2,11 +2,36 @@ package core
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
 )
+
+func itemSpec(source *sdk.Spec, key string, baseType *cty.Type) *sdk.Spec {
+	name := strings.Join([]string{source.Name, key}, ".")
+	if baseType == nil {
+		panic(fmt.Sprintf("cannot gather element type of %s", name))
+	}
+
+	return &sdk.Spec{
+		Name:        name,
+		Description: source.Description,
+		Required:    source.Required,
+		Type:        *baseType,
+		Default:     cty.NilVal,
+	}
+}
+
+func listItemSpec(source *sdk.Spec, index int64) *sdk.Spec {
+	return itemSpec(source, strconv.FormatInt(index, 10), cty.Type(source.Type).ListElementType())
+}
+
+func mapItemSpec(source *sdk.Spec, key string) *sdk.Spec {
+	return itemSpec(source, key, cty.Type(source.Type).MapElementType())
+}
 
 func validatePrimitive(value cty.Value, fieldSpec *sdk.Spec) hcl.Diagnostics {
 	if !value.Type().Equals(cty.Type(fieldSpec.Type)) {
@@ -33,7 +58,7 @@ func validateList(value cty.Value, fieldSpec *sdk.Spec) hcl.Diagnostics {
 	for iter.Next() {
 		nextKey, nextValue := iter.Element()
 		index, _ := nextKey.AsBigFloat().Int64()
-		childSpec := sdk.ListItemSpec(fieldSpec, int(index))
+		childSpec := listItemSpec(fieldSpec, index)
 		err := validate(nextValue, childSpec)
 		if err != nil {
 			return err
@@ -52,7 +77,7 @@ func validateMap(value cty.Value, fieldSpec *sdk.Spec) hcl.Diagnostics {
 	iter := value.ElementIterator()
 	for iter.Next() {
 		nextKey, nextValue := iter.Element()
-		childSpec := sdk.MapItemSpec(fieldSpec, nextKey.AsString())
+		childSpec := mapItemSpec(fieldSpec, nextKey.AsString())
 		err := validate(nextValue, childSpec)
 		if err != nil {
 			return err
