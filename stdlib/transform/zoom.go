@@ -18,7 +18,7 @@ func (me *zoomTarget) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func Zoom(parse sdk.Parser, _ sdk.SpecParser) (sdk.Transformer, error) {
+func Zoom(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(zoomConfig)
 	if err := parse(config); err != nil {
 		return nil, err

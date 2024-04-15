@@ -20,7 +20,7 @@ func TestSprintf(t *testing.T) {
 			i.(*sprintfConfig).Format = tc.format
 			i.(*sprintfConfig).Encoding = tc.encoding
 			return nil
-		}, nil)
+		})
 
 		if err != nil {
 			t.Fatalf("failed to form transformer: %s", err)

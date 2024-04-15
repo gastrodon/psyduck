@@ -36,7 +36,7 @@ func TestZoom(test *testing.T) {
 			return nil
 		}
 
-		transformer, err := Zoom(parse, nil)
+		transformer, err := Zoom(parse)
 		if err != nil {
 			test.Fatal(err)
 		}

@@ -10,7 +10,7 @@ type inspectConfig struct {
 	BeString bool `psy:"be-string"`
 }
 
-func Inspect(parse sdk.Parser, _ sdk.SpecParser) (sdk.Transformer, error) {
+func Inspect(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(inspectConfig)
 	if err := parse(config); err != nil {
 		return nil, err

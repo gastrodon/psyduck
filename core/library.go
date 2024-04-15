@@ -34,8 +34,8 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	}
 }
 
-func makeParser(providedSpecMap sdk.SpecMap, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Parser, sdk.SpecParser) {
-	parser := func(spec sdk.SpecMap, target interface{}) error {
+func parser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, config hcl.Body) sdk.Parser {
+	return func(target interface{}) error {
 		content, _, diags := config.PartialContent(makeBodySchema(spec))
 		if diags.HasErrors() {
 			return diags
@@ -47,10 +47,6 @@ func makeParser(providedSpecMap sdk.SpecMap, evalCtx *hcl.EvalContext, config hc
 
 		return nil
 	}
-
-	return func(target interface{}) error {
-		return parser(providedSpecMap, target)
-	}, parser
 }
 
 func NewLibrary(plugins []*sdk.Plugin) *Library {
@@ -72,7 +68,7 @@ func NewLibrary(plugins []*sdk.Plugin) *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 			}
 
-			return found.ProvideProducer(makeParser(found.Spec, evalCtx, config))
+			return found.ProvideProducer(parser(found.Spec, evalCtx, config))
 		},
 		Consumer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
 			found, ok := lookupResource[name]
@@ -84,7 +80,7 @@ func NewLibrary(plugins []*sdk.Plugin) *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideConsumer(makeParser(found.Spec, evalCtx, config))
+			return found.ProvideConsumer(parser(found.Spec, evalCtx, config))
 		},
 		Transformer: func(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
 			found, ok := lookupResource[name]
@@ -96,7 +92,7 @@ func NewLibrary(plugins []*sdk.Plugin) *Library {
 				return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 			}
 
-			return found.ProvideTransformer(makeParser(found.Spec, evalCtx, config))
+			return found.ProvideTransformer(parser(found.Spec, evalCtx, config))
 		},
 	}
 }

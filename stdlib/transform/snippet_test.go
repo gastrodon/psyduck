@@ -16,7 +16,7 @@ func TestSnippet(t *testing.T) {
 		transform, err := Snippet(func(i interface{}) error {
 			i.(*snippetConfig).Fields = tc.fields
 			return nil
-		}, nil)
+		})
 
 		if err != nil {
 			t.Fatalf("failed to form transformer: %s", err)

@@ -6,7 +6,7 @@ import (
 	"github.com/psyduck-etl/sdk"
 )
 
-func Wait(parse sdk.Parser, _ sdk.SpecParser) (sdk.Transformer, error) {
+func Wait(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(struct {
 		Ms int64 `psy:"milliseconds"`
 	})

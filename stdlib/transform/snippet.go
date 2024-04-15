@@ -10,7 +10,7 @@ type snippetConfig struct {
 	Fields []string `psy:"fields"`
 }
 
-func Snippet(parse sdk.Parser, _ sdk.SpecParser) (sdk.Transformer, error) {
+func Snippet(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(snippetConfig)
 	if err := parse(config); err != nil {
 		return nil, err

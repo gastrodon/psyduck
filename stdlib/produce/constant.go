@@ -9,7 +9,7 @@ type constant struct {
 	StopAfter int    `psy:"stop-after"`
 }
 
-func Constant(parse sdk.Parser, specParse sdk.SpecParser) (sdk.Producer, error) {
+func Constant(parse sdk.Parser) (sdk.Producer, error) {
 	config := new(constant)
 	if err := parse(config); err != nil {
 		return nil, err

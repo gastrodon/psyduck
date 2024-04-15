@@ -11,7 +11,7 @@ type sprintfConfig struct {
 	Encoding string `psy:"encoding"`
 }
 
-func Sprintf(parse sdk.Parser, _ sdk.SpecParser) (sdk.Transformer, error) {
+func Sprintf(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(sprintfConfig)
 
 	if err := parse(config); err != nil {

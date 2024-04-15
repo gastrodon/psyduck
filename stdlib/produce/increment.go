@@ -2,7 +2,7 @@ package produce
 
 import "github.com/psyduck-etl/sdk"
 
-func Increment(parse sdk.Parser, _ sdk.SpecParser) (sdk.Producer, error) {
+func Increment(parse sdk.Parser) (sdk.Producer, error) {
 	config := new(struct {
 		StopAfter byte `psy:"stop-after"`
 	})

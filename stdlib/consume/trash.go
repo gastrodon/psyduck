@@ -4,7 +4,7 @@ import (
 	"github.com/psyduck-etl/sdk"
 )
 
-func Trash(sdk.Parser, sdk.SpecParser) (sdk.Consumer, error) {
+func Trash(sdk.Parser) (sdk.Consumer, error) {
 	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
