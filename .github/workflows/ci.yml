@@ -29,7 +29,7 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: gastrodon/psyduck
 
-  build-docker:
+  release-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: test
     runs-on: ubuntu-latest
@@ -51,7 +51,7 @@ jobs:
         docker push gastrodon/psyduck:latest
         docker push gastrodon/psyduck:${{github.ref_name}}
   
-  build-binary-and-release:
+  release-binary:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
     runs-on: ubuntu-latest
