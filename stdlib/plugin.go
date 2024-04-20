@@ -63,6 +63,19 @@ func Plugin() *sdk.Plugin {
 				},
 			},
 			{
+				Name:               "transpose",
+				Kinds:              sdk.TRANSFORMER,
+				ProvideTransformer: transform.Transpose,
+				Spec: sdk.SpecMap{
+					"fields": &sdk.Spec{
+						Name:        "fields",
+						Description: "fields to transpose, mapping of target -> source",
+						Type:        cty.Map(cty.List(cty.String)),
+						Required:    true,
+					},
+				},
+			},
+			{
 				Name:               "zoom",
 				Kinds:              sdk.TRANSFORMER,
 				ProvideTransformer: transform.Zoom,
