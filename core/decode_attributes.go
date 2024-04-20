@@ -9,16 +9,31 @@ import (
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
-func toListVal(value cty.Value) cty.Value {
-	items := make([]cty.Value, value.LengthInt())
-	iter := value.ElementIterator()
-	for iter.Next() {
-		nextIndex, nextValue := iter.Element()
-		index, _ := nextIndex.AsBigFloat().Int64()
-		items[int(index)] = nextValue
-	}
+func toDynCollection(value cty.Value) cty.Value {
+	switch {
+	case value.Type().IsTupleType():
+		items := make([]cty.Value, value.LengthInt())
+		iter := value.ElementIterator()
+		for iter.Next() {
+			nextIndex, nextValue := iter.Element()
+			index, _ := nextIndex.AsBigFloat().Int64()
+			items[int(index)] = toDynCollection(nextValue)
+		}
 
-	return cty.ListVal(items)
+		return cty.ListVal(items)
+	case value.Type().IsObjectType():
+		items := make(map[string]cty.Value)
+		iter := value.ElementIterator()
+		for iter.Next() {
+			nextKey, nextValue := iter.Element()
+			key := nextKey.AsString()
+			items[key] = toDynCollection(nextValue)
+		}
+
+		return cty.MapVal(items)
+	default:
+		return value
+	}
 }
 
 func getAttributeValue(attributes hcl.Attributes, name string, evalCtx *hcl.EvalContext) (cty.Value, hcl.Diagnostics) {
@@ -57,10 +72,7 @@ func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl
 			continue
 		}
 
-		if fieldValue.Type().IsTupleType() {
-			fieldValue = toListVal(fieldValue)
-		}
-
+		fieldValue = toDynCollection(fieldValue)
 		if diagsValidate := validate(fieldValue, fieldSpec); diagsValidate.HasErrors() {
 			for _, each := range diagsValidate {
 				diags = diags.Append(each)
