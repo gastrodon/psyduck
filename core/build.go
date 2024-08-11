@@ -264,7 +264,7 @@ func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, l
 						}
 
 						// Should context be re-used here
-						p, err := library.Producer(parts.Producers[0].Name, context, parts.Producers[0].Options)
+						p, err := library.Producer(parts.Producers[0].Kind, context, parts.Producers[0].Options)
 						if err != nil {
 							send <- nok[sdk.Producer](fmt.Errorf("failed to compile remote: %s", err))
 							return
