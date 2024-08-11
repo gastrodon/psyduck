@@ -254,9 +254,19 @@ func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, l
 				for {
 					select {
 					case err := <-mErrs:
+						if err == nil {
+							fmt.Println("we got a nil error, idk why")
+							continue
+						}
 						send <- nok[sdk.Producer](fmt.Errorf("error getting from meta-producer: %s", err))
 						return // TODO how does run do this? use that code somehow?
 					case msg := <-mSend:
+						if msg == nil {
+							// TODO mSend was closed. Handle this more gracefully, maybe like we do in RunPipeline?
+							close(send)
+							return
+						}
+
 						parts, err := configure.Partial("remote-producer", msg, context)
 						if err != nil {
 							send <- nok[sdk.Producer](fmt.Errorf("failed to configure remote: %s", err))
