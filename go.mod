@@ -1,6 +1,6 @@
 module github.com/gastrodon/psyduck
 
-go 1.22.1
+go 1.22
 
 require (
 	github.com/hashicorp/hcl/v2 v2.20.1
