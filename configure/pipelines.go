@@ -85,13 +85,14 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 			}
 
 			pipelines[name] = &Pipeline{
-				Name:           name,
-				RemoteProducer: r,
-				Producers:      nil,
-				Consumers:      consumers,
-				Transformers:   transformers,
-				ExitOnError:    derefOr(ref.ExitOnError, false),
-				StopAfter:      derefOr(ref.StopAfter, 0),
+				Name:              name,
+				RemoteProducer:    r,
+				Producers:         nil,
+				Consumers:         consumers,
+				Transformers:      transformers,
+				StopAfter:         derefOr(ref.StopAfter, 0),
+				ExitOnError:       derefOr(ref.ExitOnError, false),
+				ParallelProducers: derefOr(ref.ParallelProducers, 0),
 			}
 		} else {
 			producers, err := lookupRefSlice(ref.Producers, lookup)
@@ -100,13 +101,14 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 			}
 
 			pipelines[name] = &Pipeline{
-				Name:           name,
-				RemoteProducer: nil,
-				Producers:      producers,
-				Consumers:      consumers,
-				Transformers:   transformers,
-				ExitOnError:    derefOr(ref.ExitOnError, false),
-				StopAfter:      derefOr(ref.StopAfter, 0),
+				Name:              name,
+				RemoteProducer:    nil,
+				Producers:         producers,
+				Consumers:         consumers,
+				Transformers:      transformers,
+				StopAfter:         derefOr(ref.StopAfter, 0),
+				ExitOnError:       derefOr(ref.ExitOnError, false),
+				ParallelProducers: derefOr(ref.ParallelProducers, 0),
 			}
 		}
 
