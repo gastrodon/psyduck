@@ -87,11 +87,11 @@ func testPipeline(testcase testPipelineCase) error {
 	}
 
 	pipeline := &Pipeline{
-		Producer:         producer,
-		Consumer:         consumer,
-		Transformer:      transformer,
-		logger:           pipelineLogger(),
-		ProducerParallel: testcase.ProducerParallel,
+		Producer:          producer,
+		Consumer:          consumer,
+		Transformer:       transformer,
+		logger:            pipelineLogger(),
+		ParallelProducers: testcase.ProducerParallel,
 	}
 
 	if err := RunPipeline(pipeline); err != nil {

@@ -40,6 +40,11 @@ var pipelineBlockSpec = &hcldec.BlockObjectSpec{
 			Type:     cty.Number,
 			Required: false,
 		},
+		"parallel-producers": &hcldec.AttrSpec{
+			Name:     "parallel-producers",
+			Type:     cty.Number,
+			Required: false,
+		},
 	},
 }
 

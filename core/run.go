@@ -41,7 +41,7 @@ func RunPipeline(pipeline *Pipeline) error {
 
 	// producer stuff, called in a loop per runtime
 	for {
-		group, err := nextProducerGroup(spawnProducer, pipeline.ProducerParallel, pipeline.logger)
+		group, err := nextProducerGroup(spawnProducer, pipeline.ParallelProducers, pipeline.logger)
 		if err != nil {
 			// TODO should this respect exit-on-error?
 			// seems like no since this is an error getting the producers
