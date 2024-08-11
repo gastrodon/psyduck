@@ -12,13 +12,13 @@ import (
 )
 
 type Pipeline struct {
-	Producer         func() <-chan result[sdk.Producer]
-	Consumer         sdk.Consumer
-	Transformer      sdk.Transformer
-	logger           *logrus.Logger
-	StopAfter        int
-	ExitOnError      bool
-	ProducerParallel uint
+	Producer          func() <-chan result[sdk.Producer]
+	Consumer          sdk.Consumer
+	Transformer       sdk.Transformer
+	logger            *logrus.Logger
+	StopAfter         int
+	ExitOnError       bool
+	ParallelProducers uint
 }
 
 func pipelineLogger() *logrus.Logger {
@@ -341,11 +341,12 @@ func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, lib
 	}
 
 	return &Pipeline{
-		Producer:    producer,
-		Consumer:    joinConsumers(consumers, logger),
-		Transformer: stackTransform(transformers),
-		logger:      logger,
-		StopAfter:   descriptor.StopAfter,
-		ExitOnError: descriptor.ExitOnError,
+		Producer:          producer,
+		Consumer:          joinConsumers(consumers, logger),
+		Transformer:       stackTransform(transformers),
+		logger:            logger,
+		StopAfter:         descriptor.StopAfter,
+		ExitOnError:       descriptor.ExitOnError,
+		ParallelProducers: descriptor.ParallelProducers,
 	}, nil
 }
