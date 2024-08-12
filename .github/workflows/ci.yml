@@ -31,6 +31,10 @@ jobs:
 
   release-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      matrix:
+        os: ["linux"]
+        arch: ["arm", "arm64", "amd64"]
     needs: test
     runs-on: ubuntu-latest
 
@@ -50,7 +54,7 @@ jobs:
         docker tag gastrodon/psyduck:latest gastrodon/psyduck:${{github.ref_name}}
         docker push gastrodon/psyduck:latest
         docker push gastrodon/psyduck:${{github.ref_name}}
-  
+
   release-binary:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
