@@ -14,6 +14,7 @@ plugin "psyduck" {
 type pluginBlock struct {
 	Name   string `hcl:"name,label"`
 	Source string `hcl:"source"`
+	Tag    string `hcl:"tag"`
 }
 
 type pluginBlocks struct {

@@ -87,11 +87,18 @@ func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, err
 
 		return filepath.Abs(soPath)
 	case pluginRemote:
-		pkgCache := path.Join(cachePath, descriptor.Source)
+		pkgCache := path.Join(cachePath, descriptor.Name)
 		cmdClone := exec.Command("git", "clone", descriptor.Source, pkgCache)
 		println(strings.Join([]string{"git", "clone", descriptor.Source, pkgCache}, " "))
 		if err := cmdClone.Run(); err != nil {
 			return "", fmt.Errorf("failed to clone %s: %s\nstdout: %v\nstderr: %v", descriptor.Source, err, cmdClone.Stdout, cmdClone.Stderr)
+		}
+
+		if descriptor.Tag != "" {
+			println(strings.Join([]string{"git", "-C", pkgCache, "checkout", descriptor.Tag}, " "))
+			if err := exec.Command("git", "-C", pkgCache, "checkout", descriptor.Tag).Run(); err != nil {
+				return "", fmt.Errorf("failed to checkout %s: %s", descriptor.Tag, err)
+			}
 		}
 
 		return buildPlugin(pkgCache, binPath, descriptor)
