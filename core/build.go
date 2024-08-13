@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -19,30 +18,6 @@ type Pipeline struct {
 	logger      *logrus.Logger
 	StopAfter   int
 	ExitOnError bool
-}
-
-func pipelineLogger() *logrus.Logger {
-	l := logrus.New()
-	l.ReportCaller = true
-
-	switch os.Getenv("PSYDUCK_LOG_LEVEL") {
-	case "trace":
-		l.SetLevel(logrus.TraceLevel)
-	case "debug":
-		l.SetLevel(logrus.DebugLevel)
-	case "warn":
-		l.SetLevel(logrus.WarnLevel)
-	case "error":
-		l.SetLevel(logrus.ErrorLevel)
-	case "fatal":
-		l.SetLevel(logrus.FatalLevel)
-	case "panic":
-		l.SetLevel(logrus.PanicLevel)
-	default:
-		l.SetLevel(logrus.InfoLevel)
-	}
-
-	return l
 }
 
 func mchan[T any](c int) []chan T {
@@ -283,8 +258,7 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library *Library) (*Pipeline, error) {
-	logger := pipelineLogger()
+func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library *Library, logger *logrus.Logger) (*Pipeline, error) {
 	producer, err := collectProducer(descriptor, evalCtx, library, logger)
 	if err != nil {
 		return nil, err

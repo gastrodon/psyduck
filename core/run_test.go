@@ -40,7 +40,7 @@ func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
 		}(index)
 	}
 
-	return joinProducers(producers, pipelineLogger()), func() []int { return counts }
+	return joinProducers(producers, logrus.New()), func() []int { return counts }
 }
 
 func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
@@ -63,7 +63,7 @@ func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
 
 	}
 
-	return joinConsumers(consumers, pipelineLogger()), func() []int { return counts }
+	return joinConsumers(consumers, logrus.New()), func() []int { return counts }
 }
 
 func testPipeline(testcase testPipelineCase) error {
@@ -82,6 +82,7 @@ func testPipeline(testcase testPipelineCase) error {
 		Producer:    producer,
 		Consumer:    consumer,
 		Transformer: transformer,
+		logger:      logrus.New(),
 	}
 
 	if err := RunPipeline(pipeline); err != nil {
@@ -177,7 +178,7 @@ func (hook testHook) Fire(*logrus.Entry) error {
 }
 
 func pipelineTestLogger(fn func()) *logrus.Logger {
-	log := pipelineLogger()
+	log := logrus.New()
 	log.Hooks.Add(testHook{fn})
 	return log
 }

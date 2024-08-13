@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -41,14 +42,14 @@ func getPluginKind(descriptor pluginBlock) int {
 	return pluginLocal
 }
 
-func buildPlugin(codePath, binPath string, descriptor pluginBlock) (string, error) {
+func buildPlugin(codePath, binPath string, descriptor pluginBlock, logger *logrus.Logger) (string, error) {
 	soPath, err := filepath.Abs(path.Join(binPath, path.Base(descriptor.Source)+".so"))
 	if err != nil {
 		return "", fmt.Errorf("failed to get abspath for .so: %s", err)
 	}
 
 	cmdBuild := exec.Command("go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin")
-	println(strings.Join([]string{"go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin"}, " "))
+	logger.Infof(strings.Join([]string{"go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin"}, " "))
 	if err := cmdBuild.Run(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %s\nstdout: %v\nstderr: %v", codePath, err, cmdBuild.Stdout, cmdBuild.Stderr)
 	}
@@ -63,7 +64,7 @@ Returns an absolute filepath pointing to a loadable shared library
 cachePath is a tmpdir to work in while building
 binPath is where built .so files will live
 */
-func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, error) {
+func fetchPlugin(cachePath, binPath string, descriptor pluginBlock, logger *logrus.Logger) (string, error) {
 	switch getPluginKind(descriptor) {
 	case pluginLocal:
 		stat, err := os.Stat(descriptor.Source)
@@ -72,7 +73,7 @@ func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, err
 		}
 
 		if stat.IsDir() {
-			soPath, err := buildPlugin(descriptor.Source, binPath, descriptor)
+			soPath, err := buildPlugin(descriptor.Source, binPath, descriptor, logger)
 			if err != nil {
 				return "", fmt.Errorf("failed to build local plugin: %s", err)
 			}
@@ -89,12 +90,12 @@ func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, err
 	case pluginRemote:
 		pkgCache := path.Join(cachePath, descriptor.Source)
 		cmdClone := exec.Command("git", "clone", descriptor.Source, pkgCache)
-		println(strings.Join([]string{"git", "clone", descriptor.Source, pkgCache}, " "))
+		logger.Infof(strings.Join([]string{"git", "clone", descriptor.Source, pkgCache}, " "))
 		if err := cmdClone.Run(); err != nil {
 			return "", fmt.Errorf("failed to clone %s: %s\nstdout: %v\nstderr: %v", descriptor.Source, err, cmdClone.Stdout, cmdClone.Stderr)
 		}
 
-		return buildPlugin(pkgCache, binPath, descriptor)
+		return buildPlugin(pkgCache, binPath, descriptor, logger)
 	default:
 		return "", fmt.Errorf(
 			"unable to find a suitable way to fetch %s! descriptor:\n%#v",
@@ -127,10 +128,10 @@ func loadPlugin(pluginPath string, descriptor pluginBlock) (*sdk.Plugin, error) 
 	return makePlugin(), nil
 }
 
-func collectPlugins(cachePath, binPath string, descriptors *pluginBlocks) (map[string]string, error) {
+func collectPlugins(cachePath, binPath string, descriptors *pluginBlocks, logger *logrus.Logger) (map[string]string, error) {
 	collected := make(map[string]string, len(descriptors.Blocks))
 	for _, desc := range descriptors.Blocks {
-		loc, err := fetchPlugin(cachePath, binPath, desc)
+		loc, err := fetchPlugin(cachePath, binPath, desc, logger)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch %s: %s", desc.Name, err)
 		}
@@ -170,7 +171,7 @@ func readPluginBlocks(filename string, literal []byte, evalCtx *hcl.EvalContext)
 	}
 }
 
-func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]string, error) {
+func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext, logger *logrus.Logger) (map[string]string, error) {
 	descriptors, diags := readPluginBlocks(filename, literal, evalCtx)
 	if diags.HasErrors() {
 		return nil, diags
@@ -186,7 +187,7 @@ func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.Eval
 		return nil, fmt.Errorf("failed to create binpath: %s", err)
 	}
 
-	collected, err := collectPlugins(cachePath, binPath, descriptors)
+	collected, err := collectPlugins(cachePath, binPath, descriptors, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect: %s", err)
 	}
