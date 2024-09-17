@@ -20,8 +20,11 @@ func Test_makeEvalCtx(test *testing.T) {
 		"tags_list": cty.TupleVal([]cty.Value{cty.StringVal("foo"), cty.StringVal("bar")}),
 	}
 
-	values, err := makeEvalCtx(filename, []byte(literal))
-	assert.NoError(test, err)
+	values, diags := makeEvalCtx(filename, []byte(literal))
+	if diags.HasErrors() {
+		test.Fatalf("make-eval-ctx: %s", drawDiags(diags))
+	}
+
 	assert.NotNil(test, values, "values is nil!")
 
 	// panic(fmt.Sprintf("%+v", values.Variables["value"]))
@@ -37,10 +40,12 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 		v = 1234
 	}`
 
-	values, err := makeEvalCtx(filename, []byte(literal))
-	assert.NoError(test, err)
-	assert.NotNil(test, values, "values is nil!")
+	values, diags := makeEvalCtx(filename, []byte(literal))
+	if diags.HasErrors() {
+		test.Fatalf("make-eval-ctx has numbers: %s", drawDiags(diags))
+	}
 
+	assert.NotNil(test, values, "values is nil!")
 	i, _ := values.Variables["value"].GetAttr("v").AsBigFloat().Int64()
 	assert.Equal(test, int64(1234), i)
 }
@@ -51,9 +56,11 @@ func Test_makeEvalCtx_Env(test *testing.T) {
 
 	os.Setenv("FOO", "bar")
 	defer os.Unsetenv("FOO")
-	values, err := makeEvalCtx(filename, []byte(literal))
-	assert.NoError(test, err)
-	assert.NotNil(test, values, "values is nil!")
+	values, diags := makeEvalCtx(filename, []byte(literal))
+	if diags.HasErrors() {
+		test.Fatalf("make-eval-ctx has env: %s", drawDiags(diags))
+	}
 
+	assert.NotNil(test, values, "values is nil!")
 	assert.Equal(test, cty.StringVal("bar"), values.Variables["env"].GetAttr("FOO"))
 }
