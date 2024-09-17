@@ -12,8 +12,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -29,7 +27,7 @@ var (
 )
 
 // TODO this isn't very robust
-func getPluginKind(descriptor pluginBlock) int {
+func getPluginKind(descriptor PluginDesc) int {
 	if descriptor.Source == "" {
 		return pluginUnknown
 	}
@@ -41,7 +39,7 @@ func getPluginKind(descriptor pluginBlock) int {
 	return pluginLocal
 }
 
-func buildPlugin(codePath, binPath string, descriptor pluginBlock) (string, error) {
+func buildPlugin(codePath, binPath string, descriptor PluginDesc) (string, error) {
 	soPath, err := filepath.Abs(path.Join(binPath, path.Base(descriptor.Source)+".so"))
 	if err != nil {
 		return "", fmt.Errorf("failed to get abspath for .so: %s", err)
@@ -63,7 +61,7 @@ Returns an absolute filepath pointing to a loadable shared library
 cachePath is a tmpdir to work in while building
 binPath is where built .so files will live
 */
-func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, error) {
+func fetchPlugin(cachePath, binPath string, descriptor PluginDesc) (string, error) {
 	switch getPluginKind(descriptor) {
 	case pluginLocal:
 		stat, err := os.Stat(descriptor.Source)
@@ -110,7 +108,7 @@ func fetchPlugin(cachePath, binPath string, descriptor pluginBlock) (string, err
 	}
 }
 
-func loadPlugin(pluginPath string, descriptor pluginBlock) (*sdk.Plugin, error) {
+func loadPlugin(pluginPath string, descriptor PluginDesc) (*sdk.Plugin, error) {
 	plugin, err := plugin.Open(pluginPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed loading the library providing %s ( %s @ %s ):\n%s",
@@ -134,9 +132,9 @@ func loadPlugin(pluginPath string, descriptor pluginBlock) (*sdk.Plugin, error) 
 	return makePlugin(), nil
 }
 
-func collectPlugins(cachePath, binPath string, descriptors *pluginBlocks) (map[string]string, error) {
-	collected := make(map[string]string, len(descriptors.Blocks))
-	for _, desc := range descriptors.Blocks {
+func collectPlugins(cachePath, binPath string, descriptors []PluginDesc) (map[string]string, error) {
+	collected := make(map[string]string, len(descriptors))
+	for _, desc := range descriptors {
 		loc, err := fetchPlugin(cachePath, binPath, desc)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch %s: %s", desc.Name, err)
@@ -148,9 +146,9 @@ func collectPlugins(cachePath, binPath string, descriptors *pluginBlocks) (map[s
 	return collected, nil
 }
 
-func loadPlugins(binPaths map[string]string, descriptors *pluginBlocks) ([]*sdk.Plugin, error) {
-	plugins := make([]*sdk.Plugin, len(descriptors.Blocks))
-	for i, descriptor := range descriptors.Blocks {
+func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.Plugin, error) {
+	plugins := make([]*sdk.Plugin, len(descriptors))
+	for i, descriptor := range descriptors {
 		binPath, ok := binPaths[descriptor.Name]
 		if !ok {
 			return nil, fmt.Errorf("binary not found for plugin %s", descriptor.Name)
@@ -167,18 +165,8 @@ func loadPlugins(binPaths map[string]string, descriptors *pluginBlocks) ([]*sdk.
 	return plugins, nil
 }
 
-func readPluginBlocks(filename string, literal []byte, evalCtx *hcl.EvalContext) (*pluginBlocks, hcl.Diagnostics) {
-	target := new(pluginBlocks)
-	if file, diags := hclparse.NewParser().ParseHCL(literal, filename); diags != nil {
-		return nil, diags
-	} else {
-		gohcl.DecodeBody(file.Body, evalCtx, target)
-		return target, make(hcl.Diagnostics, 0)
-	}
-}
-
-func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) (map[string]string, error) {
-	descriptors, diags := readPluginBlocks(filename, literal, evalCtx)
+func CollectPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
+	descriptors, diags := ParsePluginsDesc(filename, literal)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -206,7 +194,7 @@ func CollectPlugins(initPath, filename string, literal []byte, evalCtx *hcl.Eval
 }
 
 func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
-	descriptors, diags := readPluginBlocks(filename, literal, evalCtx)
+	descriptors, diags := ParsePluginsDesc(filename, literal)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -216,7 +204,7 @@ func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalCon
 		return nil, fmt.Errorf("failed to read plugin.json: %s", err)
 	}
 
-	binPaths := make(map[string]string, len(descriptors.Blocks))
+	binPaths := make(map[string]string, len(descriptors))
 	if err := json.Unmarshal(b, &binPaths); err != nil {
 		return nil, fmt.Errorf("failed to decode binPaths: %s", err)
 	}

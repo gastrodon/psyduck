@@ -6,22 +6,6 @@ import (
 )
 
 /*
-plugin "psyduck" {
-	source = "git@github.com:psyduck-std/psyduck"
-}
-*/
-
-type pluginBlock struct {
-	Name   string `hcl:"name,label"`
-	Source string `hcl:"source"`
-	Tag    string `hcl:"tag"`
-}
-
-type pluginBlocks struct {
-	Blocks []pluginBlock `hcl:"plugin,block"`
-}
-
-/*
 value {
 	foo = "bar"
 }
