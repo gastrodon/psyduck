@@ -64,7 +64,8 @@ func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl
 	}
 
 	target := new(struct {
-		Blocks []struct {
+		hcl.Body `hcl:",remain"`
+		Blocks   []struct {
 			Entries map[string]cty.Value `hcl:",remain"`
 		} `hcl:"value,block"`
 	})
