@@ -35,7 +35,7 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 		return err
 	}
 
-	pluginPaths, err := configure.CollectPlugins(initPath, filename, literal, evalCtx)
+	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal, evalCtx)
 	if err != nil {
 		return err
 	}

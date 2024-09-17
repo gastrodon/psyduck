@@ -55,12 +55,10 @@ func buildPlugin(codePath, binPath string, descriptor PluginDesc) (string, error
 }
 
 /*
-Fetch plugins, cloning and building them if necessary
-Returns an absolute filepath pointing to a loadable shared library
-
 cachePath is a tmpdir to work in while building
 binPath is where built .so files will live
 */
+
 func fetchPlugin(cachePath, binPath string, descriptor PluginDesc) (string, error) {
 	switch getPluginKind(descriptor) {
 	case pluginLocal:
@@ -108,6 +106,55 @@ func fetchPlugin(cachePath, binPath string, descriptor PluginDesc) (string, erro
 	}
 }
 
+func fetchPlugins(cachePath, binPath string, descriptors []PluginDesc) (map[string]string, error) {
+	collected := make(map[string]string, len(descriptors))
+	for _, desc := range descriptors {
+		loc, err := fetchPlugin(cachePath, binPath, desc)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch %s: %s", desc.Name, err)
+		}
+
+		collected[desc.Name] = loc
+	}
+
+	return collected, nil
+}
+
+/*
+Fetch plugins, cloning and building them if necessary
+Returns an absolute filepath pointing to a loadable shared library
+*/
+func FetchPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
+	descriptors, diags := ParsePluginsDesc(filename, literal)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
+	if err != nil {
+		return nil, fmt.Errorf("failed to cache dir: %s", err)
+	}
+
+	binPath := path.Join(initPath, "plugins")
+	if err := os.MkdirAll(binPath, os.ModeDir|os.ModePerm); err != nil {
+		return nil, fmt.Errorf("failed to create binpath: %s", err)
+	}
+
+	collected, err := fetchPlugins(cachePath, binPath, descriptors)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect: %s", err)
+	}
+
+	if err := os.RemoveAll(cachePath); err != nil {
+		return nil, fmt.Errorf("failed to rm cachepath: %s", err)
+	}
+
+	return collected, nil
+}
+
+/*
+Load a plugin by opening with go-plugin and calling its Plugin func
+*/
 func loadPlugin(pluginPath string, descriptor PluginDesc) (*sdk.Plugin, error) {
 	plugin, err := plugin.Open(pluginPath)
 	if err != nil {
@@ -132,20 +179,6 @@ func loadPlugin(pluginPath string, descriptor PluginDesc) (*sdk.Plugin, error) {
 	return makePlugin(), nil
 }
 
-func collectPlugins(cachePath, binPath string, descriptors []PluginDesc) (map[string]string, error) {
-	collected := make(map[string]string, len(descriptors))
-	for _, desc := range descriptors {
-		loc, err := fetchPlugin(cachePath, binPath, desc)
-		if err != nil {
-			return nil, fmt.Errorf("unable to fetch %s: %s", desc.Name, err)
-		}
-
-		collected[desc.Name] = loc
-	}
-
-	return collected, nil
-}
-
 func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.Plugin, error) {
 	plugins := make([]*sdk.Plugin, len(descriptors))
 	for i, descriptor := range descriptors {
@@ -165,34 +198,9 @@ func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.P
 	return plugins, nil
 }
 
-func CollectPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
-	descriptors, diags := ParsePluginsDesc(filename, literal)
-	if diags.HasErrors() {
-		return nil, diags
-	}
-
-	cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
-	if err != nil {
-		return nil, fmt.Errorf("failed to cache dir: %s", err)
-	}
-
-	binPath := path.Join(initPath, "plugins")
-	if err := os.MkdirAll(binPath, os.ModeDir|os.ModePerm); err != nil {
-		return nil, fmt.Errorf("failed to create binpath: %s", err)
-	}
-
-	collected, err := collectPlugins(cachePath, binPath, descriptors)
-	if err != nil {
-		return nil, fmt.Errorf("failed to collect: %s", err)
-	}
-
-	if err := os.RemoveAll(cachePath); err != nil {
-		return nil, fmt.Errorf("failed to rm cachepath: %s", err)
-	}
-
-	return collected, nil
-}
-
+/*
+Load plugins that've been fetched and are pointed to in <initPath>/plugin.json
+*/
 func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
 	descriptors, diags := ParsePluginsDesc(filename, literal)
 	if diags.HasErrors() {
