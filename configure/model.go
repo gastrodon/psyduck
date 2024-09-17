@@ -2,20 +2,7 @@ package configure
 
 import (
 	"github.com/hashicorp/hcl/v2"
-	"github.com/zclconf/go-cty/cty"
 )
-
-/*
-value {
-	foo = "bar"
-}
-*/
-
-type valueBlocks struct {
-	Blocks []struct {
-		Entries map[string]cty.Value `hcl:",remain"`
-	} `hcl:"value,block"`
-}
 
 /*
 {produce,consume,transform} "kind" "name" {
