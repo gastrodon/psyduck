@@ -21,7 +21,7 @@ func Test_makeEvalCtx(test *testing.T) {
 	}
 
 	values, err := makeEvalCtx(filename, []byte(literal))
-	assert.Nil(test, err, "%s", err)
+	assert.NoError(test, err)
 	assert.NotNil(test, values, "values is nil!")
 
 	// panic(fmt.Sprintf("%+v", values.Variables["value"]))
@@ -38,7 +38,7 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 	}`
 
 	values, err := makeEvalCtx(filename, []byte(literal))
-	assert.Nil(test, err, "%s", err)
+	assert.NoError(test, err)
 	assert.NotNil(test, values, "values is nil!")
 
 	i, _ := values.Variables["value"].GetAttr("v").AsBigFloat().Int64()
@@ -52,7 +52,7 @@ func Test_makeEvalCtx_Env(test *testing.T) {
 	os.Setenv("FOO", "bar")
 	defer os.Unsetenv("FOO")
 	values, err := makeEvalCtx(filename, []byte(literal))
-	assert.Nil(test, err, "%s", err)
+	assert.NoError(test, err)
 	assert.NotNil(test, values, "values is nil!")
 
 	assert.Equal(test, cty.StringVal("bar"), values.Variables["env"].GetAttr("FOO"))

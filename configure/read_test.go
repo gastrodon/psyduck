@@ -34,10 +34,10 @@ var cases = []struct {
 }
 
 func TestLiteral(test *testing.T) {
-	for _, testcase := range cases {
+	for i, testcase := range cases {
 		configs, _, err := Literal(testcase.Filename, []byte(testcase.Literal))
 		if err != nil {
-			test.Fatal(err)
+			test.Fatalf("test-literal[%d]: %s", i, err)
 		}
 
 		assert.Equal(test, len(testcase.Want), len(configs))
