@@ -34,7 +34,8 @@ func ParsePluginsDesc(filename string, literal []byte) ([]PluginDesc, hcl.Diagno
 	}
 
 	target := new(struct {
-		Blocks []PluginDesc `hcl:"plugin,block"`
+		hcl.Body `hcl:",remain"`
+		Blocks   []PluginDesc `hcl:"plugin,block"`
 	})
 	if diags := gohcl.DecodeBody(file.Body, builtinCtx, target); diags.HasErrors() {
 		return nil, diags
