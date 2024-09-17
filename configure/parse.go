@@ -7,7 +7,6 @@ import (
 )
 
 var (
-	hclParser  = hclparse.NewParser()
 	builtinCtx = new(hcl.EvalContext) // in case we want to have a place to put builtin functions
 )
 
@@ -29,7 +28,7 @@ For parsing plugin descriptor bocks
 ```
 */
 func ParsePluginsDesc(filename string, literal []byte) ([]PluginDesc, hcl.Diagnostics) {
-	file, diags := hclParser.ParseHCL(literal, filename)
+	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
 	}
