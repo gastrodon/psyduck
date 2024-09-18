@@ -12,8 +12,8 @@ import (
 */
 
 type pipelinePart struct {
-	Kind    string   `hcl:"kind,label" cty:"kind"`
-	Name    string   `hcl:"name,label" cty:"kind"`
+	Kind    string   `hcl:"kind,label"`
+	Name    string   `hcl:"name,label"`
 	Options hcl.Body `hcl:",remain"`
 }
 
