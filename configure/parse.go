@@ -70,7 +70,9 @@ func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl
 		} `hcl:"value,block"`
 	})
 
-	gohcl.DecodeBody(file.Body, defaultCtx, target)
+	if diags := gohcl.DecodeBody(file.Body, defaultCtx, target); diags.HasErrors() {
+		return nil, diags
+	}
 
 	l := 0
 	for _, b := range target.Blocks {
