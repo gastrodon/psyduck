@@ -1,11 +1,15 @@
 package stdlib
 
 import (
+	"errors"
+	"os"
+
 	"github.com/gastrodon/psyduck/stdlib/consume"
 	"github.com/gastrodon/psyduck/stdlib/produce"
 	"github.com/gastrodon/psyduck/stdlib/transform"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
 )
 
 func Plugin() *sdk.Plugin {
@@ -134,6 +138,30 @@ func Plugin() *sdk.Plugin {
 				},
 				ProvideProducer: produce.Increment,
 			},
+		},
+		Functions: map[string]function.Function{
+			"env": function.New(&function.Spec{
+				Description: "Get an environment variable",
+				Params: []function.Parameter{{
+					Name:             "name",
+					Description:      "Name of the environment variable to poll",
+					Type:             cty.String,
+					AllowNull:        false,
+					AllowUnknown:     false,
+					AllowDynamicType: false,
+					AllowMarked:      false,
+				}},
+				Type: func(args []cty.Value) (cty.Type, error) {
+					return cty.String, nil
+				},
+				Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+					if len(args) != 1 {
+						return cty.NilVal, errors.New("expected one value")
+					}
+
+					return cty.StringVal(os.Getenv(args[0].AsString())), nil
+				},
+			}),
 		},
 	}
 }

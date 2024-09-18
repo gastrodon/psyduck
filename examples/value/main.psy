@@ -12,7 +12,7 @@ produce "constant" "value" {
 }
 
 produce "constant" "env" {
-  value = env.PSYDUCK_FOO
+  value = env("PSYDUCK_FOO")
   stop-after = 30
 }
 
