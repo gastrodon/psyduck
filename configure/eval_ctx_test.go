@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"math/big"
 	"os"
 	"testing"
 
@@ -46,8 +47,7 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 	}
 
 	assert.NotNil(test, values, "values is nil!")
-	i, _ := values.Variables["value"].GetAttr("v").AsBigFloat().Int64()
-	assert.Equal(test, int64(1234), i)
+	assert.Equal(test, cty.NumberVal(new(big.Float).SetInt64(1234).SetPrec(512)), values.Variables["value"].GetAttr("v"))
 }
 
 func Test_makeEvalCtx_Env(test *testing.T) {
