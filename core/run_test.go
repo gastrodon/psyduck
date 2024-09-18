@@ -123,6 +123,10 @@ func Test_RunPipeline(test *testing.T) {
 	}
 
 	for i, testcase := range cases {
+		if testcase.Delay && testing.Short() {
+			continue
+		}
+
 		if err := testPipeline(testcase); err != nil {
 			test.Fatalf("case %d failed: %s", i, err)
 		}
