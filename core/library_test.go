@@ -14,13 +14,13 @@ import (
 func TestNewLibrary(t *testing.T) {
 	cases := []struct {
 		have []*sdk.Plugin
-		want library
+		want map[string]*sdk.Resource
 	}{
 		{
 			[]*sdk.Plugin{
 				{Name: "psyduck", Resources: []*sdk.Resource{{Name: "test"}}},
 			},
-			library{map[string]*sdk.Resource{"test": {Name: "test"}}},
+			map[string]*sdk.Resource{"test": {Name: "test"}},
 		},
 	}
 
@@ -44,8 +44,8 @@ func TestLibrary(t *testing.T) {
 			{
 				Kinds: sdk.PRODUCER,
 				Name:  "test",
-				Spec: map[string]*sdk.Spec{
-					"count": {Name: "count", Required: true, Type: cty.Number},
+				Spec: []*sdk.Spec{
+					{Name: "count", Required: true, Type: cty.Number},
 				},
 				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
 					target := new(struct {
