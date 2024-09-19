@@ -31,8 +31,8 @@ func makeEvalCtx(filename string, literal []byte) (*hcl.EvalContext, hcl.Diagnos
 
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
-			NAMESPACE_VALUE: cty.ObjectVal(values),
-			NAMESPACE_ENV:   makeMapEnv(),
+			"value": cty.ObjectVal(values),
+			"env":   makeMapEnv(),
 		},
 	}, make(hcl.Diagnostics, 0)
 }

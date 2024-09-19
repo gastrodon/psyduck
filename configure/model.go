@@ -1,9 +1,5 @@
 package configure
 
-import (
-	"github.com/hashicorp/hcl/v2"
-)
-
 /*
 {produce,consume,transform} "kind" "name" {
 	foo = "bar"
@@ -11,16 +7,10 @@ import (
 }
 */
 
-type pipelinePart struct {
-	Kind    string   `hcl:"kind,label"`
-	Name    string   `hcl:"name,label"`
-	Options hcl.Body `hcl:",remain"`
-}
-
 type pipelineParts struct {
-	Producers    []*pipelinePart `hcl:"produce,block"`
-	Consumers    []*pipelinePart `hcl:"consume,block"`
-	Transformers []*pipelinePart `hcl:"transform,block"`
+	Producers    []*MoverDesc `hcl:"produce,block"`
+	Consumers    []*MoverDesc `hcl:"consume,block"`
+	Transformers []*MoverDesc `hcl:"transform,block"`
 }
 
 type pipelineBlock struct {
@@ -31,15 +21,4 @@ type pipelineBlock struct {
 	StopAfter         *int     `cty:"stop-after"`
 	ExitOnError       *bool    `cty:"exit-on-error"`
 	ParallelProducers *uint    `cty:"parallel-producers"`
-}
-
-type Pipeline struct {
-	Name              string
-	RemoteProducer    *pipelinePart
-	Producers         []*pipelinePart
-	Consumers         []*pipelinePart
-	Transformers      []*pipelinePart
-	StopAfter         int
-	ExitOnError       bool
-	ParallelProducers uint
 }

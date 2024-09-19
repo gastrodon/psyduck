@@ -99,3 +99,55 @@ func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl
 
 	return values, nil
 }
+
+type MoverDesc struct {
+	Kind    string    `hcl:"resource" cty:"resource"`
+	Options cty.Value `hcl:"options" cty:"options"`
+}
+
+type PipelineDesc struct {
+	Name              string       `hcl:"name,label"`
+	RemoteProducer    *MoverDesc   `hcl:"produce-from,optional"`
+	Producers         []*MoverDesc `hcl:"produce,optional"`
+	Consumers         []*MoverDesc `hcl:"consume,optional"`
+	Transformers      []*MoverDesc `hcl:"transform,optional"`
+	StopAfter         int          `hcl:"stop-after,optional"`
+	ExitOnError       bool         `hcl:"exit-on-error,optional"`
+	ParallelProducers uint         `hcl:"parallel-producers,optional"`
+}
+
+func ParsePipelinesDesc(filename string, literal []byte, ctx *hcl.EvalContext) (map[string]*PipelineDesc, hcl.Diagnostics) {
+	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	target := new(struct {
+		hcl.Body `hcl:",remain"`
+		Blocks   []*PipelineDesc `hcl:"pipeline,block"`
+	})
+
+	if diags := gohcl.DecodeBody(file.Body, ctx, target); diags.HasErrors() {
+		return nil, diags
+	}
+
+	if len(target.Blocks) == 0 {
+		return make(map[string]*PipelineDesc, 0), nil
+	}
+
+	lookup := make(map[string]*PipelineDesc, len(target.Blocks))
+	for _, desc := range target.Blocks {
+		if _, ok := lookup[desc.Name]; ok {
+			return nil, hcl.Diagnostics{{
+				Severity:    0,
+				Summary:     "duplicate pipeline key",
+				Detail:      "The name " + desc.Name + " is a duplicate",
+				EvalContext: ctx,
+			}}
+		}
+
+		lookup[desc.Name] = desc
+	}
+
+	return lookup, make(hcl.Diagnostics, 0)
+}

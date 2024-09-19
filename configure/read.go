@@ -12,6 +12,13 @@ import (
 	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
+func parentify(parent, child *hcl.EvalContext) *hcl.EvalContext {
+	c := parent.NewChild()
+	c.Functions = child.Functions
+	c.Variables = child.Variables
+	return c
+}
+
 func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, hcl.Diagnostics) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
@@ -26,28 +33,23 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 	return resources, nil
 }
 
-func Literal(filename string, literal []byte) (map[string]*Pipeline, *hcl.EvalContext, error) {
-	valuesContext, diags := makeEvalCtx(filename, literal)
+func Literal(filename string, literal []byte, ctx *hcl.EvalContext) (map[string]*PipelineDesc, *hcl.EvalContext, error) {
+	valuesCtx, diags := makeEvalCtx(filename, literal)
 	if diags.HasErrors() {
 		return nil, nil, fmt.Errorf("failed to load values ctx: %s", diags.Error())
 	}
 
-	resourcesContext, err := loadResourcesContext(filename, literal)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load resources ctx: %s", err)
+	pipelinesCtx := parentify(ctx, valuesCtx)
+	pipelines, diags := ParsePipelinesDesc(filename, literal, pipelinesCtx)
+	if diags.HasErrors() {
+		return nil, nil, diags.Append(&hcl.Diagnostic{
+			Severity:    hcl.DiagError,
+			Summary:     "cound not parse pipelines descriptors",
+			EvalContext: pipelinesCtx,
+		})
 	}
 
-	resourceLookup, err := loadResorceLookup(filename, literal, valuesContext)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load resources lookup: %s", err)
-	}
-
-	pipelines, err := loadPipelines(filename, literal, resourcesContext, resourceLookup)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load pipelines: %s", err)
-	}
-
-	return pipelines, valuesContext, nil
+	return pipelines, valuesCtx, nil
 }
 
 func ReadDirectory(directory string) ([]byte, error) {
