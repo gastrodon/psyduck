@@ -1,11 +1,11 @@
 package core
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
@@ -35,11 +35,9 @@ func TestNewLibrary(t *testing.T) {
 }
 
 func TestLibrary(t *testing.T) {
-	have := []byte(`count = 123`)
-	file, diags := hclparse.NewParser().ParseHCL(have, "test-library")
-	if diags.HasErrors() {
-		t.Fatal(diags.Error())
-	}
+	have := cty.ObjectVal(map[string]cty.Value{
+		"count": cty.NumberVal(new(big.Float).SetFloat64(123).SetPrec(512)),
+	})
 
 	plugin := &sdk.Plugin{
 		Name: "test", Resources: []*sdk.Resource{
@@ -71,7 +69,7 @@ func TestLibrary(t *testing.T) {
 	}
 
 	l := NewLibrary([]*sdk.Plugin{plugin})
-	p, err := l.Producer("test", &hcl.EvalContext{}, file.Body)
+	p, err := l.Producer("test", &hcl.EvalContext{}, have)
 	if err != nil {
 		t.Fatal(err)
 	}

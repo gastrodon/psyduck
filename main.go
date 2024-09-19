@@ -8,6 +8,7 @@ import (
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,7 +25,7 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 	}
 
 	filename := path.Base(ctx.String("chdir"))
-	_, evalCtx, err := configure.Literal(filename, literal)
+	_, evalCtx, err := configure.Literal(filename, literal, &hcl.EvalContext{})
 	if err != nil {
 		return err
 	}
@@ -55,7 +56,7 @@ func run(ctx *cli.Context) error {
 	}
 
 	filename := path.Base(ctx.String("chdir"))
-	descriptors, evalCtx, err := configure.Literal(filename, literal)
+	descriptors, evalCtx, err := configure.Literal(filename, literal, &hcl.EvalContext{})
 	if err != nil {
 		return err
 	}

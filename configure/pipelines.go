@@ -43,8 +43,8 @@ var pipelineBlockSpec = &hcldec.BlockObjectSpec{
 	},
 }
 
-func lookupRefSlice(refs []string, lookup map[string]*pipelinePart) ([]*pipelinePart, error) {
-	resources := make([]*pipelinePart, len(refs))
+func lookupRefSlice(refs []string, lookup map[string]*MoverDesc) ([]*MoverDesc, error) {
+	resources := make([]*MoverDesc, len(refs))
 
 	for index, ref := range refs {
 		if resource, ok := lookup[ref]; !ok {
@@ -65,8 +65,8 @@ func derefOr[T any](v *T, d T) T {
 	return d
 }
 
-func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
-	pipelines := make(map[string]*Pipeline, len(refs))
+func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*MoverDesc) (map[string]*PipelineDesc, error) {
+	pipelines := make(map[string]*PipelineDesc, len(refs))
 	for name, ref := range refs {
 		consumers, err := lookupRefSlice(ref.Consumers, lookup)
 		if err != nil {
@@ -84,7 +84,7 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 				return nil, fmt.Errorf("can't find a remote provider %s", *ref.RemoteProducer)
 			}
 
-			pipelines[name] = &Pipeline{
+			pipelines[name] = &PipelineDesc{
 				Name:           name,
 				RemoteProducer: r,
 				Producers:      nil,
@@ -99,7 +99,7 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 				return nil, fmt.Errorf("can't find a provider ref slice: %s", err)
 			}
 
-			pipelines[name] = &Pipeline{
+			pipelines[name] = &PipelineDesc{
 				Name:           name,
 				RemoteProducer: nil,
 				Producers:      producers,
@@ -115,7 +115,7 @@ func lookupPipelines(refs map[string]*pipelineBlock, lookup map[string]*pipeline
 	return pipelines, nil
 }
 
-func loadPipelines(filename string, literal []byte, evalCtx *hcl.EvalContext, lookup map[string]*pipelinePart) (map[string]*Pipeline, error) {
+func loadPipelines(filename string, literal []byte, evalCtx *hcl.EvalContext, lookup map[string]*MoverDesc) (map[string]*PipelineDesc, error) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
