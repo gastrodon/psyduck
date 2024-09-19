@@ -47,6 +47,7 @@ func parser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, config cty.Value) sdk.Pa
 }
 
 type library struct {
+	plugins   []*sdk.Plugin
 	resources map[string]*sdk.Resource
 }
 
@@ -89,10 +90,22 @@ func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config cty.
 	return found.ProvideTransformer(parser(found.Spec, evalCtx, config))
 }
 
+func (l *library) Ctx() *hcl.EvalContext {
+	ctx := &hcl.EvalContext{}
+	for _, plugin := range l.plugins {
+		for k, v := range plugin.Ctx().Variables {
+			ctx.Variables[k] = v
+		}
+	}
+
+	return ctx
+}
+
 type Library interface {
 	Producer(string, *hcl.EvalContext, cty.Value) (sdk.Producer, error)
 	Consumer(string, *hcl.EvalContext, cty.Value) (sdk.Consumer, error)
 	Transformer(string, *hcl.EvalContext, cty.Value) (sdk.Transformer, error)
+	Ctx() *hcl.EvalContext
 }
 
 func NewLibrary(plugins []*sdk.Plugin) Library {
@@ -103,5 +116,5 @@ func NewLibrary(plugins []*sdk.Plugin) Library {
 		}
 	}
 
-	return &library{lookupResource}
+	return &library{plugins, lookupResource}
 }
