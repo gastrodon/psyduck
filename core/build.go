@@ -239,7 +239,7 @@ func nok[T any](e error) result[T] {
 	return result[T]{zero, e}
 }
 
-func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
+func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
 	if descriptor.RemoteProducer != nil {
 		pMeta, err := library.Producer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
 		if err != nil {
@@ -323,7 +323,7 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *configure.PipelineDesc, evalCtx *hcl.EvalContext, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
 	producer, err := collectProducer(descriptor, evalCtx, library, logger)
 	if err != nil {
