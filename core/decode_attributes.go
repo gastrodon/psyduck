@@ -44,12 +44,12 @@ func getAttributeValue(attributes hcl.Attributes, name string, evalCtx *hcl.Eval
 	}
 }
 
-func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl.Attributes, target interface{}) hcl.Diagnostics {
+func decodeAttributes(spec []*sdk.Spec, evalCtx *hcl.EvalContext, attributes hcl.Attributes, target interface{}) hcl.Diagnostics {
 	diags := hcl.Diagnostics{}
 
 	valuesDecode := make(map[string]cty.Value)
-	for name, fieldSpec := range spec {
-		fieldValue, diagsValue := getAttributeValue(attributes, name, evalCtx)
+	for _, fieldSpec := range spec {
+		fieldValue, diagsValue := getAttributeValue(attributes, fieldSpec.Name, evalCtx)
 		if diagsValue.HasErrors() {
 			for _, each := range diagsValue {
 				diags = diags.Append(each)
@@ -67,7 +67,7 @@ func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl
 					EvalContext: evalCtx,
 				})
 			} else {
-				valuesDecode[name] = fieldSpec.Default
+				valuesDecode[fieldSpec.Name] = fieldSpec.Default
 			}
 			continue
 		}
@@ -81,7 +81,7 @@ func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl
 			continue
 		}
 
-		valuesDecode[name] = fieldValue
+		valuesDecode[fieldSpec.Name] = fieldValue
 	}
 
 	if err := gocty.FromCtyValueTagged(cty.ObjectVal(valuesDecode), target, "psy"); err != nil {

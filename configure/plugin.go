@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -223,4 +225,38 @@ func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalCon
 	}
 
 	return loaded, nil
+}
+
+type PluginDesc struct {
+	Name   string `hcl:"name,label"`
+	Source string `hcl:"source"`
+	Tag    string `hcl:"tag,optional"`
+}
+
+/*
+For parsing plugin descriptor bocks
+```
+
+	plugin "name" {
+		source = string
+		tag 	 = string
+	}
+
+```
+*/
+func ParsePluginsDesc(filename string, literal []byte) ([]PluginDesc, hcl.Diagnostics) {
+	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	target := new(struct {
+		hcl.Body `hcl:",remain"`
+		Blocks   []PluginDesc `hcl:"plugin,block"`
+	})
+	if diags := gohcl.DecodeBody(file.Body, &hcl.EvalContext{}, target); diags.HasErrors() {
+		return nil, diags
+	}
+
+	return target.Blocks, make(hcl.Diagnostics, 0)
 }
