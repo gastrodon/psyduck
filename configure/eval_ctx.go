@@ -23,8 +23,8 @@ func makeMapEnv() cty.Value {
 Given a literal hcl, parse out an eval ctx with all variables. Right now, this includes
 `value.*` from `value {...}` blocks, and `env.*` from environment variables
 */
-func makeEvalCtx(filename string, literal []byte) (*hcl.EvalContext, hcl.Diagnostics) {
-	values, diags := ParseValuesDesc(filename, literal)
+func makeEvalCtx(filename string, literal []byte, ctx *hcl.EvalContext) (*hcl.EvalContext, hcl.Diagnostics) {
+	values, diags := ParseValuesDesc(filename, literal, ctx)
 	if diags.HasErrors() {
 		return nil, diags
 	}

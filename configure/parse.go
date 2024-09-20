@@ -57,7 +57,7 @@ For parsing values blocks
 
 ```
 */
-func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl.Diagnostics) {
+func ParseValuesDesc(filename string, literal []byte, ctx *hcl.EvalContext) (map[string]cty.Value, hcl.Diagnostics) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
@@ -70,7 +70,7 @@ func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl
 		} `hcl:"value,block"`
 	})
 
-	if diags := gohcl.DecodeBody(file.Body, defaultCtx, target); diags.HasErrors() {
+	if diags := gohcl.DecodeBody(file.Body, ctx, target); diags.HasErrors() {
 		return nil, diags
 	}
 
@@ -89,7 +89,7 @@ func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl
 					Detail:      "TODO",
 					Subject:     &hcl.Range{}, // TODO
 					Context:     &hcl.Range{}, // TODO
-					EvalContext: defaultCtx,
+					EvalContext: ctx,
 				}}
 			}
 

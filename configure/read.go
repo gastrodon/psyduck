@@ -33,19 +33,20 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 	return resources, nil
 }
 
-func Literal(filename string, literal []byte, ctx *hcl.EvalContext) (map[string]*PipelineDesc, *hcl.EvalContext, error) {
-	valuesCtx, diags := makeEvalCtx(filename, literal)
+func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (map[string]*PipelineDesc, *hcl.EvalContext, error) {
+	ctx := parentify(defaultCtx, baseCtx)
+	valuesCtx, diags := makeEvalCtx(filename, literal, ctx)
 	if diags.HasErrors() {
 		return nil, nil, fmt.Errorf("failed to load values ctx: %s", diags.Error())
 	}
 
-	pipelinesCtx := parentify(ctx, valuesCtx)
-	pipelines, diags := ParsePipelinesDesc(filename, literal, pipelinesCtx)
+	ctx = parentify(ctx, valuesCtx)
+	pipelines, diags := ParsePipelinesDesc(filename, literal, ctx)
 	if diags.HasErrors() {
 		return nil, nil, diags.Append(&hcl.Diagnostic{
 			Severity:    hcl.DiagError,
 			Summary:     "cound not parse pipelines descriptors",
-			EvalContext: pipelinesCtx,
+			EvalContext: ctx,
 		})
 	}
 
