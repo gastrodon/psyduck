@@ -21,7 +21,7 @@ func TestLiteral(test *testing.T) {
 				consume = [{resource = "c", options = {}}]
 				transform = []
 			}`,
-			defaultCtx,
+			&hcl.EvalContext{},
 			map[string]*PipelineDesc{
 				"test": {
 					Name:         "test",

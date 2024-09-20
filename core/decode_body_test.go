@@ -10,13 +10,13 @@ import (
 )
 
 func TestDecodeConfig(test *testing.T) {
-	spec := sdk.SpecMap{
-		"test":     {Name: "test", Type: cty.String},
-		"count":    {Name: "count", Type: cty.Number},
-		"values":   {Name: "values", Type: cty.List(cty.Number)},
-		"map":      {Name: "map", Type: cty.Map(cty.Bool)},
-		"default":  {Name: "default", Type: cty.String, Default: cty.StringVal("default")},
-		"override": {Name: "override", Type: cty.String, Default: cty.StringVal("default")},
+	spec := []*sdk.Spec{
+		{Name: "test", Type: cty.String},
+		{Name: "count", Type: cty.Number},
+		{Name: "values", Type: cty.List(cty.Number)},
+		{Name: "map", Type: cty.Map(cty.Bool)},
+		{Name: "default", Type: cty.String, Default: cty.StringVal("default")},
+		{Name: "override", Type: cty.String, Default: cty.StringVal("default")},
 	}
 
 	attrs := hcl.Attributes{

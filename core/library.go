@@ -11,7 +11,7 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
+func makeBodySchema(specMap []*sdk.Spec) *hcl.BodySchema {
 	attributes := make([]hcl.AttributeSchema, len(specMap))
 
 	index := 0
@@ -29,7 +29,7 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	}
 }
 
-func parser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, config cty.Value) sdk.Parser {
+func parser(spec []*sdk.Spec, evalCtx *hcl.EvalContext, config cty.Value) sdk.Parser {
 	return func(target interface{}) error {
 		return gocty.FromCtyValueTagged(config, target, "psy")
 
