@@ -21,7 +21,7 @@ func Test_makeEvalCtx(test *testing.T) {
 		"tags_list": cty.TupleVal([]cty.Value{cty.StringVal("foo"), cty.StringVal("bar")}),
 	}
 
-	values, diags := makeEvalCtx(filename, []byte(literal))
+	values, diags := makeEvalCtx(filename, []byte(literal), defaultCtx)
 	if diags.HasErrors() {
 		test.Fatalf("make-eval-ctx: %s", drawDiags(diags))
 	}
@@ -41,7 +41,7 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 		v = 1234
 	}`
 
-	values, diags := makeEvalCtx(filename, []byte(literal))
+	values, diags := makeEvalCtx(filename, []byte(literal), defaultCtx)
 	if diags.HasErrors() {
 		test.Fatalf("make-eval-ctx has numbers: %s", drawDiags(diags))
 	}
@@ -56,7 +56,7 @@ func Test_makeEvalCtx_Env(test *testing.T) {
 
 	os.Setenv("FOO", "bar")
 	defer os.Unsetenv("FOO")
-	values, diags := makeEvalCtx(filename, []byte(literal))
+	values, diags := makeEvalCtx(filename, []byte(literal), defaultCtx)
 	if diags.HasErrors() {
 		test.Fatalf("make-eval-ctx has env: %s", drawDiags(diags))
 	}
