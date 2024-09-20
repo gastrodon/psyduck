@@ -67,7 +67,7 @@ func TestParsePipelines(t *testing.T) {
 	}{
 		{
 			`pipeline "foo" {}`,
-			map[string]*PipelineDesc{"foo": {Name: "foo"}}, defaultCtx,
+			map[string]*PipelineDesc{"foo": {Name: "foo"}}, &hcl.EvalContext{},
 		},
 		{
 			`pipeline "foo" {
@@ -91,7 +91,7 @@ func TestParsePipelines(t *testing.T) {
 					},
 				},
 			},
-			defaultCtx,
+			&hcl.EvalContext{},
 		},
 	}
 
