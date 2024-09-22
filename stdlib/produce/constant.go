@@ -5,8 +5,8 @@ import (
 )
 
 type constant struct {
-	Value     string `psy:"value"`
-	StopAfter int    `psy:"stop-after"`
+	Value     string `cty:"value"`
+	StopAfter int    `cty:"stop-after"`
 }
 
 func Constant(parse sdk.Parser) (sdk.Producer, error) {
