@@ -241,7 +241,8 @@ func nok[T any](e error) result[T] {
 
 func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
 	if descriptor.RemoteProducer != nil {
-		pMeta, err := library.Producer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
+		logger.Trace("getting remote producer")
+		pMeta, err := library.Producer(descriptor.RemoteProducer.Kind, descriptor.RemoteProducer.Options)
 		if err != nil {
 			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
@@ -274,7 +275,7 @@ func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContex
 						}
 
 						// Should context be re-used here
-						p, err := library.Producer(parts.Producers[0].Kind, context, parts.Producers[0].Options)
+						p, err := library.Producer(parts.Producers[0].Kind, parts.Producers[0].Options)
 						if err != nil {
 							send <- nok[sdk.Producer](fmt.Errorf("failed to compile remote: %s", err))
 							return
@@ -295,7 +296,7 @@ func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContex
 
 	producers := make([]sdk.Producer, len(descriptor.Producers))
 	for index, produceDescriptor := range descriptor.Producers {
-		producer, err := library.Producer(produceDescriptor.Kind, context, produceDescriptor.Options)
+		producer, err := library.Producer(produceDescriptor.Kind, produceDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -323,16 +324,16 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.PipelineDesc, evalCtx *hcl.EvalContext, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *configure.PipelineDesc, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
-	producer, err := collectProducer(descriptor, evalCtx, library, logger)
+	producer, err := collectProducer(descriptor, library.Ctx(), library, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.Consumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
+		consumer, err := library.Consumer(consumeDescriptor.Kind, consumeDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -342,7 +343,7 @@ func BuildPipeline(descriptor *configure.PipelineDesc, evalCtx *hcl.EvalContext,
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.Transformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
+		transformer, err := library.Transformer(transformDescriptor.Kind, transformDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}

@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
@@ -69,7 +68,7 @@ func TestLibrary(t *testing.T) {
 	}
 
 	l := NewLibrary([]*sdk.Plugin{plugin})
-	p, err := l.Producer("test", &hcl.EvalContext{}, have)
+	p, err := l.Producer("test", have)
 	if err != nil {
 		t.Fatal(err)
 	}
