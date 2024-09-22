@@ -61,7 +61,7 @@ func run(ctx *cli.Context) error {
 	}
 
 	library := core.NewLibrary(plugins)
-	descriptors, evalCtx, err := configure.Literal(filename, literal, library.Ctx())
+	descriptors, _, err := configure.Literal(filename, literal, library.Ctx())
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, evalCtx, library)
+	pipeline, err := core.BuildPipeline(descriptor, library)
 	if err != nil {
 		return err
 	}

@@ -11,38 +11,9 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-func makeBodySchema(specMap []*sdk.Spec) *hcl.BodySchema {
-	attributes := make([]hcl.AttributeSchema, len(specMap))
-
-	index := 0
-	for _, spec := range specMap {
-		attributes[index] = hcl.AttributeSchema{
-			Name:     spec.Name,
-			Required: spec.Required,
-		}
-
-		index++
-	}
-
-	return &hcl.BodySchema{
-		Attributes: attributes,
-	}
-}
-
-func parser(spec []*sdk.Spec, evalCtx *hcl.EvalContext, config cty.Value) sdk.Parser {
+func parser(config cty.Value) sdk.Parser {
 	return func(target interface{}) error {
 		return gocty.FromCtyValueTagged(config, target, "psy")
-
-		// content, _, diags := config.PartialContent(makeBodySchema(spec))
-		// if diags.HasErrors() {
-		// 	return diags
-		// }
-
-		// if diags := decodeAttributes(spec, evalCtx, content.Attributes, target); diags.HasErrors() {
-		// 	return diags
-		// }
-
-		// return nil
 	}
 }
 
@@ -51,7 +22,7 @@ type library struct {
 	resources map[string]*sdk.Resource
 }
 
-func (l *library) Producer(name string, ctx *hcl.EvalContext, body cty.Value) (sdk.Producer, error) {
+func (l *library) Producer(name string, options cty.Value) (sdk.Producer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -61,10 +32,12 @@ func (l *library) Producer(name string, ctx *hcl.EvalContext, body cty.Value) (s
 		return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 	}
 
-	return found.ProvideProducer(parser(found.Spec, ctx, body))
+	return found.ProvideProducer(func(target interface{}) error {
+		return gocty.FromCtyValueTagged(options, target, "psy")
+	})
 }
 
-func (l *library) Consumer(name string, evalCtx *hcl.EvalContext, config cty.Value) (sdk.Consumer, error) {
+func (l *library) Consumer(name string, options cty.Value) (sdk.Consumer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -74,10 +47,12 @@ func (l *library) Consumer(name string, evalCtx *hcl.EvalContext, config cty.Val
 		return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 	}
 
-	return found.ProvideConsumer(parser(found.Spec, evalCtx, config))
+	return found.ProvideConsumer(func(target interface{}) error {
+		return gocty.FromCtyValueTagged(options, target, "psy")
+	})
 }
 
-func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config cty.Value) (sdk.Transformer, error) {
+func (l *library) Transformer(name string, options cty.Value) (sdk.Transformer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -87,7 +62,9 @@ func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config cty.
 		return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 	}
 
-	return found.ProvideTransformer(parser(found.Spec, evalCtx, config))
+	return found.ProvideTransformer(func(target interface{}) error {
+		return gocty.FromCtyValueTagged(options, target, "psy")
+	})
 }
 
 func (l *library) Ctx() *hcl.EvalContext {
@@ -102,9 +79,9 @@ func (l *library) Ctx() *hcl.EvalContext {
 }
 
 type Library interface {
-	Producer(string, *hcl.EvalContext, cty.Value) (sdk.Producer, error)
-	Consumer(string, *hcl.EvalContext, cty.Value) (sdk.Consumer, error)
-	Transformer(string, *hcl.EvalContext, cty.Value) (sdk.Transformer, error)
+	Producer(string, cty.Value) (sdk.Producer, error)
+	Consumer(string, cty.Value) (sdk.Consumer, error)
+	Transformer(string, cty.Value) (sdk.Transformer, error)
 	Ctx() *hcl.EvalContext
 }
 
