@@ -8,7 +8,6 @@ import (
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
-	"github.com/hashicorp/hcl/v2"
 	"github.com/urfave/cli/v2"
 )
 
@@ -24,19 +23,14 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 		return err
 	}
 
-	filename := path.Base(ctx.String("chdir"))
-	_, evalCtx, err := configure.Literal(filename, literal, &hcl.EvalContext{})
-	if err != nil {
-		return err
-	}
-
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
 	err = os.MkdirAll(initPath, os.ModeDir|os.ModePerm)
 	if err != nil {
 		return err
 	}
 
-	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal, evalCtx)
+	filename := path.Base(ctx.String("chdir"))
+	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal)
 	if err != nil {
 		return err
 	}
@@ -50,25 +44,26 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 }
 
 func run(ctx *cli.Context) error {
+	if !ctx.Args().Present() {
+		return fmt.Errorf("target required")
+	}
+
 	literal, err := configure.ReadDirectory(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}
 
 	filename := path.Base(ctx.String("chdir"))
-	descriptors, evalCtx, err := configure.Literal(filename, literal, &hcl.EvalContext{})
-	if err != nil {
-		return err
-	}
-
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	plugins, err := configure.LoadPlugins(initPath, filename, literal, evalCtx)
+	plugins, err := configure.LoadPlugins(initPath, filename, literal)
 	if err != nil {
 		return err
 	}
 
-	if !ctx.Args().Present() {
-		return fmt.Errorf("target required")
+	library := core.NewLibrary(plugins)
+	descriptors, evalCtx, err := configure.Literal(filename, literal, library.Ctx())
+	if err != nil {
+		return err
 	}
 
 	target := ctx.Args().First()
@@ -77,7 +72,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, evalCtx, core.NewLibrary(plugins))
+	pipeline, err := core.BuildPipeline(descriptor, evalCtx, library)
 	if err != nil {
 		return err
 	}

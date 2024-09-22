@@ -126,7 +126,7 @@ func fetchPlugins(cachePath, binPath string, descriptors []PluginDesc) (map[stri
 Fetch plugins, cloning and building them if necessary
 Returns an absolute filepath pointing to a loadable shared library
 */
-func FetchPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
+func FetchPlugins(initPath, filename string, literal []byte) (map[string]string, error) {
 	descriptors, diags := ParsePluginsDesc(filename, literal)
 	if diags.HasErrors() {
 		return nil, diags
@@ -203,7 +203,7 @@ func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.P
 /*
 Load plugins that've been fetched and are pointed to in <initPath>/plugin.json
 */
-func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
+func LoadPlugins(initPath, filename string, literal []byte) ([]*sdk.Plugin, error) {
 	descriptors, diags := ParsePluginsDesc(filename, literal)
 	if diags.HasErrors() {
 		return nil, diags
