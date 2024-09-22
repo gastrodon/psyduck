@@ -11,12 +11,6 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-func parser(config cty.Value) sdk.Parser {
-	return func(target interface{}) error {
-		return gocty.FromCtyValueTagged(config, target, "psy")
-	}
-}
-
 type library struct {
 	plugins   []*sdk.Plugin
 	resources map[string]*sdk.Resource
@@ -33,7 +27,7 @@ func (l *library) Producer(name string, options cty.Value) (sdk.Producer, error)
 	}
 
 	return found.ProvideProducer(func(target interface{}) error {
-		return gocty.FromCtyValueTagged(options, target, "psy")
+		return gocty.FromCtyValue(options, target)
 	})
 }
 
@@ -48,7 +42,7 @@ func (l *library) Consumer(name string, options cty.Value) (sdk.Consumer, error)
 	}
 
 	return found.ProvideConsumer(func(target interface{}) error {
-		return gocty.FromCtyValueTagged(options, target, "psy")
+		return gocty.FromCtyValue(options, target)
 	})
 }
 
@@ -63,7 +57,7 @@ func (l *library) Transformer(name string, options cty.Value) (sdk.Transformer, 
 	}
 
 	return found.ProvideTransformer(func(target interface{}) error {
-		return gocty.FromCtyValueTagged(options, target, "psy")
+		return gocty.FromCtyValue(options, target)
 	})
 }
 

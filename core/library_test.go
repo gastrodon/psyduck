@@ -48,7 +48,7 @@ func TestLibrary(t *testing.T) {
 				},
 				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
 					target := new(struct {
-						Count int `psy:"count"`
+						Count int `cty:"count"`
 					})
 
 					if err := parse(target); err != nil {
