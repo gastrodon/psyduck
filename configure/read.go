@@ -26,6 +26,7 @@ type pipelineParts struct {
 	Transformers []*MoverDesc `hcl:"transform,block"`
 }
 
+// TODO this should take a library.Ctx! it should look more like Literal
 func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, hcl.Diagnostics) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
