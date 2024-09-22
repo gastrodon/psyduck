@@ -7,8 +7,8 @@ import (
 )
 
 type sprintfConfig struct {
-	Format   string `psy:"format"`
-	Encoding string `psy:"encoding"`
+	Format   string `cty:"format"`
+	Encoding string `cty:"encoding"`
 }
 
 func Sprintf(parse sdk.Parser) (sdk.Transformer, error) {

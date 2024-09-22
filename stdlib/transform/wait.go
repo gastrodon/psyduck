@@ -8,7 +8,7 @@ import (
 
 func Wait(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(struct {
-		Ms int64 `psy:"milliseconds"`
+		Ms int64 `cty:"milliseconds"`
 	})
 
 	if err := parse(config); err != nil {

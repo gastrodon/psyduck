@@ -4,7 +4,7 @@ import "github.com/psyduck-etl/sdk"
 
 func Increment(parse sdk.Parser) (sdk.Producer, error) {
 	config := new(struct {
-		StopAfter byte `psy:"stop-after"`
+		StopAfter byte `cty:"stop-after"`
 	})
 
 	if err := parse(config); err != nil {

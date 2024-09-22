@@ -8,7 +8,7 @@ import (
 )
 
 type transposeConfig struct {
-	Fields map[string][]string `psy:"fields"`
+	Fields map[string][]string `cty:"fields"`
 }
 
 func readField(data map[string]zoomTarget, field []string) ([]byte, error) {
