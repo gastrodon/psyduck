@@ -24,20 +24,22 @@ type pipelineParts struct {
 }
 
 type pipelineBlock struct {
-	RemoteProducer *string  `cty:"produce-from"`
-	Producers      []string `cty:"produce"`
-	Consumers      []string `cty:"consume"`
-	Transformers   []string `cty:"transform"`
-	StopAfter      *int     `cty:"stop-after"`
-	ExitOnError    *bool    `cty:"exit-on-error"`
+	RemoteProducer    *string  `cty:"produce-from"`
+	Producers         []string `cty:"produce"`
+	Consumers         []string `cty:"consume"`
+	Transformers      []string `cty:"transform"`
+	StopAfter         *int     `cty:"stop-after"`
+	ExitOnError       *bool    `cty:"exit-on-error"`
+	ParallelProducers *uint    `cty:"parallel-producers"`
 }
 
 type Pipeline struct {
-	Name           string
-	RemoteProducer *pipelinePart
-	Producers      []*pipelinePart
-	Consumers      []*pipelinePart
-	Transformers   []*pipelinePart
-	StopAfter      int
-	ExitOnError    bool
+	Name              string
+	RemoteProducer    *pipelinePart
+	Producers         []*pipelinePart
+	Consumers         []*pipelinePart
+	Transformers      []*pipelinePart
+	StopAfter         int
+	ExitOnError       bool
+	ParallelProducers uint
 }

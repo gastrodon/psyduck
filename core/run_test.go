@@ -13,13 +13,14 @@ import (
 type Values func() (int, int)
 
 type testPipelineCase struct {
-	DataCount     int
-	Delay         bool
-	ProducerCount int
-	ConsumerCount int
+	DataCount        int
+	Delay            bool
+	ProducerCount    int
+	ConsumerCount    int
+	ProducerParallel uint
 }
 
-func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
+func makeTestProducer(testcase testPipelineCase) (func() <-chan result[sdk.Producer], func() []int) {
 	counts := make([]int, testcase.ProducerCount)
 	producers := make([]sdk.Producer, testcase.ProducerCount)
 
@@ -40,7 +41,14 @@ func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
 		}(index)
 	}
 
-	return joinProducers(producers, pipelineLogger()), func() []int { return counts }
+	return func() <-chan result[sdk.Producer] {
+		c := make(chan result[sdk.Producer], len(producers))
+		for _, p := range producers {
+			c <- ok(p)
+		}
+		close(c)
+		return c
+	}, func() []int { return counts }
 }
 
 func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
@@ -79,9 +87,11 @@ func testPipeline(testcase testPipelineCase) error {
 	}
 
 	pipeline := &Pipeline{
-		Producer:    producer,
-		Consumer:    consumer,
-		Transformer: transformer,
+		Producer:         producer,
+		Consumer:         consumer,
+		Transformer:      transformer,
+		logger:           pipelineLogger(),
+		ProducerParallel: testcase.ProducerParallel,
 	}
 
 	if err := RunPipeline(pipeline); err != nil {
@@ -114,12 +124,16 @@ func Test_RunPipeline(test *testing.T) {
 	)
 
 	cases := []testPipelineCase{
-		{COUNT_DELAY, true, 1, 1},
-		{COUNT_DELAY, true, 10, 10},
-		{COUNT_IMMEDIATE, false, 1, 1},
-		{COUNT_IMMEDIATE, false, 1, 10},
-		{COUNT_IMMEDIATE, false, 10, 1},
-		{COUNT_IMMEDIATE, false, 10, 10},
+		{COUNT_DELAY, true, 1, 1, 0},
+		{COUNT_DELAY, true, 10, 10, 0},
+		{COUNT_IMMEDIATE, false, 1, 1, 0},
+		{COUNT_IMMEDIATE, false, 1, 10, 0},
+		{COUNT_IMMEDIATE, false, 10, 1, 0},
+		{COUNT_IMMEDIATE, false, 10, 10, 0},
+		{COUNT_IMMEDIATE, false, 10, 1, 4},
+		{COUNT_IMMEDIATE, false, 10, 10, 4},
+		{COUNT_IMMEDIATE, false, 10, 1, 20},
+		{COUNT_IMMEDIATE, false, 10, 10, 20},
 	}
 
 	for i, testcase := range cases {
@@ -136,11 +150,16 @@ func Test_RunPipeline(test *testing.T) {
 func Test_RunPipeline_filtering(test *testing.T) {
 	received, limit, fac := byte(0), byte(100), byte(2)
 	testcase := &Pipeline{
-		Producer: func(send chan<- []byte, errs chan<- error) {
-			for i := byte(0); i < limit; i++ {
-				send <- []byte{i}
-			}
-			close(send)
+		Producer: func() <-chan result[sdk.Producer] {
+			c := make(chan result[sdk.Producer], 1)
+			c <- ok[sdk.Producer](func(send chan<- []byte, errs chan<- error) {
+				for i := byte(0); i < limit; i++ {
+					send <- []byte{i}
+				}
+				close(send)
+			})
+			close(c)
+			return c
 		},
 		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 			for range recv {
@@ -188,13 +207,18 @@ func pipelineTestLogger(fn func()) *logrus.Logger {
 
 func Test_RunPipeline_error(test *testing.T) {
 	errText := "error made"
-	produceErr := func(n int) sdk.Producer {
-		return func(send chan<- []byte, errs chan<- error) {
-			for i := 0; i < n; i++ {
-				send <- []byte{0}
-			}
+	produceErr := func(n int) func() <-chan result[sdk.Producer] {
+		return func() <-chan result[sdk.Producer] {
+			c := make(chan result[sdk.Producer], 1)
+			c <- ok[sdk.Producer](func(send chan<- []byte, errs chan<- error) {
+				for i := 0; i < n; i++ {
+					send <- []byte{0}
+				}
 
-			errs <- fmt.Errorf(errText)
+				errs <- fmt.Errorf(errText)
+			})
+			close(c)
+			return c
 		}
 	}
 
@@ -242,7 +266,13 @@ func Test_RunPipeline_error(test *testing.T) {
 			ExitOnError: true,
 		}, fmt.Errorf("transformer supplied error: %s", errText)},
 		{&Pipeline{
-			Producer:    joinProducers([]sdk.Producer{produceErr(50), produceErr(math.MaxInt32)}, logrus.StandardLogger()),
+			Producer: func() <-chan result[sdk.Producer] {
+				c := make(chan result[sdk.Producer], 2)
+				c <- <-produceErr(50)()
+				c <- <-produceErr(math.MaxInt32)() // this is silly code!
+				close(c)
+				return c
+			},
 			Consumer:    consumeErr(math.MaxInt32),
 			Transformer: transformeErr(math.MaxInt32),
 			ExitOnError: true,
