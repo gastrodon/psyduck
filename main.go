@@ -61,7 +61,7 @@ func run(ctx *cli.Context) error {
 	}
 
 	library := core.NewLibrary(plugins)
-	descriptors, _, err := configure.Literal(filename, literal, library.Ctx())
+	descriptors, err := configure.Literal(filename, literal, library.Ctx())
 	if err != nil {
 		return err
 	}

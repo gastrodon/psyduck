@@ -34,7 +34,7 @@ func TestLiteral(test *testing.T) {
 	}
 
 	for i, testcase := range cases {
-		configs, _, err := Literal("test-literal", []byte(testcase.literal), testcase.ctx)
+		configs, err := Literal("test-literal", []byte(testcase.literal), testcase.ctx)
 		if err != nil {
 			test.Fatalf("test-literal[%d]: %s", i, err)
 		}
