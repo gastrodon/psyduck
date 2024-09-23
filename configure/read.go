@@ -41,24 +41,24 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 	return resources, nil
 }
 
-func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (map[string]*PipelineDesc, *hcl.EvalContext, error) {
+func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*PipelineDesc, error) {
 	ctx := parentify(&hcl.EvalContext{}, baseCtx)
 	valuesCtx, diags := ParseValuesCtx(filename, literal, ctx)
 	if diags.HasErrors() {
-		return nil, nil, fmt.Errorf("failed to load values ctx: %s", diags.Error())
+		return nil, fmt.Errorf("failed to load values ctx: %s", diags.Error())
 	}
 
 	ctx = parentify(ctx, valuesCtx)
 	pipelines, diags := ParsePipelinesDesc(filename, literal, ctx)
 	if diags.HasErrors() {
-		return nil, nil, diags.Append(&hcl.Diagnostic{
+		return nil, diags.Append(&hcl.Diagnostic{
 			Severity:    hcl.DiagError,
 			Summary:     "cound not parse pipelines descriptors",
 			EvalContext: ctx,
 		})
 	}
 
-	return pipelines, valuesCtx, nil
+	return pipelines, nil
 }
 
 func ReadDirectory(directory string) ([]byte, error) {
