@@ -240,12 +240,19 @@ func nok[T any](e error) result[T] {
 }
 
 func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
-	if descriptor.RemoteProducer != nil {
-		logger.Trace("getting remote producer")
-		pMeta, err := library.Producer(descriptor.RemoteProducer.Kind, descriptor.RemoteProducer.Options)
-		if err != nil {
-			return nil, fmt.Errorf("failed providing remote producer: %s", err)
+	if descriptor.RemoteProducers != nil {
+		logger.Trace("getting remote producers")
+		remoteProducers := make([]sdk.Producer, len(descriptor.RemoteProducers))
+		for i, desc := range descriptor.RemoteProducers {
+			producer, err := library.Producer(desc.Kind, desc.Options)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get remote producer %d: %s", i, err)
+			}
+
+			remoteProducers[i] = producer
 		}
+
+		pMeta := joinProducers(remoteProducers, logger)
 
 		return func() <-chan result[sdk.Producer] {
 			send := make(chan result[sdk.Producer])

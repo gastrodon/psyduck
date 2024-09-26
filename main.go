@@ -11,6 +11,20 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+func readFiles(paths ...string) (map[string][]byte, error) {
+	read := make(map[string][]byte, len(paths))
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+
+		read[path] = content
+	}
+
+	return read, nil
+}
+
 var NAME = "psyduck"
 var SUBCOMMANDS = [...]string{
 	"init",
@@ -48,28 +62,21 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("target required")
 	}
 
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
+	files, err := readFiles(ctx.Args().Slice()...)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read files: %s", err)
 	}
 
-	filename := path.Base(ctx.String("chdir"))
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	plugins, err := configure.LoadPlugins(initPath, filename, literal)
+	plugins, err := configure.LoadPlugins(initPath, files)
 	if err != nil {
 		return err
 	}
 
 	library := core.NewLibrary(plugins)
-	descriptors, err := configure.Literal(filename, literal, library.Ctx())
-	if err != nil {
-		return err
-	}
-
-	target := ctx.Args().First()
-	descriptor, ok := descriptors[target]
-	if !ok {
-		return fmt.Errorf("can't find target %s", target)
+	descriptor, diags := configure.LiteralGroup(files, library.Ctx())
+	if diags.HasErrors() {
+		return diags
 	}
 
 	pipeline, err := core.BuildPipeline(descriptor, library)
