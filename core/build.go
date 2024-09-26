@@ -217,9 +217,9 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 }
 
 func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (sdk.Producer, error) {
-	if descriptor.RemoteProducer != nil {
+	if len(descriptor.RemoteProducers) != 0 {
 		logger.Trace("getting remote producer")
-		p, err := library.Producer(descriptor.RemoteProducer.Kind, descriptor.RemoteProducer.Options)
+		p, err := library.Producer(descriptor.RemoteProducers[0].Kind, descriptor.RemoteProducers[0].Options)
 		if err != nil {
 			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
@@ -241,12 +241,11 @@ func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContex
 			}
 
 			return collectProducer(&configure.PipelineDesc{
-				Name:           descriptor.Name,
-				RemoteProducer: nil,
-				Producers:      parts.Producers,
-				Consumers:      descriptor.Consumers,
-				Transformers:   descriptor.Transformers,
-				StopAfter:      descriptor.StopAfter,
+				RemoteProducers: nil,
+				Producers:       parts.Producers,
+				Consumers:       descriptor.Consumers,
+				Transformers:    descriptor.Transformers,
+				StopAfter:       descriptor.StopAfter,
 			}, context, library, logger)
 		}
 	}

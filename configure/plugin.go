@@ -203,8 +203,8 @@ func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.P
 /*
 Load plugins that've been fetched and are pointed to in <initPath>/plugin.json
 */
-func LoadPlugins(initPath, filename string, literal []byte) ([]*sdk.Plugin, error) {
-	descriptors, diags := ParsePluginsDesc(filename, literal)
+func LoadPlugins(initPath string, files map[string][]byte) ([]*sdk.Plugin, error) {
+	descriptors, diags := ParsePluginsDescGroup(files)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -259,4 +259,18 @@ func ParsePluginsDesc(filename string, literal []byte) ([]PluginDesc, hcl.Diagno
 	}
 
 	return target.Blocks, make(hcl.Diagnostics, 0)
+}
+
+func ParsePluginsDescGroup(files map[string][]byte) ([]PluginDesc, hcl.Diagnostics) {
+	descs := make([]PluginDesc, 0)
+	for filename, literal := range files {
+		additional, diags := ParsePluginsDesc(filename, literal)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+
+		descs = append(descs, additional...)
+	}
+
+	return descs, make(hcl.Diagnostics, 0)
 }

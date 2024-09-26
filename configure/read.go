@@ -41,11 +41,16 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 	return resources, nil
 }
 
-func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*PipelineDesc, error) {
+func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
 	ctx := parentify(&hcl.EvalContext{}, baseCtx)
 	valuesCtx, diags := ParseValuesCtx(filename, literal, ctx)
 	if diags.HasErrors() {
-		return nil, fmt.Errorf("failed to load values ctx: %s", diags.Error())
+		return nil, diags.Append(&hcl.Diagnostic{
+			Severity:    hcl.DiagError,
+			Summary:     "failed to parse values",
+			Detail:      "failed to parse the values for this pipeline at " + filename,
+			EvalContext: ctx,
+		})
 	}
 
 	ctx = parentify(ctx, valuesCtx)
@@ -53,12 +58,35 @@ func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*Pipeli
 	if diags.HasErrors() {
 		return nil, diags.Append(&hcl.Diagnostic{
 			Severity:    hcl.DiagError,
-			Summary:     "cound not parse pipelines descriptors",
+			Summary:     "failed to parse pipeline",
+			Detail:      "cound not parse pipelines components at " + filename,
 			EvalContext: ctx,
 		})
 	}
 
 	return pipelines, nil
+}
+
+func LiteralGroup(files map[string][]byte, baseCtx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
+	composed := new(PipelineDesc)
+	for filename, literal := range files {
+		frag, diags := Literal(filename, literal, baseCtx)
+		if diags.HasErrors() {
+			return nil, diags.Append(&hcl.Diagnostic{
+				Severity:    hcl.DiagError,
+				Summary:     "failed to parse group member",
+				Detail:      "failed to parse the pipeline literal group member at " + filename,
+				EvalContext: baseCtx,
+			})
+		}
+
+		composed.RemoteProducers = append(composed.RemoteProducers, frag.RemoteProducers...)
+		composed.Producers = append(composed.Producers, frag.Producers...)
+		composed.Consumers = append(composed.Consumers, frag.Consumers...)
+		composed.Transformers = append(composed.Transformers, frag.Transformers...)
+	}
+
+	return composed, make(hcl.Diagnostics, 0)
 }
 
 func ReadDirectory(directory string) ([]byte, error) {
@@ -84,52 +112,70 @@ func ReadDirectory(directory string) ([]byte, error) {
 }
 
 type MoverDesc struct {
-	Kind    string    `hcl:"resource" cty:"resource"`
-	Options cty.Value `hcl:"options" cty:"options"`
+	Kind    string               `hcl:"resource,label" cty:"resource"`
+	Options map[string]cty.Value `hcl:",remain" cty:"options"`
+}
+
+type PipelineOpts struct {
+	StopAfter   int  `hcl:"stop-after,optional"`
+	ExitOnError bool `hcl:"exit-on-error,optional"`
 }
 
 type PipelineDesc struct {
-	Name           string       `hcl:"name,label"`
-	RemoteProducer *MoverDesc   `hcl:"produce-from,optional"`
-	Producers      []*MoverDesc `hcl:"produce,optional"`
-	Consumers      []*MoverDesc `hcl:"consume,optional"`
-	Transformers   []*MoverDesc `hcl:"transform,optional"`
-	StopAfter      int          `hcl:"stop-after,optional"`
-	ExitOnError    bool         `hcl:"exit-on-error,optional"`
+	RemoteProducers []*MoverDesc `hcl:"produce-from,optional"`
+	Producers       []*MoverDesc `hcl:"produce,optional"`
+	Consumers       []*MoverDesc `hcl:"consume,optional"`
+	Transformers    []*MoverDesc `hcl:"transform,optional"`
+	StopAfter       int          `hcl:"stop-after,optional"`
+	ExitOnError     bool         `hcl:"exit-on-error,optional"`
 }
 
-func ParsePipelinesDesc(filename string, literal []byte, ctx *hcl.EvalContext) (map[string]*PipelineDesc, hcl.Diagnostics) {
+func ParsePipelinesDesc(filename string, literal []byte, ctx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	target := new(struct {
-		hcl.Body `hcl:",remain"`
-		Blocks   []*PipelineDesc `hcl:"pipeline,block"`
+		hcl.Body        `hcl:",remain"`
+		Producers       []*MoverDesc `hcl:"produce,block"`
+		RemoteProducers []*MoverDesc `hcl:"produce-from,block"`
+		Consumers       []*MoverDesc `hcl:"consume,block"`
+		Transformers    []*MoverDesc `hcl:"transform,block"`
 	})
 
 	if diags := gohcl.DecodeBody(file.Body, ctx, target); diags.HasErrors() {
 		return nil, diags
 	}
 
-	if len(target.Blocks) == 0 {
-		return make(map[string]*PipelineDesc, 0), nil
+	if len(target.Producers)+len(target.RemoteProducers)+len(target.Consumers)+len(target.Transformers) == 0 {
+		return new(PipelineDesc), nil
 	}
 
-	lookup := make(map[string]*PipelineDesc, len(target.Blocks))
-	for _, desc := range target.Blocks {
-		if _, ok := lookup[desc.Name]; ok {
-			return nil, hcl.Diagnostics{{
-				Severity:    0,
-				Summary:     "duplicate pipeline key",
-				Detail:      "The name " + desc.Name + " is a duplicate",
-				EvalContext: ctx,
-			}}
-		}
-
-		lookup[desc.Name] = desc
+	p := &PipelineDesc{
+		RemoteProducers: target.RemoteProducers,
+		Producers:       target.Producers,
+		Consumers:       target.Consumers,
+		Transformers:    target.Transformers,
+		StopAfter:       0,     // TODO
+		ExitOnError:     false, // TODO
 	}
 
-	return lookup, make(hcl.Diagnostics, 0)
+	if p.RemoteProducers == nil {
+		p.RemoteProducers = make([]*MoverDesc, 0)
+	}
+
+	if p.Producers == nil {
+		p.Producers = make([]*MoverDesc, 0)
+	}
+
+	if p.Consumers == nil {
+		p.Consumers = make([]*MoverDesc, 0)
+	}
+
+	if p.Transformers == nil {
+		p.Transformers = make([]*MoverDesc, 0)
+	}
+
+	return p, make(hcl.Diagnostics, 0)
 }
