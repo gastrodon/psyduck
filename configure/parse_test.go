@@ -1,6 +1,7 @@
 package configure
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -62,45 +63,65 @@ func TestParsePlugins(test *testing.T) {
 func TestParsePipelines(t *testing.T) {
 	cases := []struct {
 		literal string
-		want    map[string]*PipelineDesc
-		ctx     *hcl.EvalContext
+		want    *PipelineDesc
 	}{
 		{
-			`pipeline "foo" {}`,
-			map[string]*PipelineDesc{"foo": {Name: "foo"}}, &hcl.EvalContext{},
+			``,
+			&PipelineDesc{
+				RemoteProducers: make([]*MoverDesc, 0),
+			},
 		},
 		{
-			`pipeline "foo" {
-				produce-from = {
-					resource = "r-name"
-					options = {
-						foo = "bar"
-						value = 132
-					}
-				}
-			}`,
-			map[string]*PipelineDesc{
-				"foo": {
-					Name: "foo",
-					RemoteProducer: &MoverDesc{
-						Kind: "r-name",
-						Options: cty.ObjectVal(map[string]cty.Value{
-							"foo":   cty.StringVal("bar"),
-							"value": cty.NumberVal(new(big.Float).SetUint64(132).SetPrec(512)),
+			`produce "foo" {
+				pair = {"l": 1, "r": 2}
+			}
+
+			consume "where-it-goes" {}`,
+			&PipelineDesc{
+				RemoteProducers: make([]*MoverDesc, 0),
+				Producers: []*MoverDesc{{
+					Kind: "foo",
+					Options: map[string]cty.Value{
+						"pair": cty.ObjectVal(map[string]cty.Value{
+							"l": cty.NumberVal(new(big.Float).SetUint64(1).SetPrec(512)),
+							"r": cty.NumberVal(new(big.Float).SetUint64(2).SetPrec(512)),
 						}),
 					},
-				},
+				}},
+				Consumers: []*MoverDesc{{
+					Kind:    "where-it-goes",
+					Options: make(map[string]cty.Value),
+				}},
+				Transformers: make([]*MoverDesc, 0),
+				StopAfter:    0,
+				ExitOnError:  false,
 			},
-			&hcl.EvalContext{},
+		},
+		{
+			`produce-from "r-name" {
+				foo 	= "bar"
+				value = 132
+			}`,
+			&PipelineDesc{
+				RemoteProducers: []*MoverDesc{{
+					Kind: "r-name",
+					Options: map[string]cty.Value{
+						"foo":   cty.StringVal("bar"),
+						"value": cty.NumberVal(new(big.Float).SetUint64(132).SetPrec(512)),
+					},
+				}},
+				Producers:    make([]*MoverDesc, 0),
+				Consumers:    make([]*MoverDesc, 0),
+				Transformers: make([]*MoverDesc, 0),
+			},
 		},
 	}
-
 	for i, testcase := range cases {
-		pipelines, diags := ParsePipelinesDesc("parse-pipeline", []byte(testcase.literal), testcase.ctx)
-		assert.Falsef(t, diags.HasErrors(), "parse-pipeline[%d]: %s", i, drawDiags(diags))
-
-		for name, desc := range testcase.want {
-			assert.Equal(t, desc, pipelines[name], "parse-pipeline[%d] pipeline[%s]", i, name)
+		pipeline, diags := ParsePipelinesDesc("test-parse-pipeline", []byte(testcase.literal), &hcl.EvalContext{})
+		if diags.HasErrors() {
+			t.Fatalf("test-parse-pipeline[%d]: %s", i, diags)
 		}
+
+		cmpPipelineDesc(t, testcase.want, pipeline, fmt.Sprintf("test-parse-pipeline[%d]", i))
 	}
 }

@@ -1,6 +1,8 @@
 package configure
 
 import (
+	"fmt"
+	"math/big"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
@@ -8,55 +10,99 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
-func TestLiteral(test *testing.T) {
+func cmpPipelineDesc(t *testing.T, expected, actual *PipelineDesc, title string) {
+	assert.ElementsMatch(t, expected.RemoteProducers, actual.RemoteProducers, "%s remote-producers", title)
+	assert.ElementsMatch(t, expected.Producers, actual.Producers, "%s producers", title)
+	assert.ElementsMatch(t, expected.Consumers, actual.Consumers, "%s consumers", title)
+	assert.ElementsMatch(t, expected.Transformers, actual.Transformers, "%s transformers", title)
+	assert.Equal(t, expected.StopAfter, actual.StopAfter, "%s", title)
+	assert.Equal(t, expected.ExitOnError, actual.ExitOnError, "%s", title)
+}
+
+func TestLiteral(t *testing.T) {
 	cases := []struct {
 		literal string
-		ctx     *hcl.EvalContext
-		want    map[string]*PipelineDesc
+		want    *PipelineDesc
 	}{
 		{
-			`
-			pipeline "test" {
-				produce = [{resource = "p", options = {}}]
-				consume = [{resource = "c", options = {}}]
-				transform = []
-			}`,
-			&hcl.EvalContext{},
-			map[string]*PipelineDesc{
-				"test": {
-					Name:         "test",
-					Producers:    []*MoverDesc{{Kind: "p", Options: cty.EmptyObjectVal}},
-					Consumers:    []*MoverDesc{{Kind: "c", Options: cty.EmptyObjectVal}},
-					Transformers: nil,
-				},
+			`produce "p" {}
+
+			consume "c" {}`,
+			&PipelineDesc{
+				RemoteProducers: make([]*MoverDesc, 0),
+				Producers:       []*MoverDesc{{Kind: "p", Options: make(map[string]cty.Value)}},
+				Consumers:       []*MoverDesc{{Kind: "c", Options: make(map[string]cty.Value)}},
+				Transformers:    make([]*MoverDesc, 0),
+			},
+		},
+		{
+			`value {
+				name = "foo"
+			}
+
+			produce "constant" {
+				value = value.name
+				stop-after = 30
+			}
+
+			consume "trash" {}`,
+			&PipelineDesc{
+				RemoteProducers: make([]*MoverDesc, 0),
+				Producers: []*MoverDesc{{
+					Kind: "constant",
+					Options: map[string]cty.Value{
+						"value":      cty.StringVal("foo"),
+						"stop-after": cty.NumberVal(new(big.Float).SetInt64(30).SetPrec(512)),
+					},
+				}},
+				Consumers: []*MoverDesc{{
+					Kind:    "trash",
+					Options: make(map[string]cty.Value),
+				}},
+				Transformers: make([]*MoverDesc, 0),
+				StopAfter:    0,
+				ExitOnError:  false,
 			},
 		},
 	}
 
 	for i, testcase := range cases {
-		configs, err := Literal("test-literal", []byte(testcase.literal), testcase.ctx)
+		pipeline, err := Literal("test-literal", []byte(testcase.literal), &hcl.EvalContext{})
 		if err != nil {
-			test.Fatalf("test-literal[%d]: %s", i, err)
+			t.Fatalf("test-literal[%d]: %s", i, err)
 		}
 
-		assert.Equal(test, len(testcase.want), len(configs))
-		for name, pipeline := range testcase.want {
-			assert.Equal(test, pipeline.Name, configs[name].Name)
+		cmpPipelineDesc(t, testcase.want, pipeline, fmt.Sprintf("test-literal[%d]", i))
+	}
+}
 
-			assert.Equal(test, len(pipeline.Producers), len(configs[name].Producers))
-			for idesc, desc := range pipeline.Producers {
-				assert.Equal(test, desc, configs[name].Producers[i], "test-literal[%d] producer[%d]: %s", i, idesc, desc.Kind)
-			}
+func TestLiteralGroup(t *testing.T) {
+	cases := []struct {
+		files map[string][]byte
+		want  *PipelineDesc
+	}{
+		{map[string][]byte{
+			"foo": []byte(`produce "foo" {}`),
+			"food": []byte(`
+				produce "fooding" {}
 
-			assert.Equal(test, len(pipeline.Consumers), len(configs[name].Consumers))
-			for idesc, desc := range pipeline.Consumers {
-				assert.Equal(test, desc, configs[name].Consumers[i], "test-literal[%d] consumer[%d]: %s", i, idesc, desc.Kind)
-			}
+				produce "eating" {}
 
-			assert.Equal(test, len(pipeline.Transformers), len(configs[name].Transformers))
-			for idesc, desc := range pipeline.Transformers {
-				assert.Equal(test, desc, configs[name].Transformers[i], "test-literal[%d] transformer[%d]: %s", i, idesc, desc.Kind)
-			}
+				consume "foo-consume" {}
+			`),
+		}, &PipelineDesc{
+			Producers: []*MoverDesc{{"foo", make(map[string]cty.Value)}, {"fooding", make(map[string]cty.Value)}, {"eating", make(map[string]cty.Value)}},
+			Consumers: []*MoverDesc{{"foo-consume", make(map[string]cty.Value)}},
+		},
+		},
+	}
+
+	for i, testcase := range cases {
+		pipeline, diags := LiteralGroup(testcase.files, &hcl.EvalContext{})
+		if diags.HasErrors() {
+			t.Fatalf("test-literal-group[%d]: %s", i, diags)
 		}
+
+		cmpPipelineDesc(t, testcase.want, pipeline, fmt.Sprintf("test-literal-group[%d]", i))
 	}
 }

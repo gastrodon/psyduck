@@ -34,9 +34,9 @@ func TestNewLibrary(t *testing.T) {
 }
 
 func TestLibrary(t *testing.T) {
-	have := cty.ObjectVal(map[string]cty.Value{
+	have := map[string]cty.Value{
 		"count": cty.NumberVal(new(big.Float).SetFloat64(123).SetPrec(512)),
-	})
+	}
 
 	plugin := &sdk.Plugin{
 		Name: "test", Resources: []*sdk.Resource{

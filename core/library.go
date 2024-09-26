@@ -16,7 +16,7 @@ type library struct {
 	resources map[string]*sdk.Resource
 }
 
-func (l *library) Producer(name string, options cty.Value) (sdk.Producer, error) {
+func (l *library) Producer(name string, options map[string]cty.Value) (sdk.Producer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -27,11 +27,11 @@ func (l *library) Producer(name string, options cty.Value) (sdk.Producer, error)
 	}
 
 	return found.ProvideProducer(func(target interface{}) error {
-		return gocty.FromCtyValue(options, target)
+		return gocty.FromCtyValue(cty.ObjectVal(options), target)
 	})
 }
 
-func (l *library) Consumer(name string, options cty.Value) (sdk.Consumer, error) {
+func (l *library) Consumer(name string, options map[string]cty.Value) (sdk.Consumer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -42,11 +42,11 @@ func (l *library) Consumer(name string, options cty.Value) (sdk.Consumer, error)
 	}
 
 	return found.ProvideConsumer(func(target interface{}) error {
-		return gocty.FromCtyValue(options, target)
+		return gocty.FromCtyValue(cty.ObjectVal(options), target)
 	})
 }
 
-func (l *library) Transformer(name string, options cty.Value) (sdk.Transformer, error) {
+func (l *library) Transformer(name string, options map[string]cty.Value) (sdk.Transformer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -57,7 +57,7 @@ func (l *library) Transformer(name string, options cty.Value) (sdk.Transformer, 
 	}
 
 	return found.ProvideTransformer(func(target interface{}) error {
-		return gocty.FromCtyValue(options, target)
+		return gocty.FromCtyValue(cty.ObjectVal(options), target)
 	})
 }
 
@@ -73,9 +73,9 @@ func (l *library) Ctx() *hcl.EvalContext {
 }
 
 type Library interface {
-	Producer(string, cty.Value) (sdk.Producer, error)
-	Consumer(string, cty.Value) (sdk.Consumer, error)
-	Transformer(string, cty.Value) (sdk.Transformer, error)
+	Producer(string, map[string]cty.Value) (sdk.Producer, error)
+	Consumer(string, map[string]cty.Value) (sdk.Consumer, error)
+	Transformer(string, map[string]cty.Value) (sdk.Transformer, error)
 	Ctx() *hcl.EvalContext
 }
 
