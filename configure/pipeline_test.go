@@ -29,7 +29,7 @@ func drawDiags(d hcl.Diagnostics) string {
 	return strings.Join(buf, "\n")
 }
 
-func TestParsePipelines(t *testing.T) {
+func TestLiteral(t *testing.T) {
 	cases := []struct {
 		literal string
 		want    *PipelineDesc
@@ -84,22 +84,6 @@ func TestParsePipelines(t *testing.T) {
 				Transformers: make([]*MoverDesc, 0),
 			},
 		},
-	}
-	for i, testcase := range cases {
-		pipeline, diags := ParsePipelinesDesc("test-parse-pipeline", []byte(testcase.literal), &hcl.EvalContext{})
-		if diags.HasErrors() {
-			t.Fatalf("test-parse-pipeline[%d]: %s", i, diags)
-		}
-
-		cmpPipelineDesc(t, testcase.want, pipeline, fmt.Sprintf("test-parse-pipeline[%d]", i))
-	}
-}
-
-func TestLiteral(t *testing.T) {
-	cases := []struct {
-		literal string
-		want    *PipelineDesc
-	}{
 		{
 			`produce "p" {}
 
