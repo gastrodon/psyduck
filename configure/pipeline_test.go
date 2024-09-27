@@ -29,6 +29,46 @@ func drawDiags(d hcl.Diagnostics) string {
 	return strings.Join(buf, "\n")
 }
 
+func TestMonifyGroup(t *testing.T) {
+	cases := []struct {
+		have []*PipelineDesc
+		want *PipelineDesc
+	}{
+		{
+			[]*PipelineDesc{
+				{
+					Name:      "foo-bar",
+					Producers: []*MoverDesc{{"foo-mover", make(map[string]cty.Value)}},
+				}, {
+					Name:      "bar-foo",
+					Consumers: []*MoverDesc{{"foo-consumer", make(map[string]cty.Value)}},
+				},
+			},
+			&PipelineDesc{
+				Producers: []*MoverDesc{{"foo-mover", make(map[string]cty.Value)}},
+				Consumers: []*MoverDesc{{"foo-consumer", make(map[string]cty.Value)}},
+			},
+		},
+		{
+			[]*PipelineDesc{
+				{
+					Producers: []*MoverDesc{{"lecks", make(map[string]cty.Value)}},
+				},
+				{
+					Producers: []*MoverDesc{{"reichs", make(map[string]cty.Value)}},
+				},
+			},
+			&PipelineDesc{
+				Producers: []*MoverDesc{{"lecks", make(map[string]cty.Value)}, {"reichs", make(map[string]cty.Value)}},
+			},
+		},
+	}
+
+	for i, testcase := range cases {
+		cmpPipelineDesc(t, testcase.want, MonifyGroup(testcase.have), fmt.Sprintf("test-monify-group[%d]", i))
+	}
+}
+
 func TestLiteral(t *testing.T) {
 	cases := []struct {
 		literal string
