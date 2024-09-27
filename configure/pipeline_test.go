@@ -72,22 +72,22 @@ func TestMonifyGroup(t *testing.T) {
 func TestLiteral(t *testing.T) {
 	cases := []struct {
 		literal string
-		want    *PipelineDesc
+		want    []*PipelineDesc
 	}{
 		{
 			``,
-			&PipelineDesc{
-				RemoteProducers: make([]*MoverDesc, 0),
-			},
+			make([]*PipelineDesc, 0),
 		},
 		{
-			`produce "foo" {
-				pair = {"l": 1, "r": 2}
-			}
+			`group "root" {
+				produce "foo" {
+					pair = {"l": 1, "r": 2}
+				}
 
-			consume "where-it-goes" {}`,
-			&PipelineDesc{
-				RemoteProducers: make([]*MoverDesc, 0),
+				consume "where-it-goes" {}
+			}`,
+			[]*PipelineDesc{{
+				Name: "root",
 				Producers: []*MoverDesc{{
 					Kind: "foo",
 					Options: map[string]cty.Value{
@@ -101,17 +101,19 @@ func TestLiteral(t *testing.T) {
 					Kind:    "where-it-goes",
 					Options: make(map[string]cty.Value),
 				}},
-				Transformers: make([]*MoverDesc, 0),
-				StopAfter:    0,
-				ExitOnError:  false,
-			},
+				StopAfter:   0,
+				ExitOnError: false,
+			}},
 		},
 		{
-			`produce-from "r-name" {
-				foo 	= "bar"
-				value = 132
+			`group "r" {
+				produce-from "r-name" {
+					foo 	= "bar"
+					value = 132
+				}
 			}`,
-			&PipelineDesc{
+			[]*PipelineDesc{{
+				Name: "r",
 				RemoteProducers: []*MoverDesc{{
 					Kind: "r-name",
 					Options: map[string]cty.Value{
@@ -119,35 +121,24 @@ func TestLiteral(t *testing.T) {
 						"value": cty.NumberVal(new(big.Float).SetUint64(132).SetPrec(512)),
 					},
 				}},
-				Producers:    make([]*MoverDesc, 0),
-				Consumers:    make([]*MoverDesc, 0),
-				Transformers: make([]*MoverDesc, 0),
-			},
-		},
-		{
-			`produce "p" {}
-
-			consume "c" {}`,
-			&PipelineDesc{
-				RemoteProducers: make([]*MoverDesc, 0),
-				Producers:       []*MoverDesc{{Kind: "p", Options: make(map[string]cty.Value)}},
-				Consumers:       []*MoverDesc{{Kind: "c", Options: make(map[string]cty.Value)}},
-				Transformers:    make([]*MoverDesc, 0),
-			},
+			}},
 		},
 		{
 			`value {
 				name = "foo"
 			}
 
-			produce "constant" {
-				value = value.name
-				stop-after = 30
-			}
+			group "scope" {
 
-			consume "trash" {}`,
-			&PipelineDesc{
-				RemoteProducers: make([]*MoverDesc, 0),
+				produce "constant" {
+					value = value.name
+					stop-after = 30
+				}
+
+				consume "trash" {}
+			}`,
+			[]*PipelineDesc{{
+				Name: "scope",
 				Producers: []*MoverDesc{{
 					Kind: "constant",
 					Options: map[string]cty.Value{
@@ -159,10 +150,9 @@ func TestLiteral(t *testing.T) {
 					Kind:    "trash",
 					Options: make(map[string]cty.Value),
 				}},
-				Transformers: make([]*MoverDesc, 0),
-				StopAfter:    0,
-				ExitOnError:  false,
-			},
+				StopAfter:   0,
+				ExitOnError: false,
+			}},
 		},
 	}
 
@@ -172,27 +162,38 @@ func TestLiteral(t *testing.T) {
 			t.Fatalf("test-literal[%d]: %s", i, err)
 		}
 
-		cmpPipelineDesc(t, testcase.want, pipeline, fmt.Sprintf("test-literal[%d]", i))
+		assert.ElementsMatchf(t, testcase.want, pipeline, "test-literal[%d]", i)
 	}
 }
 
 func TestLiteralGroup(t *testing.T) {
 	cases := []struct {
 		files map[string][]byte
-		want  *PipelineDesc
+		want  []*PipelineDesc
 	}{
 		{map[string][]byte{
-			"foo": []byte(`produce "foo" {}`),
+			"foo": []byte(`
+				group "foo" {
+					produce "foo" {}
+				}`),
 			"food": []byte(`
-				produce "fooding" {}
+				group "food" {
+					produce "fooding" {}
 
-				produce "eating" {}
+					produce "eating" {}
 
-				consume "foo-consume" {}
-			`),
-		}, &PipelineDesc{
-			Producers: []*MoverDesc{{"foo", make(map[string]cty.Value)}, {"fooding", make(map[string]cty.Value)}, {"eating", make(map[string]cty.Value)}},
-			Consumers: []*MoverDesc{{"foo-consume", make(map[string]cty.Value)}},
+					consume "foo-consume" {}
+				}`),
+		}, []*PipelineDesc{
+			{
+				Name:      "foo",
+				Producers: []*MoverDesc{{"foo", make(map[string]cty.Value)}},
+			},
+			{
+				Name:      "food",
+				Producers: []*MoverDesc{{"fooding", make(map[string]cty.Value)}, {"eating", make(map[string]cty.Value)}},
+				Consumers: []*MoverDesc{{"foo-consume", make(map[string]cty.Value)}},
+			},
 		},
 		},
 	}
@@ -203,6 +204,6 @@ func TestLiteralGroup(t *testing.T) {
 			t.Fatalf("test-literal-group[%d]: %s", i, diags)
 		}
 
-		cmpPipelineDesc(t, testcase.want, pipeline, fmt.Sprintf("test-literal-group[%d]", i))
+		assert.ElementsMatchf(t, testcase.want, pipeline, "test-literal-group[%d]", i)
 	}
 }

@@ -79,7 +79,7 @@ func run(ctx *cli.Context) error {
 		return diags
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, library)
+	pipeline, err := core.BuildPipeline(configure.MonifyGroup(descriptor), library)
 	if err != nil {
 		return err
 	}
