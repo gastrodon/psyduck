@@ -83,7 +83,7 @@ func MonifyGroup(frags []*PipelineDesc) *PipelineDesc {
 	return joined
 }
 
-func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
+func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) ([]*PipelineDesc, hcl.Diagnostics) {
 	ctx := parentify(&hcl.EvalContext{}, baseCtx)
 	valuesCtx, diags := ParseValuesCtx(filename, literal, ctx)
 	if diags.HasErrors() {
@@ -109,8 +109,8 @@ func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*Pipeli
 	return pipelines, nil
 }
 
-func LiteralGroup(files map[string][]byte, baseCtx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
-	composed := new(PipelineDesc)
+func LiteralGroup(files map[string][]byte, baseCtx *hcl.EvalContext) ([]*PipelineDesc, hcl.Diagnostics) {
+	composed := make([]*PipelineDesc, 0)
 	for filename, literal := range files {
 		frag, diags := Literal(filename, literal, baseCtx)
 		if diags.HasErrors() {
@@ -122,10 +122,7 @@ func LiteralGroup(files map[string][]byte, baseCtx *hcl.EvalContext) (*PipelineD
 			})
 		}
 
-		composed.RemoteProducers = append(composed.RemoteProducers, frag.RemoteProducers...)
-		composed.Producers = append(composed.Producers, frag.Producers...)
-		composed.Consumers = append(composed.Consumers, frag.Consumers...)
-		composed.Transformers = append(composed.Transformers, frag.Transformers...)
+		composed = append(composed, frag...)
 	}
 
 	return composed, make(hcl.Diagnostics, 0)
@@ -165,61 +162,33 @@ type PipelineOpts struct {
 
 type PipelineDesc struct {
 	Name              string       `hcl:"name,label"`
-	RemoteProducers   []*MoverDesc `hcl:"produce-from,optional"`
-	Producers         []*MoverDesc `hcl:"produce,optional"`
-	Consumers         []*MoverDesc `hcl:"consume,optional"`
-	Transformers      []*MoverDesc `hcl:"transform,optional"`
+	RemoteProducers   []*MoverDesc `hcl:"produce-from,block"`
+	Producers         []*MoverDesc `hcl:"produce,block"`
+	Consumers         []*MoverDesc `hcl:"consume,block"`
+	Transformers      []*MoverDesc `hcl:"transform,block"`
 	StopAfter         int          `hcl:"stop-after,optional"`
-	ExitOnError       bool         `hcl:"exit-on-error,optional"`
+	ExitOnError       bool         `hcl:"exit-on-error,optional"` // TODO delete me
 	ParallelProducers uint         `hcl:"parallel-producers"`
 }
 
-func ParsePipelinesDesc(filename string, literal []byte, ctx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
+func ParsePipelinesDesc(filename string, literal []byte, ctx *hcl.EvalContext) ([]*PipelineDesc, hcl.Diagnostics) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	target := new(struct {
-		hcl.Body        `hcl:",remain"`
-		Producers       []*MoverDesc `hcl:"produce,block"`
-		RemoteProducers []*MoverDesc `hcl:"produce-from,block"`
-		Consumers       []*MoverDesc `hcl:"consume,block"`
-		Transformers    []*MoverDesc `hcl:"transform,block"`
+		hcl.Body `hcl:",remain"`
+		Groups   []*PipelineDesc `hcl:"group,block"`
 	})
 
 	if diags := gohcl.DecodeBody(file.Body, ctx, target); diags.HasErrors() {
 		return nil, diags
 	}
 
-	if len(target.Producers)+len(target.RemoteProducers)+len(target.Consumers)+len(target.Transformers) == 0 {
-		return new(PipelineDesc), nil
+	if len(target.Groups) == 0 {
+		return make([]*PipelineDesc, 0), make(hcl.Diagnostics, 0)
 	}
 
-	p := &PipelineDesc{
-		RemoteProducers: target.RemoteProducers,
-		Producers:       target.Producers,
-		Consumers:       target.Consumers,
-		Transformers:    target.Transformers,
-		StopAfter:       0,     // TODO
-		ExitOnError:     false, // TODO
-	}
-
-	if p.RemoteProducers == nil {
-		p.RemoteProducers = make([]*MoverDesc, 0)
-	}
-
-	if p.Producers == nil {
-		p.Producers = make([]*MoverDesc, 0)
-	}
-
-	if p.Consumers == nil {
-		p.Consumers = make([]*MoverDesc, 0)
-	}
-
-	if p.Transformers == nil {
-		p.Transformers = make([]*MoverDesc, 0)
-	}
-
-	return p, make(hcl.Diagnostics, 0)
+	return target.Groups, make(hcl.Diagnostics, 0)
 }
