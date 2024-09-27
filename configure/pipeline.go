@@ -41,6 +41,48 @@ func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipeli
 	return resources, nil
 }
 
+func MonifyGroup(frags []*PipelineDesc) *PipelineDesc {
+	cRemoteProducer, cProduce, cConsume, cTransform := 0, 0, 0, 0
+	for _, frag := range frags {
+		cRemoteProducer += len(frag.RemoteProducers)
+		cProduce += len(frag.Producers)
+		cConsume += len(frag.Consumers)
+		cTransform += len(frag.Transformers)
+	}
+
+	joined := &PipelineDesc{
+		RemoteProducers: make([]*MoverDesc, cRemoteProducer),
+		Producers:       make([]*MoverDesc, cProduce),
+		Consumers:       make([]*MoverDesc, cConsume),
+		Transformers:    make([]*MoverDesc, cTransform),
+	}
+
+	cRemoteProducer, cProduce, cConsume, cTransform = 0, 0, 0, 0
+	for _, frag := range frags {
+		for _, m := range frag.RemoteProducers {
+			joined.RemoteProducers[cRemoteProducer] = m
+			cRemoteProducer++
+		}
+
+		for _, m := range frag.Producers {
+			joined.Producers[cProduce] = m
+			cProduce++
+		}
+
+		for _, m := range frag.Consumers {
+			joined.Consumers[cConsume] = m
+			cConsume++
+		}
+
+		for _, m := range frag.Transformers {
+			joined.Transformers[cTransform] = m
+			cTransform++
+		}
+	}
+
+	return joined
+}
+
 func Literal(filename string, literal []byte, baseCtx *hcl.EvalContext) (*PipelineDesc, hcl.Diagnostics) {
 	ctx := parentify(&hcl.EvalContext{}, baseCtx)
 	valuesCtx, diags := ParseValuesCtx(filename, literal, ctx)
