@@ -245,7 +245,6 @@ func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContex
 				Producers:       parts.Producers,
 				Consumers:       descriptor.Consumers,
 				Transformers:    descriptor.Transformers,
-				StopAfter:       descriptor.StopAfter,
 			}, context, library, logger)
 		}
 	}
@@ -314,7 +313,5 @@ func BuildPipeline(descriptor *configure.PipelineDesc, library Library) (*Pipeli
 		Consumer:    joinConsumers(consumers, logger),
 		Transformer: stackTransform(transformers),
 		logger:      logger,
-		StopAfter:   descriptor.StopAfter,
-		ExitOnError: descriptor.ExitOnError,
 	}, nil
 }

@@ -16,8 +16,6 @@ func cmpPipelineDesc(t *testing.T, expected, actual *PipelineDesc, title string)
 	assert.ElementsMatch(t, expected.Producers, actual.Producers, "%s producers", title)
 	assert.ElementsMatch(t, expected.Consumers, actual.Consumers, "%s consumers", title)
 	assert.ElementsMatch(t, expected.Transformers, actual.Transformers, "%s transformers", title)
-	assert.Equal(t, expected.StopAfter, actual.StopAfter, "%s", title)
-	assert.Equal(t, expected.ExitOnError, actual.ExitOnError, "%s", title)
 }
 
 func drawDiags(d hcl.Diagnostics) string {
@@ -101,8 +99,6 @@ func TestLiteral(t *testing.T) {
 					Kind:    "where-it-goes",
 					Options: make(map[string]cty.Value),
 				}},
-				StopAfter:   0,
-				ExitOnError: false,
 			}},
 		},
 		{
@@ -150,8 +146,6 @@ func TestLiteral(t *testing.T) {
 					Kind:    "trash",
 					Options: make(map[string]cty.Value),
 				}},
-				StopAfter:   0,
-				ExitOnError: false,
 			}},
 		},
 	}
