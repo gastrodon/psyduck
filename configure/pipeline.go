@@ -155,20 +155,12 @@ type MoverDesc struct {
 	Options map[string]cty.Value `hcl:",remain" cty:"options"`
 }
 
-type PipelineOpts struct {
-	StopAfter   int  `hcl:"stop-after,optional"`
-	ExitOnError bool `hcl:"exit-on-error,optional"`
-}
-
 type PipelineDesc struct {
-	Name              string       `hcl:"name,label"`
-	RemoteProducers   []*MoverDesc `hcl:"produce-from,block"`
-	Producers         []*MoverDesc `hcl:"produce,block"`
-	Consumers         []*MoverDesc `hcl:"consume,block"`
-	Transformers      []*MoverDesc `hcl:"transform,block"`
-	StopAfter         int          `hcl:"stop-after,optional"`
-	ExitOnError       bool         `hcl:"exit-on-error,optional"` // TODO delete me
-	ParallelProducers uint         `hcl:"parallel-producers"`
+	Name            string       `hcl:"name,label"`
+	RemoteProducers []*MoverDesc `hcl:"produce-from,block"`
+	Producers       []*MoverDesc `hcl:"produce,block"`
+	Consumers       []*MoverDesc `hcl:"consume,block"`
+	Transformers    []*MoverDesc `hcl:"transform,block"`
 }
 
 func ParsePipelinesDesc(filename string, literal []byte, ctx *hcl.EvalContext) ([]*PipelineDesc, hcl.Diagnostics) {
