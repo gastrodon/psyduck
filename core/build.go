@@ -362,9 +362,6 @@ func BuildPipeline(descriptor *configure.PipelineDesc, library Library) (*Pipeli
 		Producer:          producer,
 		Consumer:          joinConsumers(consumers, logger),
 		Transformer:       stackTransform(transformers),
-		logger:            logger,
-		StopAfter:         descriptor.StopAfter,
-		ExitOnError:       descriptor.ExitOnError,
-		ParallelProducers: descriptor.ParallelProducers,
+		ParallelProducers: 1,
 	}, nil
 }
