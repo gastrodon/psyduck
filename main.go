@@ -6,10 +6,53 @@ import (
 	"os"
 	"path"
 
-	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/gastrodon/psyduck/parse"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/urfave/cli/v2"
 )
+
+func MonifyGroup(frags []*parse.PipelineDesc) *parse.PipelineDesc {
+	cRemoteProducer, cProduce, cConsume, cTransform := 0, 0, 0, 0
+	for _, frag := range frags {
+		cRemoteProducer += len(frag.RemoteProducers)
+		cProduce += len(frag.Producers)
+		cConsume += len(frag.Consumers)
+		cTransform += len(frag.Transformers)
+	}
+
+	joined := &parse.PipelineDesc{
+		RemoteProducers: make([]*parse.MoverDesc, cRemoteProducer),
+		Producers:       make([]*parse.MoverDesc, cProduce),
+		Consumers:       make([]*parse.MoverDesc, cConsume),
+		Transformers:    make([]*parse.MoverDesc, cTransform),
+	}
+
+	cRemoteProducer, cProduce, cConsume, cTransform = 0, 0, 0, 0
+	for _, frag := range frags {
+		for _, m := range frag.RemoteProducers {
+			joined.RemoteProducers[cRemoteProducer] = m
+			cRemoteProducer++
+		}
+
+		for _, m := range frag.Producers {
+			joined.Producers[cProduce] = m
+			cProduce++
+		}
+
+		for _, m := range frag.Consumers {
+			joined.Consumers[cConsume] = m
+			cConsume++
+		}
+
+		for _, m := range frag.Transformers {
+			joined.Transformers[cTransform] = m
+			cTransform++
+		}
+	}
+
+	return joined
+}
 
 func readFiles(paths ...string) (map[string][]byte, error) {
 	read := make(map[string][]byte, len(paths))
@@ -31,22 +74,73 @@ var SUBCOMMANDS = [...]string{
 	"run",
 }
 
+func fetchPluginsGroup(initPath string, files map[string][]byte) (map[string]string, hcl.Diagnostics) {
+	composed, diags := make(map[string]string), make(hcl.Diagnostics, 0)
+	for filename, literal := range files {
+		frag, err := parse.FetchPlugins(initPath, filename, literal)
+		if err != nil {
+			return nil, diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "failed to fetch plugins of group member",
+				Detail:   "failed to fetch the plugins of literal group member at " + filename,
+			})
+		}
+
+		for k, v := range frag {
+			if _, ok := composed[k]; ok {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagWarning,
+					Summary:  "duplicate plugin",
+					Detail:   "duplicate plugin defined as " + k + " in " + filename,
+				})
+			}
+
+			composed[k] = v
+		}
+	}
+
+	return composed, diags
+}
+
+func parseGroup(files map[string][]byte, baseCtx *hcl.EvalContext) ([]*parse.PipelineDesc, hcl.Diagnostics) {
+	composed := make([]*parse.PipelineDesc, 0)
+	for filename, literal := range files {
+		frag, diags := parse.Parse(filename, literal, baseCtx)
+		if diags.HasErrors() {
+			return nil, diags.Append(&hcl.Diagnostic{
+				Severity:    hcl.DiagError,
+				Summary:     "failed to parse group member",
+				Detail:      "failed to parse the pipeline literal group member at " + filename,
+				EvalContext: baseCtx,
+			})
+		}
+
+		composed = append(composed, frag...)
+	}
+
+	return composed, make(hcl.Diagnostics, 0)
+}
+
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
-	if err != nil {
-		return err
-	}
-
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	err = os.MkdirAll(initPath, os.ModeDir|os.ModePerm)
+	dirEnts, err := os.ReadDir(ctx.String("chdir"))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read chdir entries: %s", err)
 	}
 
-	filename := path.Base(ctx.String("chdir"))
-	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal)
+	filenames := make([]string, len(dirEnts))
+	for i, ent := range dirEnts {
+		filenames[i] = ent.Name()
+	}
+
+	files, err := readFiles(filenames...)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read files in chdir: %s", err)
+	}
+
+	pluginPaths, diags := fetchPluginsGroup(initPath, files)
+	if diags.HasErrors() {
+		return diags
 	}
 
 	b, err := json.Marshal(pluginPaths)
@@ -68,18 +162,18 @@ func run(ctx *cli.Context) error {
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	plugins, err := configure.LoadPlugins(initPath, files)
+	plugins, err := parse.LoadPlugins(initPath, files)
 	if err != nil {
 		return err
 	}
 
 	library := core.NewLibrary(plugins)
-	descriptor, diags := configure.LiteralGroup(files, library.Ctx())
+	descriptor, diags := parseGroup(files, library.Ctx())
 	if diags.HasErrors() {
 		return diags
 	}
 
-	pipeline, err := core.BuildPipeline(configure.MonifyGroup(descriptor), library)
+	pipeline, err := core.BuildPipeline(MonifyGroup(descriptor), library)
 	if err != nil {
 		return err
 	}

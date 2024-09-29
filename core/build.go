@@ -5,7 +5,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/gastrodon/psyduck/configure"
+	"github.com/gastrodon/psyduck/parse"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
@@ -239,7 +239,7 @@ func nok[T any](e error) result[T] {
 	return result[T]{zero, e}
 }
 
-func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
+func collectProducer(descriptor *parse.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
 	if descriptor.RemoteProducers != nil {
 		logger.Trace("getting remote producers")
 		remoteProducers := make([]sdk.Producer, len(descriptor.RemoteProducers))
@@ -275,7 +275,7 @@ func collectProducer(descriptor *configure.PipelineDesc, context *hcl.EvalContex
 							return
 						}
 
-						parts, diags := configure.Partial("remote-producer", msg, context)
+						parts, diags := parse.Partial("remote-producer", msg, context)
 						if diags.HasErrors() {
 							send <- nok[sdk.Producer](fmt.Errorf("failed to configure remote: %s", diags))
 							return
@@ -331,7 +331,7 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.PipelineDesc, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
 	producer, err := collectProducer(descriptor, library.Ctx(), library, logger)
 	if err != nil {

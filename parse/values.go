@@ -1,4 +1,4 @@
-package configure
+package parse
 
 import (
 	"github.com/hashicorp/hcl/v2"
