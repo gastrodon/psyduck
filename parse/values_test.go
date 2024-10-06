@@ -21,7 +21,7 @@ func Test_makeEvalCtx(test *testing.T) {
 		"tags_list": cty.TupleVal([]cty.Value{cty.StringVal("foo"), cty.StringVal("bar")}),
 	}
 
-	values, diags := ParseValuesCtx(filename, []byte(literal), &hcl.EvalContext{})
+	values, diags := (&fileBytes{filename, []byte(literal)}).Values(&hcl.EvalContext{})
 	if diags.HasErrors() {
 		test.Fatalf("make-eval-ctx: %s", drawDiags(diags))
 	}
@@ -39,7 +39,7 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 		v = 1234
 	}`
 
-	values, diags := ParseValuesCtx(filename, []byte(literal), &hcl.EvalContext{})
+	values, diags := (&fileBytes{filename, []byte(literal)}).Values(&hcl.EvalContext{})
 	if diags.HasErrors() {
 		test.Fatalf("make-eval-ctx has numbers: %s", drawDiags(diags))
 	}

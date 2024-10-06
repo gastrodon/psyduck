@@ -42,16 +42,60 @@ type PipelineDesc struct {
 	Transformers    []*MoverDesc `hcl:"transform,block"`
 }
 
+type GroupDesc []*PipelineDesc
+
+func (g GroupDesc) Monify() *PipelineDesc {
+	cRemoteProducer, cProduce, cConsume, cTransform := 0, 0, 0, 0
+	for _, frag := range g {
+		cRemoteProducer += len(frag.RemoteProducers)
+		cProduce += len(frag.Producers)
+		cConsume += len(frag.Consumers)
+		cTransform += len(frag.Transformers)
+	}
+
+	joined := &PipelineDesc{
+		RemoteProducers: make([]*MoverDesc, cRemoteProducer),
+		Producers:       make([]*MoverDesc, cProduce),
+		Consumers:       make([]*MoverDesc, cConsume),
+		Transformers:    make([]*MoverDesc, cTransform),
+	}
+
+	cRemoteProducer, cProduce, cConsume, cTransform = 0, 0, 0, 0
+	for _, frag := range g {
+		for _, m := range frag.RemoteProducers {
+			joined.RemoteProducers[cRemoteProducer] = m
+			cRemoteProducer++
+		}
+
+		for _, m := range frag.Producers {
+			joined.Producers[cProduce] = m
+			cProduce++
+		}
+
+		for _, m := range frag.Consumers {
+			joined.Consumers[cConsume] = m
+			cConsume++
+		}
+
+		for _, m := range frag.Transformers {
+			joined.Transformers[cTransform] = m
+			cTransform++
+		}
+	}
+
+	return joined
+}
+
 // Parse all of the group blocks
-func Groups(filename string, literal []byte, ctx *hcl.EvalContext) ([]*PipelineDesc, hcl.Diagnostics) {
-	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+func (f fileBytes) Groups(ctx *hcl.EvalContext) (GroupDesc, hcl.Diagnostics) {
+	file, diags := hclparse.NewParser().ParseHCL(f.literal, f.filename)
 	if diags.HasErrors() {
 		return nil, diags
 	}
 
 	target := new(struct {
 		hcl.Body `hcl:",remain"`
-		Groups   []*PipelineDesc `hcl:"group,block"`
+		Groups   GroupDesc `hcl:"group,block"`
 	})
 
 	if diags := gohcl.DecodeBody(file.Body, ctx, target); diags.HasErrors() {
@@ -59,7 +103,7 @@ func Groups(filename string, literal []byte, ctx *hcl.EvalContext) ([]*PipelineD
 	}
 
 	if len(target.Groups) == 0 {
-		return make([]*PipelineDesc, 0), make(hcl.Diagnostics, 0)
+		return make(GroupDesc, 0), make(hcl.Diagnostics, 0)
 	}
 
 	return target.Groups, make(hcl.Diagnostics, 0)
