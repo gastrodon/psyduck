@@ -92,7 +92,7 @@ func TestParseFile(t *testing.T) {
 	}
 
 	for i, testcase := range cases {
-		pipeline, err := Parse("test-literal", []byte(testcase.literal), &hcl.EvalContext{})
+		pipeline, err := NewFile("test-literal", []byte(testcase.literal)).Pipelines(&hcl.EvalContext{})
 		if err != nil {
 			t.Fatalf("test-literal[%d]: %s", i, err)
 		}

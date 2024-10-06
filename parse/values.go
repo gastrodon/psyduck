@@ -11,8 +11,8 @@ import (
 Given a literal hcl, parse out an eval ctx with all variables. Right now, this includes
 `value.*` from `value {...}` blocks, and `env.*` from environment variables
 */
-func ParseValuesCtx(filename string, literal []byte, ctx *hcl.EvalContext) (*hcl.EvalContext, hcl.Diagnostics) {
-	values, diags := ParseValuesDesc(filename, literal, ctx)
+func (f *fileBytes) Values(ctx *hcl.EvalContext) (*hcl.EvalContext, hcl.Diagnostics) {
+	values, diags := f.valuesMap(ctx)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -37,8 +37,8 @@ For parsing values blocks
 
 ```
 */
-func ParseValuesDesc(filename string, literal []byte, ctx *hcl.EvalContext) (map[string]cty.Value, hcl.Diagnostics) {
-	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+func (f *fileBytes) valuesMap(ctx *hcl.EvalContext) (map[string]cty.Value, hcl.Diagnostics) {
+	file, diags := hclparse.NewParser().ParseHCL(f.literal, f.filename)
 	if diags.HasErrors() {
 		return nil, diags
 	}
