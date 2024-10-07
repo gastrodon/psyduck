@@ -65,8 +65,9 @@ func NewFileGroup(files map[string][]byte) File {
 
 // Parse many files described as a map filename -> content
 func (f *fileGroup) Pipelines(baseCtx *hcl.EvalContext) (GroupDesc, hcl.Diagnostics) {
-	composed := make([]*PipelineDesc, 0)
-	for _, file := range f.files {
+	roots := make(GroupDesc, len(f.files))
+	composed := make(GroupDesc, 0)
+	for i, file := range f.files {
 		frag, diags := file.Pipelines(baseCtx)
 		if diags.HasErrors() {
 			return nil, diags.Append(&hcl.Diagnostic{
@@ -77,8 +78,11 @@ func (f *fileGroup) Pipelines(baseCtx *hcl.EvalContext) (GroupDesc, hcl.Diagnost
 			})
 		}
 
-		composed = append(composed, frag...)
+		roots[i] = frag[0]
+		if len(frag) > 1 {
+			composed = append(composed, frag[1:]...)
+		}
 	}
 
-	return composed, make(hcl.Diagnostics, 0)
+	return append(GroupDesc{roots.Monify()}, composed...), make(hcl.Diagnostics, 0)
 }
