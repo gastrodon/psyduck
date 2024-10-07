@@ -1,0 +1,23 @@
+group "amqp-load" {
+  produce "constant" {
+    value = "val-1"
+    stop-after = 30
+  }
+
+  consume "amqp-queue" {
+    connection = "amqp://guest:guest@localhost:5672/"
+    queue = "left"
+  }
+}
+
+group "amqp-move" {
+  produce "amqp-queue" {
+    connection = "amqp://guest:guest@localhost:5672/"
+    queue = "left"
+  }
+
+  consume "amqp-queue" {
+    connection = "amqp://guest:guest@localhost:5672/"
+    queue = "right"
+  }
+}
