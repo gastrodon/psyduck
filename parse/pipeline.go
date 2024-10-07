@@ -94,17 +94,28 @@ func (f fileBytes) Groups(ctx *hcl.EvalContext) (GroupDesc, hcl.Diagnostics) {
 	}
 
 	target := new(struct {
-		hcl.Body `hcl:",remain"`
-		Groups   GroupDesc `hcl:"group,block"`
+		hcl.Body        `hcl:",remain"`
+		Groups          GroupDesc    `hcl:"group,block"`
+		RemoteProducers []*MoverDesc `hcl:"produce-from,block"`
+		Producers       []*MoverDesc `hcl:"produce,block"`
+		Consumers       []*MoverDesc `hcl:"consume,block"`
+		Transformers    []*MoverDesc `hcl:"transform,block"`
 	})
 
 	if diags := gohcl.DecodeBody(file.Body, ctx, target); diags.HasErrors() {
 		return nil, diags
 	}
 
+	rooted := GroupDesc{&PipelineDesc{
+		RemoteProducers: target.RemoteProducers,
+		Producers:       target.Producers,
+		Consumers:       target.Consumers,
+		Transformers:    target.Transformers,
+	}}
+
 	if len(target.Groups) == 0 {
-		return make(GroupDesc, 0), make(hcl.Diagnostics, 0)
+		return rooted, make(hcl.Diagnostics, 0)
 	}
 
-	return target.Groups, make(hcl.Diagnostics, 0)
+	return append(rooted, target.Groups...), make(hcl.Diagnostics, 0)
 }
