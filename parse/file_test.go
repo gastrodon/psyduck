@@ -16,7 +16,73 @@ func TestParseFile(t *testing.T) {
 	}{
 		{
 			``,
-			make([]*PipelineDesc, 0),
+			[]*PipelineDesc{{}},
+		},
+		{
+			`value {
+				foo = "bar"
+			}`,
+			[]*PipelineDesc{{}},
+		},
+		{
+			`produce "foo" {
+				pair = {"l": 1, "r": 2}
+			}
+
+			consume "where-it-goes" {}`,
+			[]*PipelineDesc{{
+				Name: "",
+				Producers: []*MoverDesc{{
+					Kind: "foo",
+					Options: map[string]cty.Value{
+						"pair": cty.ObjectVal(map[string]cty.Value{
+							"l": cty.NumberVal(new(big.Float).SetUint64(1).SetPrec(512)),
+							"r": cty.NumberVal(new(big.Float).SetUint64(2).SetPrec(512)),
+						}),
+					},
+				}},
+				Consumers: []*MoverDesc{{
+					Kind:    "where-it-goes",
+					Options: make(map[string]cty.Value),
+				}},
+			}},
+		},
+		{
+			`produce "foo" {
+				pair = {"l": 1, "r": 2}
+			}
+
+			consume "where-it-goes" {}
+
+			group "a-group" {
+				produce "more-stuff" {
+					v = "b"
+				}
+			}`,
+			[]*PipelineDesc{{
+				Name: "",
+				Producers: []*MoverDesc{{
+					Kind: "foo",
+					Options: map[string]cty.Value{
+						"pair": cty.ObjectVal(map[string]cty.Value{
+							"l": cty.NumberVal(new(big.Float).SetUint64(1).SetPrec(512)),
+							"r": cty.NumberVal(new(big.Float).SetUint64(2).SetPrec(512)),
+						}),
+					},
+				}},
+				Consumers: []*MoverDesc{{
+					Kind:    "where-it-goes",
+					Options: make(map[string]cty.Value),
+				}},
+			}, {
+				Name: "a-group",
+				Producers: []*MoverDesc{{
+					Kind: "more-stuff",
+					Options: map[string]cty.Value{
+						"v": cty.StringVal("b"),
+					},
+				}},
+			}},
 		},
 		{
 			`group "root" {
@@ -26,7 +92,7 @@ func TestParseFile(t *testing.T) {
 
 				consume "where-it-goes" {}
 			}`,
-			[]*PipelineDesc{{
+			[]*PipelineDesc{{}, {
 				Name: "root",
 				Producers: []*MoverDesc{{
 					Kind: "foo",
@@ -50,7 +116,7 @@ func TestParseFile(t *testing.T) {
 					value = 132
 				}
 			}`,
-			[]*PipelineDesc{{
+			[]*PipelineDesc{{}, {
 				Name: "r",
 				RemoteProducers: []*MoverDesc{{
 					Kind: "r-name",
@@ -74,7 +140,7 @@ func TestParseFile(t *testing.T) {
 
 				consume "trash" {}
 			}`,
-			[]*PipelineDesc{{
+			[]*PipelineDesc{{}, {
 				Name: "scope",
 				Producers: []*MoverDesc{{
 					Kind: "constant",
