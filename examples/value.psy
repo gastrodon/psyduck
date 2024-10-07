@@ -1,0 +1,21 @@
+group "value" {
+  value {
+    foo = "bar"
+  }
+
+  produce "constant" {
+    value = value.foo
+    stop-after = 30
+  }
+
+  consume "trash" {}
+}
+
+group "value-env" {
+   produce "constant" {
+    value = env("PSYDUCK_FOO")
+    stop-after = 30
+  }
+
+  consume "trash" {}
+}
