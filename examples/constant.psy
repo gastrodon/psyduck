@@ -1,0 +1,19 @@
+group "const-baseline" {
+  produce "constant" {
+    value = "val-1"
+    stop-after = 30
+  }
+
+  consume "trash" {}
+}
+
+group "const-produce-more"{
+  produce "constant" {
+    value = "val-2"
+    stop-after = 60
+  }
+}
+
+group "const-consume-more" {
+  consume "trash" {}
+}
