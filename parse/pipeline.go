@@ -44,6 +44,24 @@ type PipelineDesc struct {
 
 type GroupDesc []*PipelineDesc
 
+func (g GroupDesc) Filter(names []string) GroupDesc {
+	t := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		t[name] = struct{}{}
+	}
+
+	f := make(GroupDesc, len(g))
+	i := 0
+	for _, p := range g {
+		if _, ok := t[p.Name]; ok {
+			f[i] = p
+			i++
+		}
+	}
+
+	return f
+}
+
 func (g GroupDesc) Monify() *PipelineDesc {
 	cRemoteProducer, cProduce, cConsume, cTransform := 0, 0, 0, 0
 	for _, frag := range g {
