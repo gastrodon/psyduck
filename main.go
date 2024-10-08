@@ -91,10 +91,6 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 }
 
 func run(ctx *cli.Context) error {
-	if !ctx.Args().Present() {
-		return fmt.Errorf("target required")
-	}
-
 	files, err := readFiles(ctx.Args().Slice()...)
 	if err != nil {
 		return fmt.Errorf("failed to read files: %s", err)
@@ -112,7 +108,7 @@ func run(ctx *cli.Context) error {
 		return diags
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor.Monify(), library)
+	pipeline, err := core.BuildPipeline(descriptor.Filter(ctx.StringSlice("group")).Monify(), library)
 	if err != nil {
 		return err
 	}
@@ -148,8 +144,14 @@ func main() {
 				Name:      "run",
 				Usage:     "run a pipeline job",
 				Action:    run,
-				Args:      true,
 				ArgsUsage: "pipeline name",
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{
+						Name:    "group",
+						Usage:   "groups of movers to include",
+						Aliases: []string{"g"},
+					},
+				},
 			},
 			{
 				Name:   "init",
