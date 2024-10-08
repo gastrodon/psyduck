@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/gastrodon/psyduck/core"
 	"github.com/gastrodon/psyduck/parse"
@@ -12,15 +13,29 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func readFiles(paths ...string) (map[string][]byte, error) {
-	read := make(map[string][]byte, len(paths))
-	for _, path := range paths {
-		content, err := os.ReadFile(path)
+func readFiles(ctx *cli.Context) (map[string][]byte, error) {
+	dirEnts, err := os.ReadDir(ctx.String("chdir"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chdir entries: %s", err)
+	}
+
+	filepaths := make([]string, len(dirEnts))
+	i := 0
+	for _, ent := range dirEnts {
+		if !ent.IsDir() && strings.HasSuffix(ent.Name(), ".psy") {
+			filepaths[i] = ent.Name()
+			i++
+		}
+	}
+
+	read := make(map[string][]byte, len(filepaths))
+	for _, p := range filepaths {
+		content, err := os.ReadFile(path.Join(ctx.String("chdir"), p))
 		if err != nil {
 			return nil, err
 		}
 
-		read[path] = content
+		read[path.Base(p)] = content
 	}
 
 	return read, nil
@@ -61,22 +76,12 @@ func fetchPluginsGroup(initPath string, files map[string][]byte) (map[string]str
 }
 
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
+	files, err := readFiles(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to read psyduck files: %s", err)
+	}
+
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	dirEnts, err := os.ReadDir(ctx.String("chdir"))
-	if err != nil {
-		return fmt.Errorf("failed to read chdir entries: %s", err)
-	}
-
-	filenames := make([]string, len(dirEnts))
-	for i, ent := range dirEnts {
-		filenames[i] = ent.Name()
-	}
-
-	files, err := readFiles(filenames...)
-	if err != nil {
-		return fmt.Errorf("failed to read files in chdir: %s", err)
-	}
-
 	pluginPaths, diags := fetchPluginsGroup(initPath, files)
 	if diags.HasErrors() {
 		return diags
@@ -91,9 +96,9 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 }
 
 func run(ctx *cli.Context) error {
-	files, err := readFiles(ctx.Args().Slice()...)
+	files, err := readFiles(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to read files: %s", err)
+		return fmt.Errorf("failed to read psyduck files: %s", err)
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
