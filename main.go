@@ -14,7 +14,12 @@ import (
 )
 
 func readFiles(ctx *cli.Context) (map[string][]byte, error) {
-	dirEnts, err := os.ReadDir(ctx.String("chdir"))
+	chdir := ctx.String("chdir")
+	if chdir == "" {
+		chdir = "."
+	}
+
+	dirEnts, err := os.ReadDir(chdir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read chdir entries: %s", err)
 	}
@@ -28,14 +33,21 @@ func readFiles(ctx *cli.Context) (map[string][]byte, error) {
 		}
 	}
 
+	if i == 0 {
+		return nil, fmt.Errorf("no psyduck files in %s", chdir)
+	}
+
+	filepaths = filepaths[:i]
+
 	read := make(map[string][]byte, len(filepaths))
 	for _, p := range filepaths {
-		content, err := os.ReadFile(path.Join(ctx.String("chdir"), p))
+		fp := path.Join(chdir, p)
+		content, err := os.ReadFile(fp)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to read file %s: %s", fp, err)
 		}
 
-		read[path.Base(p)] = content
+		read[path.Base(fp)] = content
 	}
 
 	return read, nil
@@ -55,7 +67,7 @@ func fetchPluginsGroup(initPath string, files map[string][]byte) (map[string]str
 			return nil, diags.Append(&hcl.Diagnostic{
 				Severity: hcl.DiagError,
 				Summary:  "failed to fetch plugins of group member",
-				Detail:   "failed to fetch the plugins of literal group member at " + filename,
+				Detail:   "failed to fetch the plugins of literal group member at " + filename + ": " + err.Error(),
 			})
 		}
 
