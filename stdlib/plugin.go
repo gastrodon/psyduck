@@ -1,11 +1,14 @@
 package stdlib
 
 import (
+	"os"
+
 	"github.com/gastrodon/psyduck/stdlib/consume"
 	"github.com/gastrodon/psyduck/stdlib/produce"
 	"github.com/gastrodon/psyduck/stdlib/transform"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
 )
 
 func Plugin() *sdk.Plugin {
@@ -16,14 +19,14 @@ func Plugin() *sdk.Plugin {
 				Name:            "constant",
 				Kinds:           sdk.PRODUCER,
 				ProvideProducer: produce.Constant,
-				Spec: sdk.SpecMap{
-					"value": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "value",
 						Description: "constant value to produce",
 						Type:        cty.String,
 						Default:     cty.StringVal("0"),
 					},
-					"stop-after": &sdk.Spec{
+					{
 						Name:        "stop-after",
 						Description: "stop after n iterations",
 						Type:        cty.Number,
@@ -40,8 +43,8 @@ func Plugin() *sdk.Plugin {
 				Name:               "inspect",
 				Kinds:              sdk.TRANSFORMER,
 				ProvideTransformer: transform.Inspect,
-				Spec: sdk.SpecMap{
-					"be-string": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "be-string",
 						Description: "should the data bytes should be a string",
 						Type:        cty.Bool,
@@ -53,8 +56,8 @@ func Plugin() *sdk.Plugin {
 				Name:               "snippet",
 				Kinds:              sdk.TRANSFORMER,
 				ProvideTransformer: transform.Snippet,
-				Spec: sdk.SpecMap{
-					"fields": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "fields",
 						Description: "fields to take a snippet of",
 						Type:        cty.List(cty.String),
@@ -65,14 +68,14 @@ func Plugin() *sdk.Plugin {
 			{
 				Name:  "sprintf",
 				Kinds: sdk.TRANSFORMER,
-				Spec: sdk.SpecMap{
-					"format": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "format",
 						Description: "String to format values into",
 						Type:        cty.String,
 						Required:    true,
 					},
-					"encoding": &sdk.Spec{
+					{
 						Name:        "encoding",
 						Description: "How the formatted value will be encoded",
 						Type:        cty.String,
@@ -86,8 +89,8 @@ func Plugin() *sdk.Plugin {
 				Name:               "transpose",
 				Kinds:              sdk.TRANSFORMER,
 				ProvideTransformer: transform.Transpose,
-				Spec: sdk.SpecMap{
-					"fields": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "fields",
 						Description: "fields to transpose, mapping of target -> source",
 						Type:        cty.Map(cty.List(cty.String)),
@@ -99,8 +102,8 @@ func Plugin() *sdk.Plugin {
 				Name:               "wait",
 				Kinds:              sdk.TRANSFORMER,
 				ProvideTransformer: transform.Wait,
-				Spec: sdk.SpecMap{
-					"milliseconds": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "milliseconds",
 						Description: "duratin to wait in ms",
 						Type:        cty.Number,
@@ -112,8 +115,8 @@ func Plugin() *sdk.Plugin {
 				Name:               "zoom",
 				Kinds:              sdk.TRANSFORMER,
 				ProvideTransformer: transform.Zoom,
-				Spec: sdk.SpecMap{
-					"field": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "field",
 						Description: "field to zoom into",
 						Type:        cty.String,
@@ -124,8 +127,8 @@ func Plugin() *sdk.Plugin {
 			{
 				Name:  "increment",
 				Kinds: sdk.PRODUCER,
-				Spec: sdk.SpecMap{
-					"stop-after": &sdk.Spec{
+				Spec: []*sdk.Spec{
+					{
 						Name:        "stop-after",
 						Description: "stop after n iterations",
 						Type:        cty.Number,
@@ -134,6 +137,22 @@ func Plugin() *sdk.Plugin {
 				},
 				ProvideProducer: produce.Increment,
 			},
+		},
+		Functions: map[string]function.Function{
+			"env": function.New(&function.Spec{
+				Description: "Read an environment variable",
+				Params: []function.Parameter{{
+					Name:        "env",
+					Description: "Environment variable to read",
+					Type:        cty.String,
+				}},
+				Type: func(args []cty.Value) (cty.Type, error) {
+					return cty.String, nil
+				},
+				Impl: func(args []cty.Value, retType cty.Type) (cty.Value, error) {
+					return cty.StringVal(os.Getenv(args[0].AsString())), nil
+				},
+			}),
 		},
 	}
 }

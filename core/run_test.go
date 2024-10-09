@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -194,7 +195,7 @@ func Test_RunPipeline_error(test *testing.T) {
 				send <- []byte{0}
 			}
 
-			errs <- fmt.Errorf(errText)
+			errs <- errors.New(errText)
 		}
 	}
 
@@ -204,7 +205,7 @@ func Test_RunPipeline_error(test *testing.T) {
 				<-recv
 			}
 
-			errs <- fmt.Errorf(errText)
+			errs <- errors.New(errText)
 		}
 	}
 
@@ -212,7 +213,7 @@ func Test_RunPipeline_error(test *testing.T) {
 		i := 0
 		return func(in []byte) ([]byte, error) {
 			if i >= n {
-				return nil, fmt.Errorf(errText)
+				return nil, errors.New(errText)
 			}
 			i++
 			return in, nil

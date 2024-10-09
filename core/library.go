@@ -5,48 +5,20 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/gocty"
 
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
-	attributes := make([]hcl.AttributeSchema, len(specMap))
-
-	index := 0
-	for _, spec := range specMap {
-		attributes[index] = hcl.AttributeSchema{
-			Name:     spec.Name,
-			Required: spec.Required,
-		}
-
-		index++
-	}
-
-	return &hcl.BodySchema{
-		Attributes: attributes,
-	}
-}
-
-func parser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, config hcl.Body) sdk.Parser {
-	return func(target interface{}) error {
-		content, _, diags := config.PartialContent(makeBodySchema(spec))
-		if diags.HasErrors() {
-			return diags
-		}
-
-		if diags := decodeAttributes(spec, evalCtx, content.Attributes, target); diags.HasErrors() {
-			return diags
-		}
-
-		return nil
-	}
-}
-
 type library struct {
+	plugins   []*sdk.Plugin
 	resources map[string]*sdk.Resource
+	functions map[string]function.Function
 }
 
-func (l *library) Producer(name string, ctx *hcl.EvalContext, body hcl.Body) (sdk.Producer, error) {
+func (l *library) Producer(name string, options map[string]cty.Value) (sdk.Producer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -56,10 +28,12 @@ func (l *library) Producer(name string, ctx *hcl.EvalContext, body hcl.Body) (sd
 		return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 	}
 
-	return found.ProvideProducer(parser(found.Spec, ctx, body))
+	return found.ProvideProducer(func(target interface{}) error {
+		return gocty.FromCtyValue(cty.ObjectVal(options), target)
+	})
 }
 
-func (l *library) Consumer(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
+func (l *library) Consumer(name string, options map[string]cty.Value) (sdk.Consumer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -69,10 +43,12 @@ func (l *library) Consumer(name string, evalCtx *hcl.EvalContext, config hcl.Bod
 		return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 	}
 
-	return found.ProvideConsumer(parser(found.Spec, evalCtx, config))
+	return found.ProvideConsumer(func(target interface{}) error {
+		return gocty.FromCtyValue(cty.ObjectVal(options), target)
+	})
 }
 
-func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
+func (l *library) Transformer(name string, options map[string]cty.Value) (sdk.Transformer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -82,22 +58,46 @@ func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config hcl.
 		return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 	}
 
-	return found.ProvideTransformer(parser(found.Spec, evalCtx, config))
+	return found.ProvideTransformer(func(target interface{}) error {
+		return gocty.FromCtyValue(cty.ObjectVal(options), target)
+	})
+}
+
+func (l *library) Ctx() *hcl.EvalContext {
+	ctx := &hcl.EvalContext{}
+	for _, plugin := range l.plugins {
+		for k, v := range plugin.Ctx().Variables {
+			ctx.Variables[k] = v
+		}
+	}
+
+	ctx.Functions = make(map[string]function.Function)
+	for name, function := range l.functions {
+		ctx.Functions[name] = function
+	}
+
+	return ctx
 }
 
 type Library interface {
-	Producer(string, *hcl.EvalContext, hcl.Body) (sdk.Producer, error)
-	Consumer(string, *hcl.EvalContext, hcl.Body) (sdk.Consumer, error)
-	Transformer(string, *hcl.EvalContext, hcl.Body) (sdk.Transformer, error)
+	Producer(string, map[string]cty.Value) (sdk.Producer, error)
+	Consumer(string, map[string]cty.Value) (sdk.Consumer, error)
+	Transformer(string, map[string]cty.Value) (sdk.Transformer, error)
+	Ctx() *hcl.EvalContext
 }
 
 func NewLibrary(plugins []*sdk.Plugin) Library {
 	lookupResource := make(map[string]*sdk.Resource)
+	fns := make(map[string]function.Function)
 	for _, plugin := range append(plugins, stdlib.Plugin()) {
 		for _, resource := range plugin.Resources {
 			lookupResource[resource.Name] = resource
 		}
+
+		for name, function := range plugin.Functions {
+			fns[name] = function
+		}
 	}
 
-	return &library{lookupResource}
+	return &library{plugins, lookupResource, fns}
 }

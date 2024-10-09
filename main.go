@@ -5,11 +5,53 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
-	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/gastrodon/psyduck/parse"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/urfave/cli/v2"
 )
+
+func readFiles(ctx *cli.Context) (map[string][]byte, error) {
+	chdir := ctx.String("chdir")
+	if chdir == "" {
+		chdir = "."
+	}
+
+	dirEnts, err := os.ReadDir(chdir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read chdir entries: %s", err)
+	}
+
+	filepaths := make([]string, len(dirEnts))
+	i := 0
+	for _, ent := range dirEnts {
+		if !ent.IsDir() && strings.HasSuffix(ent.Name(), ".psy") {
+			filepaths[i] = ent.Name()
+			i++
+		}
+	}
+
+	if i == 0 {
+		return nil, fmt.Errorf("no psyduck files in %s", chdir)
+	}
+
+	filepaths = filepaths[:i]
+
+	read := make(map[string][]byte, len(filepaths))
+	for _, p := range filepaths {
+		fp := path.Join(chdir, p)
+		content, err := os.ReadFile(fp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read file %s: %s", fp, err)
+		}
+
+		read[path.Base(fp)] = content
+	}
+
+	return read, nil
+}
 
 var NAME = "psyduck"
 var SUBCOMMANDS = [...]string{
@@ -17,27 +59,44 @@ var SUBCOMMANDS = [...]string{
 	"run",
 }
 
-func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
-	if err != nil {
-		return err
+func fetchPluginsGroup(initPath string, files map[string][]byte) (map[string]string, hcl.Diagnostics) {
+	composed, diags := make(map[string]string), make(hcl.Diagnostics, 0)
+	for filename, literal := range files {
+		frag, err := parse.FetchPlugins(initPath, filename, literal)
+		if err != nil {
+			return nil, diags.Append(&hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "failed to fetch plugins of group member",
+				Detail:   "failed to fetch the plugins of literal group member at " + filename + ": " + err.Error(),
+			})
+		}
+
+		for k, v := range frag {
+			if _, ok := composed[k]; ok {
+				diags = diags.Append(&hcl.Diagnostic{
+					Severity: hcl.DiagWarning,
+					Summary:  "duplicate plugin",
+					Detail:   "duplicate plugin defined as " + k + " in " + filename,
+				})
+			}
+
+			composed[k] = v
+		}
 	}
 
-	filename := path.Base(ctx.String("chdir"))
-	_, evalCtx, err := configure.Literal(filename, literal)
+	return composed, diags
+}
+
+func cmdinit(ctx *cli.Context) error { // init is a different thing in go
+	files, err := readFiles(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read psyduck files: %s", err)
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	err = os.MkdirAll(initPath, os.ModeDir|os.ModePerm)
-	if err != nil {
-		return err
-	}
-
-	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal, evalCtx)
-	if err != nil {
-		return err
+	pluginPaths, diags := fetchPluginsGroup(initPath, files)
+	if diags.HasErrors() {
+		return diags
 	}
 
 	b, err := json.Marshal(pluginPaths)
@@ -49,34 +108,29 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 }
 
 func run(ctx *cli.Context) error {
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
+	files, err := readFiles(ctx)
 	if err != nil {
-		return err
-	}
-
-	filename := path.Base(ctx.String("chdir"))
-	descriptors, evalCtx, err := configure.Literal(filename, literal)
-	if err != nil {
-		return err
+		return fmt.Errorf("failed to read psyduck files: %s", err)
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	plugins, err := configure.LoadPlugins(initPath, filename, literal, evalCtx)
+	plugins, err := parse.LoadPlugins(initPath, files)
 	if err != nil {
 		return err
 	}
 
-	if !ctx.Args().Present() {
-		return fmt.Errorf("target required")
+	library := core.NewLibrary(plugins)
+	descriptor, diags := parse.NewFileGroup(files).Pipelines(library.Ctx())
+	if diags.HasErrors() {
+		return diags
 	}
 
-	target := ctx.Args().First()
-	descriptor, ok := descriptors[target]
-	if !ok {
-		return fmt.Errorf("can't find target %s", target)
+	groups := ctx.StringSlice("group")
+	if !ctx.Bool("no-root") {
+		groups = append(groups, "")
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, evalCtx, core.NewLibrary(plugins))
+	pipeline, err := core.BuildPipeline(descriptor.Filter(groups).Monify(), library)
 	if err != nil {
 		return err
 	}
@@ -112,8 +166,18 @@ func main() {
 				Name:      "run",
 				Usage:     "run a pipeline job",
 				Action:    run,
-				Args:      true,
 				ArgsUsage: "pipeline name",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "no-root",
+						Usage: "exclude root level movers",
+					},
+					&cli.StringSliceFlag{
+						Name:    "group",
+						Usage:   "groups of movers to include",
+						Aliases: []string{"g"},
+					},
+				},
 			},
 			{
 				Name:   "init",

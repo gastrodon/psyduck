@@ -1,0 +1,5 @@
+group "inspect" {
+  transform "inspect" {
+    be-string = true
+  }
+}

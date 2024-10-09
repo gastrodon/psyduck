@@ -1,0 +1,29 @@
+group "remote-ready" {
+  produce "increment" {
+    stop-after = 8
+  }
+
+  consume "amqp-queue" {
+    connection = "amqp://guest:guest@localhost:5672/"
+    queue = "src-constant"
+  }
+
+  transform "sprintf" {
+    format = <<-EOF
+    produce "constant" "remote" {
+      value = "%d"
+      stop-after = 10
+    }
+    EOF
+  }
+}
+
+group "remote-deplete" {
+  produce "amqp-queue" {
+    connection = "amqp://guest:guest@localhost:5672/"
+    queue = "src-constant"
+    stop-after = 1
+  }
+
+  consume "trash" {}
+}

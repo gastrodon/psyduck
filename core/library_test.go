@@ -1,11 +1,10 @@
 package core
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
 	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
@@ -14,13 +13,13 @@ import (
 func TestNewLibrary(t *testing.T) {
 	cases := []struct {
 		have []*sdk.Plugin
-		want library
+		want map[string]*sdk.Resource
 	}{
 		{
 			[]*sdk.Plugin{
 				{Name: "psyduck", Resources: []*sdk.Resource{{Name: "test"}}},
 			},
-			library{map[string]*sdk.Resource{"test": {Name: "test"}}},
+			map[string]*sdk.Resource{"test": {Name: "test"}},
 		},
 	}
 
@@ -35,10 +34,8 @@ func TestNewLibrary(t *testing.T) {
 }
 
 func TestLibrary(t *testing.T) {
-	have := []byte(`count = 123`)
-	file, diags := hclparse.NewParser().ParseHCL(have, "test-library")
-	if diags.HasErrors() {
-		t.Fatal(diags.Error())
+	have := map[string]cty.Value{
+		"count": cty.NumberVal(new(big.Float).SetFloat64(123).SetPrec(512)),
 	}
 
 	plugin := &sdk.Plugin{
@@ -46,12 +43,12 @@ func TestLibrary(t *testing.T) {
 			{
 				Kinds: sdk.PRODUCER,
 				Name:  "test",
-				Spec: map[string]*sdk.Spec{
-					"count": {Name: "count", Required: true, Type: cty.Number},
+				Spec: []*sdk.Spec{
+					{Name: "count", Required: true, Type: cty.Number},
 				},
 				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
 					target := new(struct {
-						Count int `psy:"count"`
+						Count int `cty:"count"`
 					})
 
 					if err := parse(target); err != nil {
@@ -71,7 +68,7 @@ func TestLibrary(t *testing.T) {
 	}
 
 	l := NewLibrary([]*sdk.Plugin{plugin})
-	p, err := l.Producer("test", &hcl.EvalContext{}, file.Body)
+	p, err := l.Producer("test", have)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package configure
+package parse
 
 import (
 	"encoding/json"
@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -124,7 +126,7 @@ func fetchPlugins(cachePath, binPath string, descriptors []PluginDesc) (map[stri
 Fetch plugins, cloning and building them if necessary
 Returns an absolute filepath pointing to a loadable shared library
 */
-func FetchPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
+func FetchPlugins(initPath, filename string, literal []byte) (map[string]string, error) {
 	descriptors, diags := ParsePluginsDesc(filename, literal)
 	if diags.HasErrors() {
 		return nil, diags
@@ -201,8 +203,8 @@ func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.P
 /*
 Load plugins that've been fetched and are pointed to in <initPath>/plugin.json
 */
-func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
-	descriptors, diags := ParsePluginsDesc(filename, literal)
+func LoadPlugins(initPath string, files map[string][]byte) ([]*sdk.Plugin, error) {
+	descriptors, diags := ParsePluginsDescGroup(files)
 	if diags.HasErrors() {
 		return nil, diags
 	}
@@ -223,4 +225,52 @@ func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalCon
 	}
 
 	return loaded, nil
+}
+
+type PluginDesc struct {
+	Name   string `hcl:"name,label"`
+	Source string `hcl:"source"`
+	Tag    string `hcl:"tag,optional"`
+}
+
+/*
+For parsing plugin descriptor bocks
+```
+
+	plugin "name" {
+		source = string
+		tag 	 = string
+	}
+
+```
+*/
+func ParsePluginsDesc(filename string, literal []byte) ([]PluginDesc, hcl.Diagnostics) {
+	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
+	target := new(struct {
+		hcl.Body `hcl:",remain"`
+		Blocks   []PluginDesc `hcl:"plugin,block"`
+	})
+	if diags := gohcl.DecodeBody(file.Body, &hcl.EvalContext{}, target); diags.HasErrors() {
+		return nil, diags
+	}
+
+	return target.Blocks, make(hcl.Diagnostics, 0)
+}
+
+func ParsePluginsDescGroup(files map[string][]byte) ([]PluginDesc, hcl.Diagnostics) {
+	descs := make([]PluginDesc, 0)
+	for filename, literal := range files {
+		additional, diags := ParsePluginsDesc(filename, literal)
+		if diags.HasErrors() {
+			return nil, diags
+		}
+
+		descs = append(descs, additional...)
+	}
+
+	return descs, make(hcl.Diagnostics, 0)
 }

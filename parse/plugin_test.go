@@ -1,21 +1,10 @@
-package configure
+package parse
 
 import (
-	"strings"
 	"testing"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/stretchr/testify/assert"
 )
-
-func drawDiags(d hcl.Diagnostics) string {
-	buf := make([]string, len(d))
-	for i, diag := range d {
-		buf[i] = diag.Error()
-	}
-
-	return strings.Join(buf, "\n")
-}
 
 func TestParsePlugins(test *testing.T) {
 	cases := []struct {
