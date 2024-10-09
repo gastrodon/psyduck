@@ -59,7 +59,7 @@ func (g GroupDesc) Filter(names []string) GroupDesc {
 		}
 	}
 
-	return f
+	return f[:i]
 }
 
 func (g GroupDesc) Monify() *PipelineDesc {
