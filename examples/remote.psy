@@ -1,14 +1,14 @@
 group "remote-ready" {
-  produce "increment" "inc" {
+  produce "increment" {
     stop-after = 8
   }
 
-  consume "amqp-queue" "src-constant" {
+  consume "amqp-queue" {
     connection = "amqp://guest:guest@localhost:5672/"
     queue = "src-constant"
   }
 
-  transform "sprintf" "src" {
+  transform "sprintf" {
     format = <<-EOF
     produce "constant" "remote" {
       value = "%d"
@@ -19,11 +19,11 @@ group "remote-ready" {
 }
 
 group "remote-deplete" {
-  produce "amqp-queue" "src-constants" {
+  produce "amqp-queue" {
     connection = "amqp://guest:guest@localhost:5672/"
     queue = "src-constant"
     stop-after = 1
   }
 
-  consume "trash" "trash" {}
+  consume "trash" {}
 }
