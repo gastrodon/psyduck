@@ -6,6 +6,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/gocty"
 
 	"github.com/gastrodon/psyduck/stdlib"
@@ -14,6 +15,7 @@ import (
 type library struct {
 	plugins   []*sdk.Plugin
 	resources map[string]*sdk.Resource
+	functions map[string]function.Function
 }
 
 func (l *library) Producer(name string, options map[string]cty.Value) (sdk.Producer, error) {
@@ -69,6 +71,11 @@ func (l *library) Ctx() *hcl.EvalContext {
 		}
 	}
 
+	ctx.Functions = make(map[string]function.Function)
+	for name, function := range l.functions {
+		ctx.Functions[name] = function
+	}
+
 	return ctx
 }
 
@@ -81,11 +88,16 @@ type Library interface {
 
 func NewLibrary(plugins []*sdk.Plugin) Library {
 	lookupResource := make(map[string]*sdk.Resource)
+	fns := make(map[string]function.Function)
 	for _, plugin := range append(plugins, stdlib.Plugin()) {
 		for _, resource := range plugin.Resources {
 			lookupResource[resource.Name] = resource
 		}
+
+		for name, function := range plugin.Functions {
+			fns[name] = function
+		}
 	}
 
-	return &library{plugins, lookupResource}
+	return &library{plugins, lookupResource, fns}
 }
