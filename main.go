@@ -125,7 +125,12 @@ func run(ctx *cli.Context) error {
 		return diags
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor.Filter(ctx.StringSlice("group")).Monify(), library)
+	groups := ctx.StringSlice("group")
+	if !ctx.Bool("no-root") {
+		groups = append(groups, "")
+	}
+
+	pipeline, err := core.BuildPipeline(descriptor.Filter(groups).Monify(), library)
 	if err != nil {
 		return err
 	}
@@ -163,6 +168,10 @@ func main() {
 				Action:    run,
 				ArgsUsage: "pipeline name",
 				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "no-root",
+						Usage: "exclude root level movers",
+					},
 					&cli.StringSliceFlag{
 						Name:    "group",
 						Usage:   "groups of movers to include",
