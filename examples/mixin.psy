@@ -1,9 +1,5 @@
-group "plugin" {
-  plugin "amqp" {
-    source = "https://github.com/psyduck-etl/amqp"
-  }
-}
-
 group "inspect" {
-  transform "inspect" {}
+  transform "inspect" {
+    be-string = true
+  }
 }

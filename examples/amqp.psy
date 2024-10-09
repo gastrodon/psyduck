@@ -1,3 +1,8 @@
+plugin "amqp" {
+  source = "https://github.com/psyduck-etl/amqp"
+  tag    = "v0.2.0-rc2"
+}
+
 group "amqp-load" {
   produce "constant" {
     value = "val-1"
