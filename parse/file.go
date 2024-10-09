@@ -58,6 +58,7 @@ func NewFileGroup(files map[string][]byte) File {
 	fb := make([]*fileBytes, len(files))
 	for filename, literal := range files {
 		fb[i] = &fileBytes{filename, literal}
+		i++
 	}
 
 	return &fileGroup{fb}
