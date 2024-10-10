@@ -13,22 +13,6 @@ type pipelineParts struct {
 	Transformers []*MoverDesc `hcl:"transform,block"`
 }
 
-// TODO this should take a library.Ctx! it should look more like Literal
-// update: this should be swap-in replaceable with Literal
-func Partial(filename string, literal []byte, context *hcl.EvalContext) (*pipelineParts, hcl.Diagnostics) {
-	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
-	if diags.HasErrors() {
-		return nil, diags
-	}
-
-	resources := new(pipelineParts)
-	if diags := gohcl.DecodeBody(file.Body, context, resources); diags.HasErrors() {
-		return nil, diags
-	}
-
-	return resources, nil
-}
-
 type MoverDesc struct {
 	Kind    string               `hcl:"resource,label" cty:"resource"`
 	Options map[string]cty.Value `hcl:",remain" cty:"options"`
