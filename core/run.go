@@ -43,9 +43,8 @@ func RunPipeline(pipeline *Pipeline) error {
 	for {
 		group, err := nextProducerGroup(spawnProducer, pipeline.ParallelProducers, pipeline.logger)
 		if err != nil {
-			// TODO should this respect exit-on-error?
-			// seems like no since this is an error getting the producers
-			// that would halt the pipeline regardless
+			// This doesn't respect exit-on-error because
+			// an error getting the producers halts the pipeline regardless
 			return fmt.Errorf("failed collecting producer group: %s", err)
 		} else if group == nil {
 			close(dataConsumer)
