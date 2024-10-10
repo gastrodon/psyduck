@@ -48,6 +48,29 @@ func TestParseFile(t *testing.T) {
 			}},
 		},
 		{
+			`produce-from "rempro" {
+				iters = 100
+			}
+
+			produce-from "remmid" {
+				iters = 50
+			}
+
+			group "rm" {
+				produce-from "aether" {}
+			}`,
+			[]*PipelineDesc{{
+				Name: "",
+				RemoteProducers: []*MoverDesc{
+					{"rempro", map[string]cty.Value{"iters": cty.NumberVal(new(big.Float).SetUint64(100).SetPrec(512))}},
+					{"remmid", map[string]cty.Value{"iters": cty.NumberVal(new(big.Float).SetUint64(50).SetPrec(512))}},
+				},
+			}, {
+				Name:            "rm",
+				RemoteProducers: []*MoverDesc{{"aether", make(map[string]cty.Value)}},
+			}},
+		},
+		{
 			`produce "foo" {
 				pair = {"l": 1, "r": 2}
 			}
