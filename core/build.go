@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/gastrodon/psyduck/parse"
-	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
 )
@@ -239,7 +238,7 @@ func nok[T any](e error) result[T] {
 	return result[T]{zero, e}
 }
 
-func collectProducer(descriptor *parse.PipelineDesc, context *hcl.EvalContext, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
+func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
 	if descriptor.RemoteProducers != nil {
 		logger.Trace("getting remote producers")
 		remoteProducers := make([]sdk.Producer, len(descriptor.RemoteProducers))
@@ -255,6 +254,7 @@ func collectProducer(descriptor *parse.PipelineDesc, context *hcl.EvalContext, l
 		pMeta := joinProducers(remoteProducers, logger)
 
 		return func() <-chan result[sdk.Producer] {
+			libCtx := library.Ctx()
 			send := make(chan result[sdk.Producer])
 			go func() {
 				mSend, mErrs := make(chan []byte), make(chan error)
@@ -275,20 +275,22 @@ func collectProducer(descriptor *parse.PipelineDesc, context *hcl.EvalContext, l
 							return
 						}
 
-						parts, diags := parse.Partial("remote-producer", msg, context)
+						group, diags := parse.NewFile("remote-producer", msg).Pipelines(libCtx)
 						if diags.HasErrors() {
 							send <- nok[sdk.Producer](fmt.Errorf("failed to configure remote: %s", diags))
 							return
 						}
 
-						// Should context be re-used here
-						p, err := library.Producer(parts.Producers[0].Kind, parts.Producers[0].Options)
-						if err != nil {
-							send <- nok[sdk.Producer](fmt.Errorf("failed to compile remote: %s", err))
-							return
-						}
+						for _, desc := range group.Monify().Producers {
+							p, err := library.Producer(desc.Kind, desc.Options)
+							// Should context be re-used here
+							if err != nil {
+								send <- nok[sdk.Producer](fmt.Errorf("failed to compile remote: %s", err))
+								return
+							}
 
-						send <- ok(p)
+							send <- ok(p)
+						}
 					}
 				}
 			}()
@@ -333,7 +335,7 @@ and the resulting pipeline is returned.
 */
 func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
-	producer, err := collectProducer(descriptor, library.Ctx(), library, logger)
+	producer, err := collectProducer(descriptor, library, logger)
 	if err != nil {
 		return nil, err
 	}

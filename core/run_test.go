@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/gastrodon/psyduck/parse"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
 )
@@ -184,6 +187,113 @@ func Test_RunPipeline_filtering(test *testing.T) {
 
 	if received != limit/fac {
 		test.Fatalf("recieved %d != %d/%d!", received, limit, fac)
+	}
+}
+
+func drawDiags(d hcl.Diagnostics) string {
+	buf := make([]string, len(d))
+	for i, diag := range d {
+		buf[i] = diag.Error()
+	}
+
+	return strings.Join(buf, "\n")
+}
+
+func Test_RunPipeline_remote(t *testing.T) {
+	pin := &sdk.Plugin{
+		Name: "test",
+		Resources: []*sdk.Resource{
+			{
+				Kinds: sdk.PRODUCER,
+				Name:  "mono",
+				Spec:  []*sdk.Spec{},
+				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
+					cfg := new(struct {
+						V byte `cty:"v"`
+					})
+
+					if err := parse(cfg); err != nil {
+						return nil, err
+					}
+
+					return func(send chan<- []byte, errs chan<- error) {
+						send <- []byte{cfg.V}
+						close(send)
+					}, nil
+				},
+			},
+			{
+				Kinds: sdk.PRODUCER,
+				Name:  "meta",
+				Spec:  []*sdk.Spec{},
+				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
+					cfg := new(struct {
+						V byte `cty:"v"`
+						C int  `cty:"c"`
+					})
+
+					if err := parse(cfg); err != nil {
+						return nil, err
+					}
+
+					return func(send chan<- []byte, errs chan<- error) {
+						for i := 0; i < cfg.C; i++ {
+							send <- []byte(fmt.Sprintf(`
+							produce "mono" {
+								v = %d
+							}`, cfg.V))
+						}
+						close(send)
+					}, nil
+				},
+			},
+		},
+	}
+
+	lib := NewLibrary([]*sdk.Plugin{pin})
+
+	group, diags := parse.NewFile("test-remote-producers", []byte(`
+	produce-from "meta" {
+		v = 100
+		c = 5
+	}
+
+	produce-from "meta" {
+		v = 50
+		c = 10
+	}`)).Pipelines(lib.Ctx())
+	if diags.HasErrors() {
+		t.Fatalf("failed to parse: %s", drawDiags(diags))
+	}
+
+	pline, err := BuildPipeline(group.Monify(), lib)
+	if err != nil {
+		t.Fatalf("failed to build: %s", err)
+	}
+
+	tabs := make(map[byte]int, 2)
+	alt := pline.Transformer
+	pline.Transformer = func(in []byte) ([]byte, error) {
+		if v, ok := tabs[in[0]]; ok {
+			tabs[in[0]] = v + 1
+		} else {
+			tabs[in[0]] = 1
+		}
+
+		return alt(in)
+	}
+
+	if err := RunPipeline(pline); err != nil {
+		t.Fatalf("failed to run: %s", err)
+	}
+
+	if tabs[100] != 5 {
+		t.Fatalf("tabs[100] mismatch: 5 != %d", tabs[100])
+	}
+
+	if tabs[50] != 10 {
+		t.Fatalf("tabs[50] mismatch: 10 != %d", tabs[50])
+
 	}
 }
 
