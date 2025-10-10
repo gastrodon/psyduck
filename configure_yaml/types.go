@@ -12,7 +12,7 @@ type PartYAML struct {
 type PipelineYAML struct {
 	Name         string     `yaml:"name"`
 	Produce      []PartYAML `yaml:"produce,omitempty"`
-	ProduceFrom  string     `yaml:"produce-from,omitempty"`
+	ProduceFrom  PartYAML   `yaml:"produce-from,omitempty"`
 	Consumers    []PartYAML `yaml:"consume"`
 	Transformers []PartYAML `yaml:"transform"`
 	StopAfter    int        `yaml:"stop-after,omitempty"`
