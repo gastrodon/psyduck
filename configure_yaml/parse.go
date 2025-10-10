@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,18 +21,18 @@ func fromString(yamlText string) (*Config, error) {
 
 // FromContent parses the full YAML configuration and returns pipelines.
 // For YAML, EvalContext is not applicable, so returns nil.
-func FromContent(filename string, literal []byte) (*Config, *hcl.EvalContext, error) {
+func FromContent(filename string, literal []byte) (*Config, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read file %s: %w", filename, err)
+		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
 	}
 
 	cfg := new(Config)
 	if err = yaml.Unmarshal([]byte(string(content)), cfg); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse YAML: %w", err)
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	return cfg, nil, nil
+	return cfg, nil
 }
 
 // FromDir reads all .yaml or .yml files in the directory and concatenates them.

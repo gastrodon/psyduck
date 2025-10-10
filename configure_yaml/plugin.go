@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -16,7 +15,7 @@ type PipelineParts struct {
 }
 
 // FetchPlugins fetches plugins from YAML configuration.
-func FetchPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
+func FetchPlugins(initPath, filename string, literal []byte) (map[string]string, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
@@ -34,6 +33,6 @@ func FetchPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext)
 
 // LoadPlugins loads plugins from YAML configuration.
 // TODO: Implement YAML plugin loading
-func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
+func LoadPlugins(initPath, filename string, literal []byte) ([]*sdk.Plugin, error) {
 	panic("TODO: YAML plugin loading not implemented")
 }
