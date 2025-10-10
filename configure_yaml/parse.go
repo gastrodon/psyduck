@@ -1,4 +1,3 @@
-// Package configure_yaml provides basic YAML parsing utilities for configuration data.
 package configure_yaml
 
 import (
@@ -10,29 +9,32 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// fromString parses the full YAML text into a Config structure.
-func fromString(yamlText string) (*Config, error) {
-	var cfg Config
-	if err := yaml.Unmarshal([]byte(yamlText), &cfg); err != nil {
-		return nil, err
+func parse(kind string, content string, cfg *Config) error {
+	switch kind {
+	case "yaml", "yml":
+		return yaml.Unmarshal([]byte(content), cfg)
+	default:
+		panic("no parser for " + kind)
 	}
-	return &cfg, nil
 }
 
-// FromContent parses the full YAML configuration and returns pipelines.
+func FromString(content string) (*Config, error) {
+	cfg := new(Config)
+	err := parse("yaml", content, cfg)
+	return cfg, err
+}
+
+// FromFile parses the full YAML configuration and returns pipelines.
 // For YAML, EvalContext is not applicable, so returns nil.
-func FromContent(filename string, literal []byte) (*Config, error) {
+func FromFile(filename string) (*Config, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
 	}
 
 	cfg := new(Config)
-	if err = yaml.Unmarshal([]byte(string(content)), cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	return cfg, nil
+	err = parse("yaml", string(content), cfg)
+	return cfg, err
 }
 
 // FromDir reads all .yaml or .yml files in the directory and concatenates them.
