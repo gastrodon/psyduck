@@ -9,48 +9,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ParseSRC interface {
-	Format() string
-	Name() string
-	Content() (string, error)
-}
-
-type fileSRC struct {
-	format   string
-	name     string
-	filepath string
-	content  *string
-}
-
-func newFileSRC(fp string) *fileSRC {
-	return &fileSRC{
-		format:   strings.TrimPrefix(filepath.Ext(fp), "."),
-		name:     filepath.Base(fp),
-		filepath: fp,
-	}
-}
-
-func (f *fileSRC) Format() string {
-	return f.format
-}
-
-func (f *fileSRC) Name() string {
-	return f.name
-}
-
-func (f *fileSRC) Content() (string, error) {
-	if f.content == nil {
-		data, err := os.ReadFile(f.filepath)
-		if err != nil {
-			return "", fmt.Errorf("failed to read file %s: %v", f.Name(), err)
-		}
-		content := string(data)
-		f.content = &content
-	}
-
-	return *f.content, nil
-}
-
 func parse(kind string, content string, cfg *Config) error {
 	switch kind {
 	case "yaml", "yml":
@@ -84,10 +42,10 @@ func ParseFile(filename string) (*Config, error) {
 	return cfg, err
 }
 
-// ParseDir reads all .yaml or .yml files in the directory and concatenates them.
-// Similar to configure.ParseDir but for YAML files.
-func ParseDir(directory string) ([]byte, error) {
-	var literal strings.Builder
+// ParseDir reads all .yaml or .yml files in the directory and parses them into a Config.
+// It merges the configurations from all files.
+func ParseDir(directory string) (*Config, error) {
+	cfg := &Config{}
 	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -95,16 +53,15 @@ func ParseDir(directory string) ([]byte, error) {
 		if info.IsDir() || (!strings.HasSuffix(info.Name(), ".yaml") && !strings.HasSuffix(info.Name(), ".yml")) {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		parsedCfg, err := Parse(newFileSRC(path))
 		if err != nil {
-			return fmt.Errorf("failed reading %s: %w", path, err)
+			return fmt.Errorf("failed to parse %s: %w", path, err)
 		}
-		literal.Write(content)
-		literal.WriteString("\n")
+
+		cfg.Pipelines = append(cfg.Pipelines, parsedCfg.Pipelines...)
+		cfg.Plugins = append(cfg.Plugins, parsedCfg.Plugins...)
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return []byte(literal.String()), nil
+
+	return cfg, err
 }
