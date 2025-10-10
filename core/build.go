@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastrodon/psyduck/configure"
+	"github.com/gastrodon/psyduck/parse"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
 )
@@ -215,7 +215,7 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func collectProducer(descriptor *configure.PipelineDesc, library Library, logger *logrus.Logger) (sdk.Producer, error) {
+func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *logrus.Logger) (sdk.Producer, error) {
 	if descriptor.ProduceFrom != nil {
 		logger.Trace("getting remote producer")
 		p, err := library.Producer(descriptor.ProduceFrom.Kind, descriptor.ProduceFrom.Options)
@@ -234,17 +234,17 @@ func collectProducer(descriptor *configure.PipelineDesc, library Library, logger
 		case err := <-errs:
 			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
 		case msg := <-send:
-			parts, err := configure.ParseString("yaml", string(msg))
+			parts, err := parse.ParseString("yaml", string(msg))
 			if err != nil {
 				return nil, fmt.Errorf("failed to configure remote: %s", err)
 			}
 
-			var producers []configure.PartYAML
+			var producers []parse.PartYAML
 			for _, p := range parts.Pipelines {
 				producers = append(producers, p.Produce...)
 			}
 
-			return collectProducer(&configure.PipelineDesc{
+			return collectProducer(&parse.PipelineDesc{
 				Name:         descriptor.Name,
 				ProduceFrom:  nil,
 				Produce:      producers,
@@ -287,7 +287,7 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.PipelineDesc, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
 	producer, err := collectProducer(descriptor, library, logger)
 	if err != nil {

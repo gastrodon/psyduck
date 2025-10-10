@@ -1,4 +1,4 @@
-package configure
+package parse
 
 // PartYAML represents a pipeline part (producer, consumer, transformer) in YAML format.
 type PartYAML struct {

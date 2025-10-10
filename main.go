@@ -5,8 +5,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/gastrodon/psyduck/parse"
 	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
 )
@@ -22,13 +22,13 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("target required")
 	}
 
-	cfg, err := configure.ParseDir(ctx.String("chdir"))
+	cfg, err := parse.ParseDir(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}
 
 	target := ctx.Args().First()
-	var descriptor *configure.PipelineDesc
+	var descriptor *parse.PipelineDesc
 	for _, pipeline := range cfg.Pipelines {
 		if pipeline.Name == target {
 			descriptor = &pipeline
