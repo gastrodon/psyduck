@@ -9,6 +9,7 @@ require (
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/zclconf/go-cty v1.14.4
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -26,7 +27,6 @@ require (
 	golang.org/x/sys v0.19.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.20.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/zclconf/go-cty => github.com/gastrodon/go-cty v1.14.4-1

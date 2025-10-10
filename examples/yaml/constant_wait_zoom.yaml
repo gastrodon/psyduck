@@ -4,7 +4,7 @@ pipelines:
     produce:
       - kind: constant
         name: time_const
-        value: "tick"
+        value: '{"payload": "tick"}'
         stop-after: 4
     transform:
       - kind: wait
