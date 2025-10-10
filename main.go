@@ -28,7 +28,7 @@ func run(ctx *cli.Context) error {
 	}
 
 	target := ctx.Args().First()
-	var descriptor *configure.PipelineYAML
+	var descriptor *configure.PipelineDesc
 	for _, pipeline := range cfg.Pipelines {
 		if pipeline.Name == target {
 			descriptor = &pipeline

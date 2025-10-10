@@ -7,8 +7,8 @@ type PartYAML struct {
 	Options map[string]interface{} `yaml:",inline"`
 }
 
-// PipelineYAML represents a pipeline configuration in YAML format.
-type PipelineYAML struct {
+// PipelineDesc represents a pipeline configuration in YAML format.
+type PipelineDesc struct {
 	Name         string     `yaml:"name"`
 	ProduceFrom  *PartYAML  `yaml:"produce-from,omitempty"`
 	Produce      []PartYAML `yaml:"produce,omitempty"`

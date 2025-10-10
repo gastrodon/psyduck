@@ -11,8 +11,8 @@ import (
 // Config represents the top-level configuration.
 // It supports a sequence of pipelines.
 type Config struct {
-	Pipelines []PipelineYAML `yaml:"pipelines"`
-	Plugins   []PluginYAML   `yaml:"plugins,omitempty"`
+	Pipelines []PipelineDesc `yaml:"pipelines"`
+	Plugins   []PluginDesc   `yaml:"plugins,omitempty"`
 }
 
 type Parseable interface {

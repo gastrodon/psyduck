@@ -11,8 +11,8 @@ import (
 	"github.com/psyduck-etl/sdk"
 )
 
-// PluginYAML represents a plugin definition in YAML format.
-type PluginYAML struct {
+// PluginDesc represents a plugin definition in YAML format.
+type PluginDesc struct {
 	Kind      string `yaml:"kind"`
 	Name      string `yaml:"name"`
 	Source    string `yaml:"source"`
@@ -34,7 +34,7 @@ func goBuildPlugin(cloneDir string) (string, error) {
 	}
 	return soPath, nil
 }
-func (p *PluginYAML) Fetch() error {
+func (p *PluginDesc) Fetch() error {
 	switch p.Kind {
 	case "disk":
 		p.diskCache = &p.Source
@@ -66,7 +66,7 @@ func (p *PluginYAML) Fetch() error {
 	}
 }
 
-func (p *PluginYAML) Load() (*sdk.Plugin, error) {
+func (p *PluginDesc) Load() (*sdk.Plugin, error) {
 	if p.diskCache == nil {
 		if err := p.Fetch(); err != nil {
 			return nil, err

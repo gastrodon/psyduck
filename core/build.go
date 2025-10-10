@@ -215,7 +215,7 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func collectProducer(descriptor *configure.PipelineYAML, library Library, logger *logrus.Logger) (sdk.Producer, error) {
+func collectProducer(descriptor *configure.PipelineDesc, library Library, logger *logrus.Logger) (sdk.Producer, error) {
 	if descriptor.ProduceFrom != nil {
 		logger.Trace("getting remote producer")
 		p, err := library.Producer(descriptor.ProduceFrom.Kind, descriptor.ProduceFrom.Options)
@@ -244,7 +244,7 @@ func collectProducer(descriptor *configure.PipelineYAML, library Library, logger
 				producers = append(producers, p.Produce...)
 			}
 
-			return collectProducer(&configure.PipelineYAML{
+			return collectProducer(&configure.PipelineDesc{
 				Name:         descriptor.Name,
 				ProduceFrom:  nil,
 				Produce:      producers,
@@ -287,7 +287,7 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.PipelineYAML, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *configure.PipelineDesc, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
 	producer, err := collectProducer(descriptor, library, logger)
 	if err != nil {
