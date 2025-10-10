@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
@@ -28,8 +29,32 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 }
 
 func parser(spec sdk.SpecMap, config map[string]any) sdk.Parser {
-	return func(target interface{}) error {
-		panic("parser broke")
+	return func(target any) error {
+		targetValue := reflect.ValueOf(target).Elem()
+		targetType := targetValue.Type()
+
+		for i := 0; i < targetType.NumField(); i++ {
+			field := targetType.Field(i)
+			fieldValue := targetValue.Field(i)
+
+			if !fieldValue.CanSet() {
+				continue
+			}
+
+			configValue, exists := config[field.Name]
+			if !exists {
+				continue
+			}
+
+			configValueReflect := reflect.ValueOf(configValue)
+			if configValueReflect.Type().AssignableTo(fieldValue.Type()) {
+				fieldValue.Set(configValueReflect)
+			} else {
+				return fmt.Errorf("type mismatch for field %s", field.Name)
+			}
+		}
+
+		return nil
 	}
 }
 
