@@ -19,8 +19,16 @@ type PipelineYAML struct {
 	ExitOnError  bool       `yaml:"exit-on-error,omitempty"`
 }
 
+// PluginYAML represents a plugin definition in YAML format.
+type PluginYAML struct {
+	Name   string `yaml:"name"`
+	Source string `yaml:"source"`
+	Tag    string `yaml:"tag,omitempty"`
+}
+
 // Config represents the top-level configuration.
 // It supports a sequence of pipelines.
 type Config struct {
 	Pipelines []PipelineYAML `yaml:"pipelines"`
+	Plugins   []PluginYAML   `yaml:"plugins,omitempty"`
 }
