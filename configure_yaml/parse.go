@@ -11,6 +11,8 @@ import (
 
 func parse(kind string, content string, cfg *Config) error {
 	switch kind {
+	case "":
+		panic("no parser specified")
 	case "yaml", "yml":
 		return yaml.Unmarshal([]byte(content), cfg)
 	default:
