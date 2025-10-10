@@ -1,0 +1,18 @@
+# Example pipeline: constant -> inspect (bytes and string) -> trash
+pipelines:
+  - name: example_constant_inspect
+    produce:
+      - kind: constant
+        name: hello_const
+        value: "hello, world"
+        stop-after: 3
+    transform:
+      - kind: inspect
+        name: log_bytes
+        be-string: false
+      - kind: inspect
+        name: log_string
+        be-string: true
+    consume:
+      - kind: trash
+        name: discard

@@ -1,0 +1,22 @@
+# Example pipeline: constant -> zoom -> transpose -> trash
+pipelines:
+  - name: example_zoom_transpose
+    produce:
+      - kind: constant
+        name: nested_const
+        value: "nested"
+        stop-after: 2
+    transform:
+      - kind: zoom
+        name: zoom_to_field
+        field: "data"
+      - kind: transpose
+        name: swap_fields
+        fields:
+          fieldA:
+            - key1
+          fieldB:
+            - key2
+    consume:
+      - kind: trash
+        name: discard

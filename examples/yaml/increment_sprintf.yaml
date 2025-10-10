@@ -1,0 +1,15 @@
+# Example pipeline: increment -> sprintf -> trash
+pipelines:
+  - name: example_increment_sprintf
+    produce:
+      - kind: increment
+        name: counter
+        stop-after: 5
+    transform:
+      - kind: sprintf
+        name: format_hex
+        format: "0x%02X"
+        encoding: "string"
+    consume:
+      - kind: trash
+        name: discard

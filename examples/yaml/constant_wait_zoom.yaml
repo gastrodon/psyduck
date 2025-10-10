@@ -1,0 +1,18 @@
+# Example pipeline: constant -> wait -> zoom -> trash
+pipelines:
+  - name: example_constant_wait_zoom
+    produce:
+      - kind: constant
+        name: time_const
+        value: "tick"
+        stop-after: 4
+    transform:
+      - kind: wait
+        name: pause_ms
+        milliseconds: 500
+      - kind: zoom
+        name: zoom_field
+        field: "payload"
+    consume:
+      - kind: trash
+        name: discard
