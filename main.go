@@ -40,7 +40,15 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, core.NewLibrary([]*sdk.Plugin{}))
+	plugins := make([]*sdk.Plugin, len(cfg.Plugins))
+	for i, p := range cfg.Plugins {
+		plugins[i], err = p.Load()
+		if err != nil {
+			return fmt.Errorf("failed loading plugin %s: %s", p.Name, err)
+		}
+	}
+
+	pipeline, err := core.BuildPipeline(descriptor, core.NewLibrary(plugins))
 	if err != nil {
 		return err
 	}
