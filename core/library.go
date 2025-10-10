@@ -27,18 +27,9 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	}
 }
 
-func parser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, config hcl.Body) sdk.Parser {
+func parser(spec sdk.SpecMap, config map[string]any) sdk.Parser {
 	return func(target interface{}) error {
-		content, _, diags := config.PartialContent(makeBodySchema(spec))
-		if diags.HasErrors() {
-			return diags
-		}
-
-		if diags := decodeAttributes(spec, evalCtx, content.Attributes, target); diags.HasErrors() {
-			return diags
-		}
-
-		return nil
+		panic("parser broke")
 	}
 }
 
@@ -46,7 +37,7 @@ type library struct {
 	resources map[string]*sdk.Resource
 }
 
-func (l *library) Producer(name string, ctx *hcl.EvalContext, body hcl.Body) (sdk.Producer, error) {
+func (l *library) Producer(name string, config map[string]any) (sdk.Producer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -56,10 +47,10 @@ func (l *library) Producer(name string, ctx *hcl.EvalContext, body hcl.Body) (sd
 		return nil, fmt.Errorf("resource %s doesn't provide a producer", name)
 	}
 
-	return found.ProvideProducer(parser(found.Spec, ctx, body))
+	return found.ProvideProducer(parser(found.Spec, config))
 }
 
-func (l *library) Consumer(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Consumer, error) {
+func (l *library) Consumer(name string, config map[string]any) (sdk.Consumer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -69,10 +60,10 @@ func (l *library) Consumer(name string, evalCtx *hcl.EvalContext, config hcl.Bod
 		return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 	}
 
-	return found.ProvideConsumer(parser(found.Spec, evalCtx, config))
+	return found.ProvideConsumer(parser(found.Spec, config))
 }
 
-func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config hcl.Body) (sdk.Transformer, error) {
+func (l *library) Transformer(name string, config map[string]any) (sdk.Transformer, error) {
 	found, ok := l.resources[name]
 	if !ok {
 		return nil, fmt.Errorf("can't find resource %s", name)
@@ -82,13 +73,13 @@ func (l *library) Transformer(name string, evalCtx *hcl.EvalContext, config hcl.
 		return nil, fmt.Errorf("resource %s doesn't provide a consumer", name)
 	}
 
-	return found.ProvideTransformer(parser(found.Spec, evalCtx, config))
+	return found.ProvideTransformer(parser(found.Spec, config))
 }
 
 type Library interface {
-	Producer(string, *hcl.EvalContext, hcl.Body) (sdk.Producer, error)
-	Consumer(string, *hcl.EvalContext, hcl.Body) (sdk.Consumer, error)
-	Transformer(string, *hcl.EvalContext, hcl.Body) (sdk.Transformer, error)
+	Producer(string, map[string]any) (sdk.Producer, error)
+	Consumer(string, map[string]any) (sdk.Consumer, error)
+	Transformer(string, map[string]any) (sdk.Transformer, error)
 }
 
 func NewLibrary(plugins []*sdk.Plugin) Library {

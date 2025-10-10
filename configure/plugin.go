@@ -1,226 +1,92 @@
 package configure
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"plugin"
-	"regexp"
-	"strings"
+	"time"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 )
 
-const (
-	pluginUnknown = iota
-	pluginLocal
-	pluginRemote
-)
-
-var (
-	pPluginGitSSH   = regexp.MustCompile(`git@.+:.*`)
-	pPluginGitHTTPS = regexp.MustCompile(`https:\/\/.*`)
-)
-
-// TODO this isn't very robust
-func getPluginKind(descriptor PluginDesc) int {
-	if descriptor.Source == "" {
-		return pluginUnknown
-	}
-
-	if pPluginGitSSH.Match([]byte(descriptor.Source)) || pPluginGitHTTPS.Match([]byte(descriptor.Source)) {
-		return pluginRemote
-	}
-
-	return pluginLocal
+// PluginYAML represents a plugin definition in YAML format.
+type PluginYAML struct {
+	Kind      string `yaml:"kind"`
+	Name      string `yaml:"name"`
+	Source    string `yaml:"source"`
+	Tag       string `yaml:"tag,omitempty"`
+	diskCache *string
 }
 
-func buildPlugin(codePath, binPath string, descriptor PluginDesc) (string, error) {
-	soPath, err := filepath.Abs(path.Join(binPath, path.Base(descriptor.Source)+".so"))
+func gitClone(source, cloneDir string) error {
+	cmd := exec.Command("git", "clone", source, cloneDir)
+	return cmd.Run()
+}
+
+func goBuildPlugin(cloneDir string) (string, error) {
+	soPath := filepath.Join(cloneDir, fmt.Sprintf("plugin_%d.so", time.Now().UnixNano()))
+	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", soPath, cloneDir)
+	err := cmd.Run()
 	if err != nil {
-		return "", fmt.Errorf("failed to get abspath for .so: %s", err)
+		return "", err
 	}
-
-	cmdBuild := exec.Command("go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin")
-	println(strings.Join([]string{"go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin"}, " "))
-	if err := cmdBuild.Run(); err != nil {
-		return "", fmt.Errorf("failed to build %s: %s\nstdout: %v\nstderr: %v", codePath, err, cmdBuild.Stdout, cmdBuild.Stderr)
-	}
-
 	return soPath, nil
 }
-
-/*
-cachePath is a tmpdir to work in while building
-binPath is where built .so files will live
-*/
-
-func fetchPlugin(cachePath, binPath string, descriptor PluginDesc) (string, error) {
-	switch getPluginKind(descriptor) {
-	case pluginLocal:
-		stat, err := os.Stat(descriptor.Source)
+func (p *PluginYAML) Fetch() error {
+	switch p.Kind {
+	case "disk":
+		p.diskCache = &p.Source
+		return nil
+	case "git":
+		// Create a unique temporary directory
+		cloneDir, err := os.MkdirTemp("", "plugin_git_clone_*")
 		if err != nil {
-			return "", err
+			return fmt.Errorf("failed to create temporary directory: %w", err)
+		}
+		defer os.RemoveAll(cloneDir) // Clean up after use
+
+		// Clone the repository
+		err = gitClone(p.Source, cloneDir)
+		if err != nil {
+			return fmt.Errorf("failed to clone git repository: %w", err)
 		}
 
-		if stat.IsDir() {
-			soPath, err := buildPlugin(descriptor.Source, binPath, descriptor)
-			if err != nil {
-				return "", fmt.Errorf("failed to build local plugin: %s", err)
-			}
-
-			return soPath, nil
+		// Build the plugin
+		soPath, err := goBuildPlugin(cloneDir)
+		if err != nil {
+			return fmt.Errorf("failed to build plugin: %w", err)
 		}
 
-		soPath := descriptor.Source
-		if !filepath.IsAbs(soPath) {
-			soPath = filepath.Join(binPath, soPath)
-		}
-
-		return filepath.Abs(soPath)
-	case pluginRemote:
-		pkgCache := path.Join(cachePath, descriptor.Name)
-		cmdClone := exec.Command("git", "clone", descriptor.Source, pkgCache)
-		println(strings.Join([]string{"git", "clone", descriptor.Source, pkgCache}, " "))
-		if err := cmdClone.Run(); err != nil {
-			return "", fmt.Errorf("failed to clone %s: %s\nstdout: %v\nstderr: %v", descriptor.Source, err, cmdClone.Stdout, cmdClone.Stderr)
-		}
-
-		if descriptor.Tag != "" {
-			println(strings.Join([]string{"git", "-C", pkgCache, "checkout", descriptor.Tag}, " "))
-			if err := exec.Command("git", "-C", pkgCache, "checkout", descriptor.Tag).Run(); err != nil {
-				return "", fmt.Errorf("failed to checkout %s: %s", descriptor.Tag, err)
-			}
-		}
-
-		return buildPlugin(pkgCache, binPath, descriptor)
+		p.diskCache = &soPath
+		return nil
 	default:
-		return "", fmt.Errorf(
-			"unable to find a suitable way to fetch %s! descriptor:\n%#v",
-			descriptor.Name, descriptor,
-		)
+		return fmt.Errorf("idk what that kind is")
 	}
 }
 
-func fetchPlugins(cachePath, binPath string, descriptors []PluginDesc) (map[string]string, error) {
-	collected := make(map[string]string, len(descriptors))
-	for _, desc := range descriptors {
-		loc, err := fetchPlugin(cachePath, binPath, desc)
-		if err != nil {
-			return nil, fmt.Errorf("unable to fetch %s: %s", desc.Name, err)
+func (p *PluginYAML) Load() (*sdk.Plugin, error) {
+	if p.diskCache == nil {
+		if err := p.Fetch(); err != nil {
+			return nil, err
 		}
-
-		collected[desc.Name] = loc
 	}
 
-	return collected, nil
-}
-
-/*
-Fetch plugins, cloning and building them if necessary
-Returns an absolute filepath pointing to a loadable shared library
-*/
-func FetchPlugins(initPath, filename string, literal []byte, _ *hcl.EvalContext) (map[string]string, error) {
-	descriptors, diags := ParsePluginsDesc(filename, literal)
-	if diags.HasErrors() {
-		return nil, diags
-	}
-
-	cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
+	pluginLib, err := plugin.Open(*p.diskCache)
 	if err != nil {
-		return nil, fmt.Errorf("failed to cache dir: %s", err)
+		return nil, fmt.Errorf("failed to open plugin %s: %s", *p.diskCache, err)
 	}
 
-	binPath := path.Join(initPath, "plugins")
-	if err := os.MkdirAll(binPath, os.ModeDir|os.ModePerm); err != nil {
-		return nil, fmt.Errorf("failed to create binpath: %s", err)
-	}
-
-	collected, err := fetchPlugins(cachePath, binPath, descriptors)
+	makePluginSym, err := pluginLib.Lookup("Plugin")
 	if err != nil {
-		return nil, fmt.Errorf("failed to collect: %s", err)
-	}
-
-	if err := os.RemoveAll(cachePath); err != nil {
-		return nil, fmt.Errorf("failed to rm cachepath: %s", err)
-	}
-
-	return collected, nil
-}
-
-/*
-Load a plugin by opening with go-plugin and calling its Plugin func
-*/
-func loadPlugin(pluginPath string, descriptor PluginDesc) (*sdk.Plugin, error) {
-	plugin, err := plugin.Open(pluginPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed loading the library providing %s ( %s @ %s ):\n%s",
-			descriptor.Name, descriptor.Source, pluginPath, err)
-	}
-
-	makePluginSym, err := plugin.Lookup("Plugin")
-	if err != nil {
-		return nil, fmt.Errorf("failed loading the provider func for %s:\n%s", descriptor.Name, err)
-	}
-
-	if makePluginSym == nil {
-		return nil, fmt.Errorf("failed loading the provider func for %s:\nLookup \"Plugin\" is nil", descriptor.Name)
+		return nil, fmt.Errorf("failed to lookup Plugin in %s: %s", *p.diskCache, err)
 	}
 
 	makePlugin, ok := makePluginSym.(func() *sdk.Plugin)
 	if !ok {
-		return nil, fmt.Errorf("failed loading the provider func for %s:\nnot OK: %+v", descriptor.Name, makePluginSym)
+		return nil, fmt.Errorf("plugin symbol in %s is not func() *sdk.Plugin", *p.diskCache)
 	}
 
 	return makePlugin(), nil
-}
-
-func loadPlugins(binPaths map[string]string, descriptors []PluginDesc) ([]*sdk.Plugin, error) {
-	plugins := make([]*sdk.Plugin, len(descriptors))
-	for i, descriptor := range descriptors {
-		binPath, ok := binPaths[descriptor.Name]
-		if !ok {
-			return nil, fmt.Errorf("binary not found for plugin %s", descriptor.Name)
-		}
-
-		plugin, err := loadPlugin(binPath, descriptor)
-		if err != nil {
-			return nil, fmt.Errorf("unable to load plugin %s: %s", descriptor.Name, err)
-		}
-
-		plugins[i] = plugin
-	}
-
-	return plugins, nil
-}
-
-/*
-Load plugins that've been fetched and are pointed to in <initPath>/plugin.json
-*/
-func LoadPlugins(initPath, filename string, literal []byte, evalCtx *hcl.EvalContext) ([]*sdk.Plugin, error) {
-	descriptors, diags := ParsePluginsDesc(filename, literal)
-	if diags.HasErrors() {
-		return nil, diags
-	}
-
-	b, err := os.ReadFile(path.Join(initPath, "plugin.json"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read plugin.json: %s", err)
-	}
-
-	binPaths := make(map[string]string, len(descriptors))
-	if err := json.Unmarshal(b, &binPaths); err != nil {
-		return nil, fmt.Errorf("failed to decode binPaths: %s", err)
-	}
-
-	loaded, err := loadPlugins(binPaths, descriptors)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load plugins from json: %s", err)
-	}
-
-	return loaded, nil
 }

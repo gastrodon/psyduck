@@ -1,13 +1,13 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 
 	"github.com/gastrodon/psyduck/configure"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
 )
 
@@ -17,66 +17,30 @@ var SUBCOMMANDS = [...]string{
 	"run",
 }
 
-func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
-	if err != nil {
-		return err
-	}
-
-	filename := path.Base(ctx.String("chdir"))
-	_, evalCtx, err := configure.Literal(filename, literal)
-	if err != nil {
-		return err
-	}
-
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	err = os.MkdirAll(initPath, os.ModeDir|os.ModePerm)
-	if err != nil {
-		return err
-	}
-
-	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal, evalCtx)
-	if err != nil {
-		return err
-	}
-
-	b, err := json.Marshal(pluginPaths)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path.Join(initPath, "plugin.json"), b, 0o644)
-}
-
 func run(ctx *cli.Context) error {
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
-	if err != nil {
-		return err
-	}
-
-	filename := path.Base(ctx.String("chdir"))
-	descriptors, evalCtx, err := configure.Literal(filename, literal)
-	if err != nil {
-		return err
-	}
-
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	plugins, err := configure.LoadPlugins(initPath, filename, literal, evalCtx)
-	if err != nil {
-		return err
-	}
-
 	if !ctx.Args().Present() {
 		return fmt.Errorf("target required")
 	}
 
+	cfg, err := configure.ParseDir(ctx.String("chdir"))
+	if err != nil {
+		return err
+	}
+
 	target := ctx.Args().First()
-	descriptor, ok := descriptors[target]
-	if !ok {
+	var descriptor *configure.PipelineYAML
+	for _, pipeline := range cfg.Pipelines {
+		if pipeline.Name == target {
+			descriptor = &pipeline
+			break
+		}
+	}
+
+	if descriptor == nil {
 		return fmt.Errorf("can't find target %s", target)
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, evalCtx, core.NewLibrary(plugins))
+	pipeline, err := core.BuildPipeline(descriptor, core.NewLibrary([]*sdk.Plugin{}))
 	if err != nil {
 		return err
 	}
@@ -114,12 +78,6 @@ func main() {
 				Action:    run,
 				Args:      true,
 				ArgsUsage: "pipeline name",
-			},
-			{
-				Name:   "init",
-				Usage:  "init a pipeline workspace",
-				Action: cmdinit,
-				Flags:  []cli.Flag{},
 			},
 		},
 	}

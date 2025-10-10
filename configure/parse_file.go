@@ -1,4 +1,4 @@
-package configure_yaml
+package configure
 
 import (
 	"fmt"
@@ -47,29 +47,5 @@ func (f *parseableFile) Parse() (*Config, error) {
 
 	cfg := new(Config)
 	err = parse(f.format, cont, cfg)
-	return cfg, err
-}
-
-// ParseDir reads all .yaml or .yml files in the directory and parses them into a Config.
-// It merges the configurations from all files.
-func ParseDir(directory string) (*Config, error) {
-	cfg := &Config{}
-	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || (!strings.HasSuffix(info.Name(), ".yaml") && !strings.HasSuffix(info.Name(), ".yml")) {
-			return nil
-		}
-		parsedCfg, err := newParseFile(path).Parse()
-		if err != nil {
-			return fmt.Errorf("failed to parse %s: %w", path, err)
-		}
-
-		cfg.Pipelines = append(cfg.Pipelines, parsedCfg.Pipelines...)
-		cfg.Plugins = append(cfg.Plugins, parsedCfg.Plugins...)
-		return nil
-	})
-
 	return cfg, err
 }

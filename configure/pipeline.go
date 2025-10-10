@@ -1,4 +1,4 @@
-package configure_yaml
+package configure
 
 // PartYAML represents a pipeline part (producer, consumer, transformer) in YAML format.
 type PartYAML struct {
@@ -10,8 +10,8 @@ type PartYAML struct {
 // PipelineYAML represents a pipeline configuration in YAML format.
 type PipelineYAML struct {
 	Name         string     `yaml:"name"`
+	ProduceFrom  *PartYAML  `yaml:"produce-from,omitempty"`
 	Produce      []PartYAML `yaml:"produce,omitempty"`
-	ProduceFrom  PartYAML   `yaml:"produce-from,omitempty"`
 	Consumers    []PartYAML `yaml:"consume"`
 	Transformers []PartYAML `yaml:"transform"`
 	StopAfter    int        `yaml:"stop-after,omitempty"`

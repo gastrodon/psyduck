@@ -1,99 +1,67 @@
 package configure
 
 import (
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/hashicorp/hcl/v2/hclparse"
-	"github.com/zclconf/go-cty/cty"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
 )
 
-var (
-	defaultCtx = new(hcl.EvalContext) // in case we want to have a place to put builtin functions
-)
-
-type PluginDesc struct {
-	Name   string `hcl:"name,label"`
-	Source string `hcl:"source"`
-	Tag    string `hcl:"tag,optional"`
+// Config represents the top-level configuration.
+// It supports a sequence of pipelines.
+type Config struct {
+	Pipelines []PipelineYAML `yaml:"pipelines"`
+	Plugins   []PluginYAML   `yaml:"plugins,omitempty"`
 }
 
-/*
-For parsing plugin descriptor bocks
-```
-
-	plugin "name" {
-		source = string
-		tag 	 = string
-	}
-
-```
-*/
-func ParsePluginsDesc(filename string, literal []byte) ([]PluginDesc, hcl.Diagnostics) {
-	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
-	if diags.HasErrors() {
-		return nil, diags
-	}
-
-	target := new(struct {
-		hcl.Body `hcl:",remain"`
-		Blocks   []PluginDesc `hcl:"plugin,block"`
-	})
-	if diags := gohcl.DecodeBody(file.Body, defaultCtx, target); diags.HasErrors() {
-		return nil, diags
-	}
-
-	return target.Blocks, make(hcl.Diagnostics, 0)
+type Parseable interface {
+	Name() string
+	Parse() (*Config, error)
 }
 
-/*
-For parsing values blocks
-```
-
-	values {
-		foo = "bar"
-		num = 123
-		string_inspector = inspect(true)
+func parse(kind string, content string, cfg *Config) error {
+	switch kind {
+	case "":
+		panic("no parser specified")
+	case "yaml", "yml":
+		return yaml.Unmarshal([]byte(content), cfg)
+	default:
+		panic("no parser for " + kind)
 	}
+}
 
-```
-*/
-func ParseValuesDesc(filename string, literal []byte) (map[string]cty.Value, hcl.Diagnostics) {
-	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
-	if diags.HasErrors() {
-		return nil, diags
+func ParseString(kind string, content string) (*Config, error) {
+	cfg := new(Config)
+	err := parse(kind, content, cfg)
+	if err != nil {
+		return nil, err
 	}
+	return cfg, nil
+}
 
-	target := new(struct {
-		hcl.Body `hcl:",remain"`
-		Blocks   []struct {
-			Entries map[string]cty.Value `hcl:",remain"`
-		} `hcl:"value,block"`
-	})
+func ParseFile(fp string) (*Config, error) {
+	return newParseFile(fp).Parse()
+}
 
-	gohcl.DecodeBody(file.Body, defaultCtx, target)
-
-	l := 0
-	for _, b := range target.Blocks {
-		l += len(b.Entries)
-	}
-
-	values := make(map[string]cty.Value, l)
-	for _, b := range target.Blocks {
-		for key, value := range b.Entries {
-			if _, ok := values[key]; ok {
-				return nil, hcl.Diagnostics{{
-					Severity:    hcl.DiagError,
-					Summary:     "duplicate value " + key,
-					Detail:      "TODO",
-					Subject:     &hcl.Range{}, // TODO
-					Context:     &hcl.Range{}, // TODO
-					EvalContext: defaultCtx,
-				}}
-			}
-
-			values[key] = value
+// ParseDir reads all .yaml or .yml files in the directory and parses them into a Config.
+// It merges the configurations from all files.
+func ParseDir(directory string) (*Config, error) {
+	cfg := &Config{}
+	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
 		}
-	}
 
-	return values, nil
+		parsedCfg, err := newParseFile(path).Parse()
+		if err != nil {
+			return fmt.Errorf("failed to parse %s: %w", path, err)
+		}
+
+		cfg.Pipelines = append(cfg.Pipelines, parsedCfg.Pipelines...)
+		cfg.Plugins = append(cfg.Plugins, parsedCfg.Plugins...)
+		return nil
+	})
+
+	return cfg, err
 }
