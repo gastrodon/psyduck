@@ -1,4 +1,3 @@
-// Package configure_yaml defines types for YAML-based pipeline configuration.
 package configure_yaml
 
 // PartYAML represents a pipeline part (producer, consumer, transformer) in YAML format.
@@ -17,18 +16,4 @@ type PipelineYAML struct {
 	Transformers []PartYAML `yaml:"transform"`
 	StopAfter    int        `yaml:"stop-after,omitempty"`
 	ExitOnError  bool       `yaml:"exit-on-error,omitempty"`
-}
-
-// PluginYAML represents a plugin definition in YAML format.
-type PluginYAML struct {
-	Name   string `yaml:"name"`
-	Source string `yaml:"source"`
-	Tag    string `yaml:"tag,omitempty"`
-}
-
-// Config represents the top-level configuration.
-// It supports a sequence of pipelines.
-type Config struct {
-	Pipelines []PipelineYAML `yaml:"pipelines"`
-	Plugins   []PluginYAML   `yaml:"plugins,omitempty"`
 }
