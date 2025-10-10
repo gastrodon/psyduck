@@ -1,26 +1,12 @@
 package configure_yaml
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/psyduck-etl/sdk"
 )
 
-// PipelineParts represents partial pipeline parts parsed from YAML.
-type PipelineParts struct {
-	Produce   []PartYAML
-	Consume   PartYAML
-	Transform PartYAML
-}
-
 // FetchPlugins fetches plugins from YAML configuration.
 func FetchPlugins(initPath, filename string, literal []byte) (map[string]string, error) {
-	content, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
-	}
-	plugins, err := Parse(string(content))
+	plugins, err := Parse(newFileSRC(filename))
 	if err != nil {
 		return nil, err
 	}
