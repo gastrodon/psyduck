@@ -18,15 +18,15 @@ func parse(kind string, content string, cfg *Config) error {
 	}
 }
 
-func FromString(content string) (*Config, error) {
+func Parse(content string) (*Config, error) {
 	cfg := new(Config)
 	err := parse("yaml", content, cfg)
 	return cfg, err
 }
 
-// FromFile parses the full YAML configuration and returns pipelines.
+// ParseFile parses the full YAML configuration and returns pipelines.
 // For YAML, EvalContext is not applicable, so returns nil.
-func FromFile(filename string) (*Config, error) {
+func ParseFile(filename string) (*Config, error) {
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
@@ -37,9 +37,9 @@ func FromFile(filename string) (*Config, error) {
 	return cfg, err
 }
 
-// FromDir reads all .yaml or .yml files in the directory and concatenates them.
-// Similar to configure.FromDir but for YAML files.
-func FromDir(directory string) ([]byte, error) {
+// ParseDir reads all .yaml or .yml files in the directory and concatenates them.
+// Similar to configure.ParseDir but for YAML files.
+func ParseDir(directory string) ([]byte, error) {
 	var literal strings.Builder
 	err := filepath.Walk(directory, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

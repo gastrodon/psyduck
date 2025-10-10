@@ -20,7 +20,7 @@ func FetchPlugins(initPath, filename string, literal []byte) (map[string]string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file %s: %w", filename, err)
 	}
-	plugins, err := FromString(string(content))
+	plugins, err := Parse(string(content))
 	if err != nil {
 		return nil, err
 	}
