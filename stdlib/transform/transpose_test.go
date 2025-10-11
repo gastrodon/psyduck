@@ -21,16 +21,15 @@ func Test_readField(t *testing.T) {
 		t.Logf("testcase %d: %s -> %s\n", i, string(tc.have), string(tc.want))
 		b := make(map[string]zoomTarget)
 		if err := json.Unmarshal(tc.have, &b); err != nil {
-			t.Fatal(err)
+			t.Fatalf("read-field[%d]: failed unmarshaling: %s, err!", i, err)
 		}
 
 		d, err := readField(b, tc.field)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("read-field[%d]: failed reading field: %s, err!", i, err)
 		}
 		if !sdk.SameBytes(d, tc.want) {
-			t.Fatalf("field read does not match #%d! \read: %s %v\nwant: %s %v",
-				i, d, d, tc.want, tc.want)
+			t.Fatalf("read-field[%d]: failed reading field: expected %v, got %v!", i, tc.want, d)
 		}
 	}
 }
@@ -66,25 +65,25 @@ func Test_Transpose(t *testing.T) {
 		})
 
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("transpose[%d]: failed creating transpose: %s, err!", i, err)
 		}
 
 		posed, err := transform(tc.have)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("transpose[%d]: failed transforming: %s, err!", i, err)
 		}
 
 		posedMap := make(map[string]string)
 		if err := json.Unmarshal(posed, &posedMap); err != nil {
-			t.Fatal(err)
+			t.Fatalf("transpose[%d]: failed unmarshaling: %s, err!", i, err)
 		}
 
 		if len(tc.want) != len(posedMap) {
-			t.Errorf("expected %d keys, got %d", len(tc.want), len(posedMap))
+			t.Fatalf("transpose[%d]: failed transposing: expected %d keys, got %d!", i, len(tc.want), len(posedMap))
 		}
 		for k, v := range tc.want {
 			if got, ok := posedMap[k]; !ok || got != v {
-				t.Errorf("for key %s, expected %s, got %s", k, v, got)
+				t.Fatalf("transpose[%d]: failed transposing key %s: expected %s, got %s!", i, k, v, got)
 			}
 		}
 	}

@@ -22,18 +22,18 @@ func Test_makeEvalCtx(test *testing.T) {
 
 	values, diags := makeEvalCtx(filename, []byte(literal))
 	if diags.HasErrors() {
-		test.Fatalf("make-eval-ctx: %s", drawDiags(diags))
+		test.Fatalf("failed making eval ctx [main.psy]: %s, err!", drawDiags(diags))
 	}
 
 	if values == nil {
-		test.Error("values is nil!")
+		test.Fatalf("failed making eval ctx: expected some values!")
 	}
 
 	// panic(fmt.Sprintf("%+v", values.Variables["value"]))
 
 	for k, v := range want {
 		if !v.Equals(values.Variables["value"].GetAttr(k)).True() {
-			test.Errorf("for %s, expected %v, got %v", k, v, values.Variables["value"].GetAttr(k))
+			test.Fatalf("failed making eval ctx for %s: expected %v, got %v!", k, v, values.Variables["value"].GetAttr(k))
 		}
 	}
 }
@@ -46,16 +46,16 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 
 	values, diags := makeEvalCtx(filename, []byte(literal))
 	if diags.HasErrors() {
-		test.Fatalf("make-eval-ctx has numbers: %s", drawDiags(diags))
+		test.Fatalf("failed making eval ctx [main.psy]: %s, err!", drawDiags(diags))
 	}
 
 	if values == nil {
-		test.Error("values is nil!")
+		test.Fatalf("failed making eval ctx: expected some values!")
 	}
 	expected := cty.NumberVal(new(big.Float).SetInt64(1234).SetPrec(512))
 	actual := values.Variables["value"].GetAttr("v")
 	if !expected.Equals(actual).True() {
-		test.Errorf("expected %v, got %v", expected, actual)
+		test.Fatalf("failed making eval ctx: expected %v, got %v!", expected, actual)
 	}
 }
 
@@ -67,15 +67,15 @@ func Test_makeEvalCtx_Env(test *testing.T) {
 	defer os.Unsetenv("FOO")
 	values, diags := makeEvalCtx(filename, []byte(literal))
 	if diags.HasErrors() {
-		test.Fatalf("make-eval-ctx has env: %s", drawDiags(diags))
+		test.Fatalf("failed making eval ctx [main.psy]: %s, err!", drawDiags(diags))
 	}
 
 	if values == nil {
-		test.Error("values is nil!")
+		test.Fatalf("failed making eval ctx: expected some values!")
 	}
 	expected := cty.StringVal("bar")
 	actual := values.Variables["env"].GetAttr("FOO")
 	if !expected.Equals(actual).True() {
-		test.Errorf("expected %v, got %v", expected, actual)
+		test.Fatalf("failed making eval ctx: expected %v, got %v!", expected, actual)
 	}
 }

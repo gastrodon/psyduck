@@ -28,7 +28,7 @@ func TestNewLibrary(t *testing.T) {
 		for _, plugin := range testcase.have {
 			for _, resource := range plugin.Resources {
 				if resource != l.resources[resource.Name] {
-					t.Errorf("new-library[%d] %s.%s: expected %v, got %v", i, plugin.Name, resource.Name, resource, l.resources[resource.Name])
+					t.Fatalf("new-library[%d]: [%s.%s] failed creating library: expected %v, got %v!", i, plugin.Name, resource.Name, resource, l.resources[resource.Name])
 				}
 			}
 		}
@@ -39,7 +39,7 @@ func TestLibrary(t *testing.T) {
 	have := []byte(`count = 123`)
 	file, diags := hclparse.NewParser().ParseHCL(have, "test-library")
 	if diags.HasErrors() {
-		t.Fatal(diags.Error())
+		t.Fatalf("failed parsing HCL: %s, err!", diags.Error())
 	}
 
 	plugin := &sdk.Plugin{
@@ -56,11 +56,11 @@ func TestLibrary(t *testing.T) {
 					})
 
 					if err := parse(target); err != nil {
-						t.Fatalf("failed to parse as provider: %s", err)
+						t.Fatalf("failed parsing as provider: %s, err!", err)
 					}
 
 					if target.Count != 123 {
-						t.Fatalf("expected count 123, got: %d", target.Count)
+						t.Fatalf("failed parsing count: expected 123, got %d!", target.Count)
 					}
 
 					return func(send chan<- []byte, errs chan<- error) {
@@ -74,7 +74,7 @@ func TestLibrary(t *testing.T) {
 	l := NewLibrary([]*sdk.Plugin{plugin})
 	p, err := l.Producer("test", &hcl.EvalContext{}, file.Body)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("failed getting producer [test]: %s, err!", err)
 	}
 
 	send := make(chan []byte)
@@ -83,12 +83,12 @@ func TestLibrary(t *testing.T) {
 	select {
 	case v := <-send:
 		if v[0] != 123 {
-			t.Fatalf("unexpected value from send: %v", v)
+			t.Fatalf("failed receiving value: expected 123, got %d!", v[0])
 		}
 
 		break
 	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for send")
+		t.Fatalf("failed receiving value: expected value within 1s, got timeout!")
 	}
 
 }

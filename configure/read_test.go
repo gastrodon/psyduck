@@ -35,25 +35,25 @@ func TestLiteral(test *testing.T) {
 	for i, testcase := range cases {
 		configs, _, err := Literal(testcase.Filename, []byte(testcase.Literal))
 		if err != nil {
-			test.Fatalf("test-literal[%d]: %s", i, err)
+			test.Fatalf("literal[%d]: failed reading literal [%s]: %s, err!", i, testcase.Filename, err)
 		}
 
 		if len(testcase.Want) != len(configs) {
-			test.Errorf("expected %d configs, got %d", len(testcase.Want), len(configs))
+			test.Fatalf("literal[%d]: failed reading literal: expected %d configs, got %d!", i, len(testcase.Want), len(configs))
 		}
 		for name, pipeline := range testcase.Want {
 			if pipeline.Name != configs[name].Name {
-				test.Errorf("for %s, expected name %s, got %s", name, pipeline.Name, configs[name].Name)
+				test.Fatalf("literal[%d]: failed reading literal for %s: expected name %s, got %s!", i, name, pipeline.Name, configs[name].Name)
 			}
 
 			if len(pipeline.Producers) != len(configs[name].Producers) {
-				test.Errorf("for %s, expected %d producers, got %d", name, len(pipeline.Producers), len(configs[name].Producers))
+				test.Fatalf("literal[%d]: failed reading literal for %s: expected %d producers, got %d!", i, name, len(pipeline.Producers), len(configs[name].Producers))
 			}
 			if len(pipeline.Consumers) != len(configs[name].Consumers) {
-				test.Errorf("for %s, expected %d consumers, got %d", name, len(pipeline.Consumers), len(configs[name].Consumers))
+				test.Fatalf("literal[%d]: failed reading literal for %s: expected %d consumers, got %d!", i, name, len(pipeline.Consumers), len(configs[name].Consumers))
 			}
 			if len(pipeline.Transformers) != len(configs[name].Transformers) {
-				test.Errorf("for %s, expected %d transformers, got %d", name, len(pipeline.Transformers), len(configs[name].Transformers))
+				test.Fatalf("literal[%d]: failed reading literal for %s: expected %d transformers, got %d!", i, name, len(pipeline.Transformers), len(configs[name].Transformers))
 			}
 		}
 	}

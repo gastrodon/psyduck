@@ -47,20 +47,17 @@ func TestParsePlugins(test *testing.T) {
 	for i, testcase := range cases {
 		plugins, diags := ParsePluginsDesc("parse-plugin.psy", []byte(testcase.Literal))
 		if diags.HasErrors() {
-			test.Errorf("unexpected errors: %s", diags)
-		}
-		if diags.HasErrors() {
-			test.Fatalf("parse-plugin[%d] has errs: %s", i, drawDiags(diags))
+			test.Fatalf("parse-plugins-desc[%d]: failed parsing plugins [parse-plugin.psy]: %s, err!", i, diags)
 		}
 
 		if plugins == nil {
-			test.Error("plugins is nil!")
+			test.Fatalf("parse-plugins-desc[%d]: failed parsing plugins: expected some plugins!", i)
 		}
 		if len(testcase.Want) == 0 {
-			test.Error("plugins is empty!")
+			test.Fatalf("parse-plugins-desc[%d]: failed parsing plugins: expected plugins, got empty!", i)
 		}
 		if !reflect.DeepEqual(testcase.Want, plugins) {
-			test.Errorf("expected %v, got %v", testcase.Want, plugins)
+			test.Fatalf("parse-plugins-desc[%d]: failed parsing plugins: expected %v, got %v!", i, testcase.Want, plugins)
 		}
 	}
 }

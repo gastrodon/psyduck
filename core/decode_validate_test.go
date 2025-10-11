@@ -64,10 +64,10 @@ func TestValidate(test *testing.T) {
 		},
 	}
 
-	for _, testcase := range cases {
+	for i, testcase := range cases {
 		diags := validate(testcase.Value, testcase.Spec)
 		if testcase.Valid != !diags.HasErrors() {
-			test.Errorf("expected valid %v, got %v: %s", testcase.Valid, !diags.HasErrors(), diags)
+			test.Fatalf("validate[%d]: failed validating: expected valid %v, got %v!", i, testcase.Valid, !diags.HasErrors())
 		}
 	}
 }

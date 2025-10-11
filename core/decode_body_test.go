@@ -68,9 +68,9 @@ func TestDecodeConfig(test *testing.T) {
 
 	diags := decodeAttributes(spec, nil, attrs, target)
 	if diags.HasErrors() {
-		test.Errorf("unexpected errors: %s", diags)
+		test.Fatalf("failed decoding attributes: %s, err!", diags)
 	}
 	if !reflect.DeepEqual(want, *target) {
-		test.Errorf("expected %#v, got %#v", want, *target)
+		test.Fatalf("failed decoding attributes: expected %#v, got %#v!", want, *target)
 	}
 }
