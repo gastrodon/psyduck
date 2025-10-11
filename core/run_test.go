@@ -129,7 +129,7 @@ func Test_RunPipeline(test *testing.T) {
 		}
 
 		if err := testPipeline(testcase); err != nil {
-			test.Fatalf("case %d failed: %s", i, err)
+			test.Fatalf("run-pipeline[%d]: failed running pipeline: %s, err!", i, err)
 		}
 	}
 }
@@ -160,11 +160,11 @@ func Test_RunPipeline_filtering(test *testing.T) {
 	}
 
 	if err := RunPipeline(testcase); err != nil {
-		test.Fatal(err)
+		test.Fatalf("failed running pipeline: %s, err!", err)
 	}
 
 	if received != limit/fac {
-		test.Fatalf("recieved %d != %d/%d!", received, limit, fac)
+		test.Fatalf("failed running pipeline: expected %d, got %d!", limit/fac, received)
 	}
 }
 
@@ -256,17 +256,17 @@ func Test_RunPipeline_error(test *testing.T) {
 		}, fmt.Errorf("consumer supplied error: %s", errText)},
 	}
 
-	for _, testcase := range testcases {
+	for i, testcase := range testcases {
 		didFire := false
 		testcase.pipeline.logger = pipelineTestLogger(func() {
 			didFire = true
 		})
 		if err := RunPipeline(testcase.pipeline); err == nil {
-			test.Fatal("no error returned")
+			test.Fatalf("run-pipeline-error[%d]: failed running pipeline: expected error, got none!", i)
 		} else if err.Error() != testcase.want.Error() {
-			test.Fatalf("other error: %s != %s!", err, testcase.want)
+			test.Fatalf("run-pipeline-error[%d]: failed running pipeline: expected error %s, got %s!", i, testcase.want, err)
 		} else if !didFire {
-			test.Fatal("logger hook did not fire")
+			test.Fatalf("run-pipeline-error[%d]: failed running pipeline: expected logger hook to fire, got not fired!", i)
 		}
 	}
 }
