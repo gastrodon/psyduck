@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/gastrodon/psyduck/parse"
 	"github.com/psyduck-etl/sdk"
@@ -12,12 +11,13 @@ import (
 )
 
 type Pipeline struct {
-	Producer    sdk.Producer
-	Consumer    sdk.Consumer
-	Transformer sdk.Transformer
-	logger      *logrus.Logger
-	StopAfter   int
-	ExitOnError bool
+	Producer         func() <-chan result[sdk.Producer]
+	Consumer         sdk.Consumer
+	Transformer      sdk.Transformer
+	logger           *logrus.Logger
+	StopAfter        int
+	ExitOnError      bool
+	ProducerParallel uint
 }
 
 func pipelineLogger() *logrus.Logger {
@@ -87,7 +87,16 @@ func join[T any](group []chan T, ent *logrus.Entry) chan T {
 Join a collection of producers into a single in the order received
 */
 func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer {
-	if len(producers) == 1 {
+	// TODO debug code
+	for i, p := range producers {
+		if p == nil {
+			panic(fmt.Sprintf("producer %d is nil!", i))
+		}
+	}
+
+	if len(producers) == 0 {
+		return nil
+	} else if len(producers) == 1 {
 		return producers[0]
 	}
 
@@ -215,66 +224,93 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *logrus.Logger) (sdk.Producer, error) {
+type result[T any] struct {
+	v   T
+	err error
+}
+
+func ok[T any](v T) result[T] {
+	return result[T]{v, nil}
+}
+
+func nok[T any](e error) result[T] {
+	var zero T
+	return result[T]{zero, e}
+}
+
+func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *logrus.Logger) (func() <-chan result[sdk.Producer], error) {
 	if descriptor.ProduceFrom != nil {
-		logger.Trace("getting remote producer")
-		p, err := library.Producer(descriptor.ProduceFrom.Kind, descriptor.ProduceFrom.Options)
+		// meta/remote producer: run the provider producer which emits YAML describing producers
+		pMeta, err := library.Producer(descriptor.ProduceFrom.Kind, descriptor.ProduceFrom.Options)
 		if err != nil {
 			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
 
-		// this is already scuffed
-		t := time.NewTimer(10 * time.Second)
-		defer t.Stop()
-		send, errs := make(chan []byte), make(chan error)
-		go p(send, errs)
-		select {
-		case <-t.C:
-			return nil, fmt.Errorf("timeout getting anything from the meta-producer") // stupid name? hardcoded timeout? I will fix it later TODO
-		case err := <-errs:
-			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
-		case msg := <-send:
-			parts, err := parse.ParseString("yaml", string(msg))
-			if err != nil {
-				return nil, fmt.Errorf("failed to configure remote: %s", err)
-			}
+		return func() <-chan result[sdk.Producer] {
+			send := make(chan result[sdk.Producer])
+			go func() {
+				mSend, mErrs := make(chan []byte), make(chan error)
+				go pMeta(mSend, mErrs)
+				for {
+					select {
+					case err := <-mErrs:
+						if err != nil {
+							send <- nok[sdk.Producer](fmt.Errorf("error getting from meta-producer: %s", err))
+						}
+						return
+					case msg, more := <-mSend:
+						if !more {
+							close(send)
+							return
+						}
 
-			var producers []parse.PartYAML
-			for _, p := range parts.Pipelines {
-				producers = append(producers, p.Produce...)
-			}
+						cfg, err := parse.ParseString("yaml", string(msg))
+						if err != nil {
+							send <- nok[sdk.Producer](fmt.Errorf("failed to configure remote: %s", err))
+							return
+						}
 
-			return collectProducer(&parse.PipelineDesc{
-				Name:         descriptor.Name,
-				ProduceFrom:  nil,
-				Produce:      producers,
-				Consumers:    descriptor.Consumers,
-				Transformers: descriptor.Transformers,
-				StopAfter:    descriptor.StopAfter,
-			}, library, logger)
-		}
+						// instantiate all producers described in the emitted config and send them
+						for _, pdesc := range cfg.Pipelines {
+							for _, part := range pdesc.Produce {
+								p, err := library.Producer(part.Kind, part.Options)
+								if err != nil {
+									send <- nok[sdk.Producer](fmt.Errorf("failed to compile remote: %s", err))
+									return
+								}
+								send <- ok(p)
+							}
+						}
+					}
+				}
+			}()
+			return send
+		}, nil
 	}
 
 	logger.Trace("config literal producer")
-	switch len(descriptor.Produce) {
-	case 0:
+	if len(descriptor.Produce) == 0 {
 		return nil, fmt.Errorf("1 or more producer is required")
-	case 1:
-		logger.Trace("only one producer")
-		return library.Producer(descriptor.Produce[0].Kind, descriptor.Produce[0].Options)
-	default:
-		producers := make([]sdk.Producer, len(descriptor.Produce))
-		for index, produceDescriptor := range descriptor.Produce {
-			producer, err := library.Producer(produceDescriptor.Kind, produceDescriptor.Options)
-			if err != nil {
-				return nil, err
-			}
+	}
 
-			producers[index] = producer
+	producers := make([]sdk.Producer, len(descriptor.Produce))
+	for index, produceDescriptor := range descriptor.Produce {
+		producer, err := library.Producer(produceDescriptor.Kind, produceDescriptor.Options)
+		if err != nil {
+			return nil, err
 		}
 
-		return joinProducers(producers, logger), nil
+		producers[index] = producer
 	}
+
+	return func() <-chan result[sdk.Producer] {
+		send := make(chan result[sdk.Producer], len(producers))
+		for _, p := range producers {
+			send <- ok(p)
+		}
+		close(send)
+		return send
+	}, nil
 }
 
 /*
@@ -315,11 +351,12 @@ func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, 
 	}
 
 	return &Pipeline{
-		Producer:    producer,
-		Consumer:    joinConsumers(consumers, logger),
-		Transformer: stackTransform(transformers),
-		logger:      logger,
-		StopAfter:   descriptor.StopAfter,
-		ExitOnError: descriptor.ExitOnError,
+		Producer:         producer,
+		Consumer:         joinConsumers(consumers, logger),
+		Transformer:      stackTransform(transformers),
+		logger:           logger,
+		StopAfter:        descriptor.StopAfter,
+		ExitOnError:      descriptor.ExitOnError,
+		ProducerParallel: 0,
 	}, nil
 }
