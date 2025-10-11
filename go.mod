@@ -8,6 +8,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/zclconf/go-cty v1.14.4
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

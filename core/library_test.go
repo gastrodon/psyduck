@@ -4,10 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
-	"github.com/zclconf/go-cty/cty"
 )
 
 func TestNewLibrary(t *testing.T) {
@@ -36,11 +33,7 @@ func TestNewLibrary(t *testing.T) {
 }
 
 func TestLibrary(t *testing.T) {
-	have := []byte(`count = 123`)
-	file, diags := hclparse.NewParser().ParseHCL(have, "test-library")
-	if diags.HasErrors() {
-		t.Fatalf("failed parsing HCL: %s, err!", diags.Error())
-	}
+	config := map[string]interface{}{"count": 123}
 
 	plugin := &sdk.Plugin{
 		Name: "test", Resources: []*sdk.Resource{
@@ -48,7 +41,7 @@ func TestLibrary(t *testing.T) {
 				Kinds: sdk.PRODUCER,
 				Name:  "test",
 				Spec: map[string]*sdk.Spec{
-					"count": {Name: "count", Required: true, Type: cty.Number},
+					"count": {Name: "count", Required: true},
 				},
 				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
 					target := new(struct {
@@ -72,7 +65,7 @@ func TestLibrary(t *testing.T) {
 	}
 
 	l := NewLibrary([]*sdk.Plugin{plugin})
-	p, err := l.Producer("test", &hcl.EvalContext{}, file.Body)
+	p, err := l.Producer("test", config)
 	if err != nil {
 		t.Fatalf("failed getting producer [test]: %s, err!", err)
 	}

@@ -1,0 +1,16 @@
+# Example pipeline: constant -> snippet -> trash
+pipelines:
+  - name: example_constant_snippet
+    produce:
+      - kind: constant
+        name: base_const
+        value: "field1:foo,field2:bar"
+        stop-after: 1
+    transform:
+      - kind: snippet
+        name: take_snippet
+        fields:
+          - "field1"
+    consume:
+      - kind: trash
+        name: discard

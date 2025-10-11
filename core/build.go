@@ -6,8 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastrodon/psyduck/configure"
-	"github.com/hashicorp/hcl/v2"
+	"github.com/gastrodon/psyduck/parse"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
 )
@@ -216,10 +215,10 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, library Library, logger *logrus.Logger) (sdk.Producer, error) {
-	if descriptor.RemoteProducer != nil {
+func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *logrus.Logger) (sdk.Producer, error) {
+	if descriptor.ProduceFrom != nil {
 		logger.Trace("getting remote producer")
-		p, err := library.Producer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
+		p, err := library.Producer(descriptor.ProduceFrom.Kind, descriptor.ProduceFrom.Options)
 		if err != nil {
 			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
@@ -235,33 +234,38 @@ func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, l
 		case err := <-errs:
 			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
 		case msg := <-send:
-			parts, err := configure.Partial("remote-producer", msg, context)
+			parts, err := parse.ParseString("yaml", string(msg))
 			if err != nil {
 				return nil, fmt.Errorf("failed to configure remote: %s", err)
 			}
 
-			return collectProducer(&configure.Pipeline{
-				Name:           descriptor.Name,
-				RemoteProducer: nil,
-				Producers:      parts.Producers,
-				Consumers:      descriptor.Consumers,
-				Transformers:   descriptor.Transformers,
-				StopAfter:      descriptor.StopAfter,
-			}, context, library, logger)
+			var producers []parse.PartYAML
+			for _, p := range parts.Pipelines {
+				producers = append(producers, p.Produce...)
+			}
+
+			return collectProducer(&parse.PipelineDesc{
+				Name:         descriptor.Name,
+				ProduceFrom:  nil,
+				Produce:      producers,
+				Consumers:    descriptor.Consumers,
+				Transformers: descriptor.Transformers,
+				StopAfter:    descriptor.StopAfter,
+			}, library, logger)
 		}
 	}
 
 	logger.Trace("config literal producer")
-	switch len(descriptor.Producers) {
+	switch len(descriptor.Produce) {
 	case 0:
 		return nil, fmt.Errorf("1 or more producer is required")
 	case 1:
 		logger.Trace("only one producer")
-		return library.Producer(descriptor.Producers[0].Kind, context, descriptor.Producers[0].Options)
+		return library.Producer(descriptor.Produce[0].Kind, descriptor.Produce[0].Options)
 	default:
-		producers := make([]sdk.Producer, len(descriptor.Producers))
-		for index, produceDescriptor := range descriptor.Producers {
-			producer, err := library.Producer(produceDescriptor.Kind, context, produceDescriptor.Options)
+		producers := make([]sdk.Producer, len(descriptor.Produce))
+		for index, produceDescriptor := range descriptor.Produce {
+			producer, err := library.Producer(produceDescriptor.Kind, produceDescriptor.Options)
 			if err != nil {
 				return nil, err
 			}
@@ -283,16 +287,16 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
-	producer, err := collectProducer(descriptor, evalCtx, library, logger)
+	producer, err := collectProducer(descriptor, library, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.Consumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
+		consumer, err := library.Consumer(consumeDescriptor.Kind, consumeDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -302,7 +306,7 @@ func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, lib
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.Transformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
+		transformer, err := library.Transformer(transformDescriptor.Kind, transformDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
