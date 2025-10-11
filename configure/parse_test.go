@@ -1,11 +1,11 @@
 package configure
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/stretchr/testify/assert"
 )
 
 func drawDiags(d hcl.Diagnostics) string {
@@ -46,13 +46,33 @@ func TestParsePlugins(test *testing.T) {
 
 	for i, testcase := range cases {
 		plugins, diags := ParsePluginsDesc("parse-plugin.psy", []byte(testcase.Literal))
-		assert.False(test, diags.HasErrors(), "%s", diags)
+		if diags.HasErrors() {
+			test.Errorf("unexpected errors: %s", diags)
+		}
 		if diags.HasErrors() {
 			test.Fatalf("parse-plugin[%d] has errs: %s", i, drawDiags(diags))
 		}
 
-		assert.NotNil(test, plugins, "plugins is nil!")
-		assert.NotZero(test, len(testcase.Want), "plugins is empty!")
-		assert.Equal(test, testcase.Want, plugins)
+		if plugins == nil {
+			test.Error("plugins is nil!")
+		}
+		if len(testcase.Want) == 0 {
+			test.Error("plugins is empty!")
+		}
+		if !reflect.DeepEqual(testcase.Want, plugins) {
+			test.Errorf("expected %v, got %v", testcase.Want, plugins)
+		}
 	}
+}
+
+func equal(a, b []PluginDesc) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

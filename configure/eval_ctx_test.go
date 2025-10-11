@@ -5,7 +5,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -26,12 +25,16 @@ func Test_makeEvalCtx(test *testing.T) {
 		test.Fatalf("make-eval-ctx: %s", drawDiags(diags))
 	}
 
-	assert.NotNil(test, values, "values is nil!")
+	if values == nil {
+		test.Error("values is nil!")
+	}
 
 	// panic(fmt.Sprintf("%+v", values.Variables["value"]))
 
 	for k, v := range want {
-		assert.Equal(test, v, values.Variables["value"].GetAttr(k))
+		if !v.Equals(values.Variables["value"].GetAttr(k)).True() {
+			test.Errorf("for %s, expected %v, got %v", k, v, values.Variables["value"].GetAttr(k))
+		}
 	}
 }
 func Test_makeEvalCtx_Number(test *testing.T) {
@@ -46,8 +49,14 @@ func Test_makeEvalCtx_Number(test *testing.T) {
 		test.Fatalf("make-eval-ctx has numbers: %s", drawDiags(diags))
 	}
 
-	assert.NotNil(test, values, "values is nil!")
-	assert.Equal(test, cty.NumberVal(new(big.Float).SetInt64(1234).SetPrec(512)), values.Variables["value"].GetAttr("v"))
+	if values == nil {
+		test.Error("values is nil!")
+	}
+	expected := cty.NumberVal(new(big.Float).SetInt64(1234).SetPrec(512))
+	actual := values.Variables["value"].GetAttr("v")
+	if !expected.Equals(actual).True() {
+		test.Errorf("expected %v, got %v", expected, actual)
+	}
 }
 
 func Test_makeEvalCtx_Env(test *testing.T) {
@@ -61,6 +70,12 @@ func Test_makeEvalCtx_Env(test *testing.T) {
 		test.Fatalf("make-eval-ctx has env: %s", drawDiags(diags))
 	}
 
-	assert.NotNil(test, values, "values is nil!")
-	assert.Equal(test, cty.StringVal("bar"), values.Variables["env"].GetAttr("FOO"))
+	if values == nil {
+		test.Error("values is nil!")
+	}
+	expected := cty.StringVal("bar")
+	actual := values.Variables["env"].GetAttr("FOO")
+	if !expected.Equals(actual).True() {
+		test.Errorf("expected %v, got %v", expected, actual)
+	}
 }

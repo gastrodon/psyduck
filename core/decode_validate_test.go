@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/psyduck-etl/sdk"
-	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -67,6 +66,8 @@ func TestValidate(test *testing.T) {
 
 	for _, testcase := range cases {
 		diags := validate(testcase.Value, testcase.Spec)
-		assert.Equal(test, testcase.Valid, !diags.HasErrors(), "%s", diags)
+		if testcase.Valid != !diags.HasErrors() {
+			test.Errorf("expected valid %v, got %v: %s", testcase.Valid, !diags.HasErrors(), diags)
+		}
 	}
 }

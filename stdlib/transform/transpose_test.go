@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/psyduck-etl/sdk"
-	"github.com/stretchr/testify/assert"
 )
 
 func Test_readField(t *testing.T) {
@@ -80,9 +79,13 @@ func Test_Transpose(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		assert.Equal(t, len(tc.want), len(posedMap))
+		if len(tc.want) != len(posedMap) {
+			t.Errorf("expected %d keys, got %d", len(tc.want), len(posedMap))
+		}
 		for k, v := range tc.want {
-			assert.Equal(t, v, posedMap[k])
+			if got, ok := posedMap[k]; !ok || got != v {
+				t.Errorf("for key %s, expected %s, got %s", k, v, got)
+			}
 		}
 	}
 }

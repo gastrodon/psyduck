@@ -2,8 +2,6 @@ package configure
 
 import (
 	"testing"
-
-	"github.com/stretchr/testify/assert"
 )
 
 func TestLiteral(test *testing.T) {
@@ -40,13 +38,23 @@ func TestLiteral(test *testing.T) {
 			test.Fatalf("test-literal[%d]: %s", i, err)
 		}
 
-		assert.Equal(test, len(testcase.Want), len(configs))
+		if len(testcase.Want) != len(configs) {
+			test.Errorf("expected %d configs, got %d", len(testcase.Want), len(configs))
+		}
 		for name, pipeline := range testcase.Want {
-			assert.Equal(test, pipeline.Name, configs[name].Name)
+			if pipeline.Name != configs[name].Name {
+				test.Errorf("for %s, expected name %s, got %s", name, pipeline.Name, configs[name].Name)
+			}
 
-			assert.Equal(test, len(pipeline.Producers), len(configs[name].Producers))
-			assert.Equal(test, len(pipeline.Consumers), len(configs[name].Consumers))
-			assert.Equal(test, len(pipeline.Transformers), len(configs[name].Transformers))
+			if len(pipeline.Producers) != len(configs[name].Producers) {
+				test.Errorf("for %s, expected %d producers, got %d", name, len(pipeline.Producers), len(configs[name].Producers))
+			}
+			if len(pipeline.Consumers) != len(configs[name].Consumers) {
+				test.Errorf("for %s, expected %d consumers, got %d", name, len(pipeline.Consumers), len(configs[name].Consumers))
+			}
+			if len(pipeline.Transformers) != len(configs[name].Transformers) {
+				test.Errorf("for %s, expected %d transformers, got %d", name, len(pipeline.Transformers), len(configs[name].Transformers))
+			}
 		}
 	}
 }

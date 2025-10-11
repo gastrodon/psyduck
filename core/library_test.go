@@ -7,7 +7,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
-	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -28,7 +27,9 @@ func TestNewLibrary(t *testing.T) {
 		l := NewLibrary(testcase.have).(*library)
 		for _, plugin := range testcase.have {
 			for _, resource := range plugin.Resources {
-				assert.Equalf(t, resource, l.resources[resource.Name], "new-library[%d] %s.%s", i, plugin.Name, resource.Name)
+				if resource != l.resources[resource.Name] {
+					t.Errorf("new-library[%d] %s.%s: expected %v, got %v", i, plugin.Name, resource.Name, resource, l.resources[resource.Name])
+				}
 			}
 		}
 	}

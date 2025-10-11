@@ -1,11 +1,11 @@
 package core
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
-	"github.com/stretchr/testify/assert"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -67,6 +67,10 @@ func TestDecodeConfig(test *testing.T) {
 	}
 
 	diags := decodeAttributes(spec, nil, attrs, target)
-	assert.False(test, diags.HasErrors(), "%s", diags)
-	assert.Equal(test, want, *target, "%#v", *target)
+	if diags.HasErrors() {
+		test.Errorf("unexpected errors: %s", diags)
+	}
+	if !reflect.DeepEqual(want, *target) {
+		test.Errorf("expected %#v, got %#v", want, *target)
+	}
 }
