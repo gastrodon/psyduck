@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/psyduck-etl/sdk"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestNewLibrary(t *testing.T) {
@@ -25,7 +24,9 @@ func TestNewLibrary(t *testing.T) {
 		l := NewLibrary(testcase.have).(*library)
 		for _, plugin := range testcase.have {
 			for _, resource := range plugin.Resources {
-				assert.Equalf(t, resource, l.resources[resource.Name], "new-library[%d] %s.%s", i, plugin.Name, resource.Name)
+				if resource != l.resources[resource.Name] {
+					t.Errorf("new-library[%d] %s.%s: expected %v, got %v", i, plugin.Name, resource.Name, resource, l.resources[resource.Name])
+				}
 			}
 		}
 	}
