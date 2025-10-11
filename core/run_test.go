@@ -216,14 +216,10 @@ func Test_RunPipeline_error(test *testing.T) {
 					send <- []byte{0}
 				}
 
-<<<<<<< HEAD
-			errs <- errors.New(errText)
-=======
-				errs <- fmt.Errorf(errText)
+				errs <- errors.New(errText)
 			})
 			close(c)
 			return c
->>>>>>> f008889 (Use a channel to spawn producers)
 		}
 	}
 
