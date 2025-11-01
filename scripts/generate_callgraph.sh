@@ -25,15 +25,12 @@ fi
 
 # Check if Graphviz is installed
 if ! command -v dot &> /dev/null; then
-    echo -e "${BLUE}Installing Graphviz...${NC}"
-    if command -v apt-get &> /dev/null; then
-        sudo apt-get update && sudo apt-get install -y graphviz
-    elif command -v brew &> /dev/null; then
-        brew install graphviz
-    else
-        echo -e "${RED}Error: Could not install Graphviz. Please install it manually.${NC}"
-        exit 1
-    fi
+    echo -e "${RED}Error: Graphviz is not installed.${NC}"
+    echo -e "${BLUE}Please install Graphviz:${NC}"
+    echo "  Ubuntu/Debian: sudo apt-get install graphviz"
+    echo "  macOS:         brew install graphviz"
+    echo "  Other:         https://graphviz.org/download/"
+    exit 1
 fi
 
 # Install callgraph tool if not already installed
@@ -47,16 +44,26 @@ cd "${PROJECT_ROOT}"
 
 echo -e "${BLUE}Analyzing parse package...${NC}"
 
+# Create temporary files securely
+TEMP_RAW=$(mktemp /tmp/callgraph_raw.XXXXXX)
+TEMP_DOT=$(mktemp /tmp/callgraph.XXXXXX.dot)
+
+# Cleanup function
+cleanup() {
+    rm -f "$TEMP_RAW" "$TEMP_DOT"
+}
+trap cleanup EXIT
+
 # Generate call graph data using static analysis
 # Filter only for parse package functions to reduce noise
 callgraph -algo=static ./parse 2>&1 | \
     grep "github.com/gastrodon/psyduck/parse\." | \
-    grep -v "\.init" > /tmp/callgraph_raw.txt || true
+    grep -v "\.init" > "$TEMP_RAW" || true
 
 # Convert to DOT format
 echo -e "${BLUE}Generating DOT file...${NC}"
 
-cat > /tmp/callgraph.dot <<'EOF'
+cat > "$TEMP_DOT" <<'EOF'
 digraph callgraph {
     rankdir=LR;
     node [shape=box, style=rounded, fontname="Arial"];
@@ -68,6 +75,8 @@ digraph callgraph {
 EOF
 
 # Process the call graph data
+# Note: External dependencies (fmt, os, yaml, plugin, filepath, exec) are shown 
+# to provide context for key integrations without cluttering the graph
 awk -F '\t' '
 {
     # Extract caller and callee from the line
@@ -96,11 +105,12 @@ awk -F '\t' '
         print "    \"" caller "\" -> \"" callee "\" [color=\"#999999\", style=dashed];"
     }
 }
-' /tmp/callgraph_raw.txt | sort -u >> /tmp/callgraph.dot
+' "$TEMP_RAW" | sort -u >> "$TEMP_DOT"
 
-cat >> /tmp/callgraph.dot <<'EOF'
+cat >> "$TEMP_DOT" <<'EOF'
     
-    // Define node styles for key functions
+    // Define node styles for key public API functions
+    // These are highlighted as they are the main entry points
     "ParseFile" [fillcolor="#e6f3ff", style="rounded,filled"];
     "ParseDir" [fillcolor="#e6f3ff", style="rounded,filled"];
     "ParseString" [fillcolor="#e6f3ff", style="rounded,filled"];
@@ -112,10 +122,7 @@ EOF
 echo -e "${BLUE}Rendering PNG image...${NC}"
 
 # Generate PNG from DOT file
-dot -Tpng /tmp/callgraph.dot -o "${OUTPUT_DIR}/callgraph.png"
-
-# Clean up temporary files
-rm -f /tmp/callgraph.dot /tmp/callgraph_raw.txt
+dot -Tpng "$TEMP_DOT" -o "${OUTPUT_DIR}/callgraph.png"
 
 echo -e "${GREEN}✓ Call graph generated successfully: ${OUTPUT_DIR}/callgraph.png${NC}"
 echo -e "${BLUE}Image size: $(du -h "${OUTPUT_DIR}/callgraph.png" | cut -f1)${NC}"
