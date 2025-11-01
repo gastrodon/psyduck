@@ -34,9 +34,15 @@ if ! command -v dot &> /dev/null; then
 fi
 
 # Install callgraph tool if not already installed
+CALLGRAPH_CMD="callgraph"
 if ! command -v callgraph &> /dev/null; then
     echo -e "${BLUE}Installing Go callgraph tool...${NC}"
     go install golang.org/x/tools/cmd/callgraph@latest
+    # Use the installed binary from GOPATH/bin
+    CALLGRAPH_CMD="${HOME}/go/bin/callgraph"
+elif [ -x "${HOME}/go/bin/callgraph" ]; then
+    # Prefer the GOPATH version if it exists
+    CALLGRAPH_CMD="${HOME}/go/bin/callgraph"
 fi
 
 # Navigate to project root
@@ -56,9 +62,18 @@ trap cleanup EXIT
 
 # Generate call graph data using static analysis
 # Filter only for parse package functions to reduce noise
-callgraph -algo=static ./parse 2>&1 | \
+# Temporarily disable exit-on-error for the pipeline since grep may return non-zero
+set +e
+"$CALLGRAPH_CMD" -algo=static ./parse 2>&1 | \
     grep "github.com/gastrodon/psyduck/parse\." | \
-    grep -v "\.init" > "$TEMP_RAW" || true
+    grep -v "\.init" > "$TEMP_RAW"
+set -e
+
+# Check if we got any data
+if [ ! -s "$TEMP_RAW" ]; then
+    echo -e "${RED}Error: No call graph data was generated.${NC}"
+    exit 1
+fi
 
 # Convert to DOT format
 echo -e "${BLUE}Generating DOT file...${NC}"
@@ -75,9 +90,9 @@ digraph callgraph {
 EOF
 
 # Process the call graph data
-# Note: External dependencies (fmt, os, yaml, plugin, filepath, exec) are shown 
+# Note: External dependencies (fmt, os, yaml, plugin, filepath, exec) are shown
 # to provide context for key integrations without cluttering the graph
-awk -F '\t' '
+if ! awk -F '\t' '
 {
     # Extract caller and callee from the line
     caller = $1
@@ -105,7 +120,10 @@ awk -F '\t' '
         print "    \"" caller "\" -> \"" callee "\" [color=\"#999999\", style=dashed];"
     }
 }
-' "$TEMP_RAW" | sort -u >> "$TEMP_DOT"
+' "$TEMP_RAW" | sort -u >> "$TEMP_DOT"; then
+    echo -e "${RED}Error: Failed to process call graph data${NC}"
+    exit 1
+fi
 
 cat >> "$TEMP_DOT" <<'EOF'
     
@@ -122,7 +140,16 @@ EOF
 echo -e "${BLUE}Rendering PNG image...${NC}"
 
 # Generate PNG from DOT file
-dot -Tpng "$TEMP_DOT" -o "${OUTPUT_DIR}/callgraph.png"
+if ! dot -Tpng "$TEMP_DOT" -o "${OUTPUT_DIR}/callgraph.png"; then
+    echo -e "${RED}Error: Failed to generate PNG from DOT file${NC}"
+    exit 1
+fi
+
+# Verify the PNG was created successfully
+if [ ! -f "${OUTPUT_DIR}/callgraph.png" ]; then
+    echo -e "${RED}Error: PNG file was not created${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}✓ Call graph generated successfully: ${OUTPUT_DIR}/callgraph.png${NC}"
 echo -e "${BLUE}Image size: $(du -h "${OUTPUT_DIR}/callgraph.png" | cut -f1)${NC}"
