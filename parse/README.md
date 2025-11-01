@@ -1,5 +1,20 @@
 # Writing psyduck pipelines in YAML
 
+## Architecture
+
+The parser package provides functionality for parsing and loading psyduck pipeline configurations. The call graph below visualizes the structure and relationships between parser functions:
+
+![Parser Call Graph](callgraph.png)
+
+To regenerate this call graph visualization, run:
+```bash
+./scripts/generate_callgraph.sh
+```
+
+This script uses static analysis via `golang.org/x/tools/cmd/callgraph` to generate a visual representation of function calls within the parser package.
+
+---
+
 Use the `configure_yaml` package to define and parse pipelines in YAML. A top-level `pipelines` array contains one or more named pipelines:
 
 ```yaml
