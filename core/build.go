@@ -54,31 +54,25 @@ func mchan[T any](c int) []chan T {
 
 func join[T any](group []chan T, ent *logrus.Entry) chan T {
 	joined := make(chan T)
-	closer := make(chan struct{})
-
-	go func(size int) {
-		closed, cLock := 0, new(sync.Mutex)
-		for closed < size {
-			<-closer
-			cLock.Lock()
-			closed++
-			cLock.Unlock()
-		}
-
-		ent.Trace("closing all of the groups")
-		close(joined)
-	}(len(group))
+	var wg sync.WaitGroup
 
 	for i := range group {
-		go func(ishadow int, closer chan<- struct{}) { // goroutine forwarder for every c in group
+		wg.Add(1)
+		go func(ishadow int) { // goroutine forwarder for every c in group
+			defer wg.Done()
 			for msg := range group[ishadow] {
 				joined <- msg
 			}
 
 			ent.Tracef("forwarder %d exhausted", ishadow)
-			closer <- struct{}{}
-		}(i, closer)
+		}(i)
 	}
+
+	go func() {
+		wg.Wait()
+		ent.Trace("closing all of the groups")
+		close(joined)
+	}()
 
 	return joined
 }
