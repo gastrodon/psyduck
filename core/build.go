@@ -131,7 +131,6 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 	split := mchan[[]byte](len(consumers))
 
 	tErrs := join(gErrs, logger.WithField("joined", "errs"))
-	tDone := join(gDone, logger.WithField("joined", "done"))
 	return func(dataRecv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		for i := range split {
 			go consumers[i](split[i], gErrs[i], gDone[i])
@@ -169,16 +168,15 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 			close(split[i])
 		}
 
-		closed, cLock := 0, new(sync.Mutex)
-		for range tDone {
-			cLock.Lock()
-			closed++
-			if closed == len(consumers) {
-				break
-			}
-
-			cLock.Unlock()
+		var wg sync.WaitGroup
+		for i := range consumers {
+			wg.Add(1)
+			go func(idx int) {
+				defer wg.Done()
+				<-gDone[idx]
+			}(i)
 		}
+		wg.Wait()
 
 		logger.Trace("closing provided done")
 		close(done)
