@@ -32,6 +32,11 @@
             #!/usr/bin/env sh
             set -e
 
+            # Only run if there are staged .go files
+            if ! git diff --cached --name-only --diff-filter=ACM | grep -q '\.go$'; then
+              exit 0
+            fi
+
             go build -o /dev/null .
 
             if git diff --cached --name-only | grep -q '^core/'; then
