@@ -54,26 +54,30 @@ func mchan[T any](c int) []chan T {
 
 func join[T any](group []chan T, ent *logrus.Entry) chan T {
 	joined := make(chan T)
-	var wg sync.WaitGroup
+	closer := make(chan struct{})
 
 	for i := range group {
-		wg.Add(1)
 		go func(ishadow int) { // goroutine forwarder for every c in group
-			defer wg.Done()
 			for msg := range group[ishadow] {
 				joined <- msg
 			}
 
 			ent.Tracef("forwarder %d exhausted", ishadow)
+			closer <- struct{}{}
 		}(i)
 	}
 
 	go func() {
-		wg.Wait()
-		ent.Trace("closing all of the groups")
-		close(joined)
-	}()
+		defer func() {
+			close(joined)
+			close(closer)
+			ent.Trace("closed all of the groups")
+		}()
 
+		for i := 0; i < len(group); i++ {
+			<-closer
+		}
+	}()
 	return joined
 }
 
@@ -115,6 +119,13 @@ func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer
 
 		logger.Trace("closing dataOut")
 		close(dataOut)
+		for err := range tErrs {
+			if err != nil {
+				logger.Error(err)
+				errs <- err
+			}
+		}
+		close(errs)
 	}
 }
 
@@ -136,8 +147,6 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 			go consumers[i](split[i], gErrs[i], gDone[i])
 		}
 
-		handle := make(chan error)
-
 		go func() {
 			for msg := range dataRecv {
 				for i := range split {
@@ -146,40 +155,42 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 				}
 			}
 
-			close(handle)
+			for i := range split {
+				logger.Tracef("closing split[%d]\n", i)
+				close(split[i])
+			}
 		}()
 
 		go func() {
-			for err := range tErrs {
-				if err != nil {
-					handle <- err
+			defer func() {
+				close(errs)
+				close(done)
+				logger.Trace("closing provided errs and done")
+			}()
+
+			var wg sync.WaitGroup
+			wg.Add(len(consumers))
+			for i := range consumers {
+				go func(idx int) {
+					defer wg.Done()
+					<-gDone[idx]
+				}(i)
+			}
+
+			var errWg sync.WaitGroup
+			errWg.Add(1)
+			go func() {
+				defer errWg.Done()
+				for err := range tErrs {
+					if err != nil {
+						errs <- err
+					}
 				}
-			}
+			}()
+
+			wg.Wait()
+			errWg.Wait()
 		}()
-
-		for err := range handle {
-			if err != nil {
-				errs <- err
-			}
-		}
-
-		for i := range split {
-			logger.Tracef("closing split[%d]\n", i)
-			close(split[i])
-		}
-
-		var wg sync.WaitGroup
-		for i := range consumers {
-			wg.Add(1)
-			go func(idx int) {
-				defer wg.Done()
-				<-gDone[idx]
-			}(i)
-		}
-		wg.Wait()
-
-		logger.Trace("closing provided done")
-		close(done)
 	}
 }
 

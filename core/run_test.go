@@ -28,16 +28,15 @@ func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
 		producers[index] = func(slot int) sdk.Producer {
 			return func(send chan<- []byte, errs chan<- error) {
 				go func(slot int) {
+					defer close(send)
+					defer close(errs)
+
 					for dataEach := 0; dataEach < testcase.DataCount; dataEach++ {
 						send <- []byte{byte(dataEach)}
 						counts[slot]++
 					}
-
-					close(send)
-					close(errs)
 				}(slot)
 			}
-
 		}(index)
 	}
 
@@ -52,16 +51,15 @@ func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
 		consumers[index] = func(slot int) sdk.Consumer {
 			return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				go func(i int) {
+					defer close(errs)
+					defer close(done)
+
 					for range recv {
 						counts[i]++
 					}
-
-					close(done)
 				}(slot)
 			}
-
 		}(index)
-
 	}
 
 	return joinConsumers(consumers, pipelineLogger()), func() []int { return counts }
@@ -94,7 +92,6 @@ func testPipeline(testcase testPipelineCase) error {
 		if producerCount[index] != testcase.DataCount {
 			return fmt.Errorf("produce count mismatch at %d! %d / %d", index, producerCount[index], testcase.DataCount)
 		}
-
 	}
 
 	consumerCount := reportConsumer()
@@ -138,22 +135,24 @@ func Test_RunPipeline_filtering(test *testing.T) {
 	received, limit, fac := byte(0), byte(100), byte(2)
 	testcase := &Pipeline{
 		Producer: func(send chan<- []byte, errs chan<- error) {
+			defer close(send)
+			defer close(errs)
+
 			for i := byte(0); i < limit; i++ {
 				send <- []byte{i}
 			}
-			close(send)
 		},
 		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer close(errs)
+			defer close(done)
+
 			for range recv {
 				received++
 			}
-
-			close(done)
 		},
 		Transformer: func(in []byte) ([]byte, error) {
 			if in[0]%fac != fac-1 {
 				return nil, nil
-
 			}
 			return in, nil
 		},
@@ -191,6 +190,9 @@ func Test_RunPipeline_error(test *testing.T) {
 	errText := "error made"
 	produceErr := func(n int) sdk.Producer {
 		return func(send chan<- []byte, errs chan<- error) {
+			defer close(send)
+			defer close(errs)
+
 			for i := 0; i < n; i++ {
 				send <- []byte{0}
 			}
@@ -201,6 +203,9 @@ func Test_RunPipeline_error(test *testing.T) {
 
 	consumeErr := func(n int) sdk.Consumer {
 		return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer close(errs)
+			defer close(done)
+
 			for i := 0; i < n; i++ {
 				<-recv
 			}
