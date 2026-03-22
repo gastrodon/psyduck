@@ -137,10 +137,7 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 		return consumers[0]
 	}
 
-	gErrs := make([]chan error, len(consumers))
-	for i := range gErrs {
-		gErrs[i] = make(chan error, 64)
-	}
+	gErrs := mchan[error](len(consumers))
 	gDone := mchan[struct{}](len(consumers))
 	split := mchan[[]byte](len(consumers))
 
