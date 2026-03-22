@@ -37,7 +37,7 @@ A Go-based ETL engine implementing:
 - **Exercise HIGH CAUTION when editing anything in `./core`** — this is highly concurrent, fundamental code that the rest of the library depends on
 - **README must be human-written only** — do not auto-generate or modify README contents
 - ALWAYS run `-short` tests with a `-timeout 20s` flag (e.g. `go test -short -timeout 20s ./...`)
-- ALWAYS run non-short tests with a `-timeout 5m` flag (e.g. `go test -timeout 5m ./...`)
+- ALWAYS run non-short tests with a `-timeout 160s` flag (e.g. `go test -timeout 160s ./...`)
 
 ## Pre-commit hooks
 
