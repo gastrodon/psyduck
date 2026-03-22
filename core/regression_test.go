@@ -121,14 +121,13 @@ func Test_Phase4_JoinConsumersClosesErrs(t *testing.T) {
 // This test verifies the joined producer correctly terminates and closes its output,
 // without relying on nil as a closure sentinel.
 func Test_Phase4_JoinProducersNilSentinel(t *testing.T) {
-	t.Skip("known issue: sending nil through a channel is not in scope")
 
 	if testing.Short() {
 		t.Skip("skipping in short mode")
 	}
 
 	producer1 := func(send chan<- []byte, errs chan<- error) {
-		send <- nil          // nil data — must NOT be treated as channel closure
+		send <- nil // nil data — must NOT be treated as channel closure
 		send <- []byte{1, 2, 3}
 		send <- []byte{1, 2, 3}
 		close(send)

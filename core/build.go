@@ -102,8 +102,8 @@ func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer
 	out:
 		for {
 			select {
-			case msg := <-tData:
-				if msg == nil {
+			case msg, ok := <-tData:
+				if !ok {
 					logger.Trace("tData closed, breaking out")
 					break out
 				}
