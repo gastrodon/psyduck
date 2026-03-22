@@ -137,7 +137,10 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 		return consumers[0]
 	}
 
-	gErrs := mchan[error](len(consumers))
+	gErrs := make([]chan error, len(consumers))
+	for i := range gErrs {
+		gErrs[i] = make(chan error, 64)
+	}
 	gDone := mchan[struct{}](len(consumers))
 	split := mchan[[]byte](len(consumers))
 
@@ -231,10 +234,24 @@ func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *lo
 		defer t.Stop()
 		send, errs := make(chan []byte), make(chan error)
 		go p(send, errs)
+		// drain both channels in the background so the producer goroutine can
+		// always exit once it closes them, regardless of how many items it sends
+		drain := func() {
+			go func() {
+				for range send {
+				}
+			}()
+			go func() {
+				for range errs {
+				}
+			}()
+		}
 		select {
 		case <-t.C:
+			drain()
 			return nil, fmt.Errorf("timeout getting anything from the meta-producer") // stupid name? hardcoded timeout? I will fix it later TODO
 		case err := <-errs:
+			drain()
 			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
 		case msg := <-send:
 			parts, err := parse.ParseString("yaml", string(msg))
