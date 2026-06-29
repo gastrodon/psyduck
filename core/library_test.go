@@ -4,7 +4,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
+	"github.com/stretchr/testify/assert"
+	"github.com/zclconf/go-cty/cty"
 )
 
 func TestNewLibrary(t *testing.T) {
@@ -24,16 +28,18 @@ func TestNewLibrary(t *testing.T) {
 		l := NewLibrary(testcase.have).(*library)
 		for _, plugin := range testcase.have {
 			for _, resource := range plugin.Resources {
-				if resource != l.resources[resource.Name] {
-					t.Fatalf("new-library[%d]: [%s.%s] failed creating library: expected %v, got %v!", i, plugin.Name, resource.Name, resource, l.resources[resource.Name])
-				}
+				assert.Equalf(t, resource, l.resources[resource.Name], "new-library[%d] %s.%s", i, plugin.Name, resource.Name)
 			}
 		}
 	}
 }
 
 func TestLibrary(t *testing.T) {
-	config := map[string]interface{}{"count": 123}
+	have := []byte(`count = 123`)
+	file, diags := hclparse.NewParser().ParseHCL(have, "test-library")
+	if diags.HasErrors() {
+		t.Fatal(diags.Error())
+	}
 
 	plugin := &sdk.Plugin{
 		Name: "test", Resources: []*sdk.Resource{
@@ -41,7 +47,7 @@ func TestLibrary(t *testing.T) {
 				Kinds: sdk.PRODUCER,
 				Name:  "test",
 				Spec: map[string]*sdk.Spec{
-					"count": {Name: "count", Required: true},
+					"count": {Name: "count", Required: true, Type: cty.Number},
 				},
 				ProvideProducer: func(parse sdk.Parser) (sdk.Producer, error) {
 					target := new(struct {
@@ -49,11 +55,11 @@ func TestLibrary(t *testing.T) {
 					})
 
 					if err := parse(target); err != nil {
-						t.Fatalf("failed parsing as provider: %s, err!", err)
+						t.Fatalf("failed to parse as provider: %s", err)
 					}
 
 					if target.Count != 123 {
-						t.Fatalf("failed parsing count: expected 123, got %d!", target.Count)
+						t.Fatalf("expected count 123, got: %d", target.Count)
 					}
 
 					return func(send chan<- []byte, errs chan<- error) {
@@ -65,9 +71,9 @@ func TestLibrary(t *testing.T) {
 	}
 
 	l := NewLibrary([]*sdk.Plugin{plugin})
-	p, err := l.Producer("test", config)
+	p, err := l.Producer("test", &hcl.EvalContext{}, file.Body)
 	if err != nil {
-		t.Fatalf("failed getting producer [test]: %s, err!", err)
+		t.Fatal(err)
 	}
 
 	send := make(chan []byte)
@@ -76,12 +82,12 @@ func TestLibrary(t *testing.T) {
 	select {
 	case v := <-send:
 		if v[0] != 123 {
-			t.Fatalf("failed receiving value: expected 123, got %d!", v[0])
+			t.Fatalf("unexpected value from send: %v", v)
 		}
 
 		break
 	case <-time.After(1 * time.Second):
-		t.Fatalf("failed receiving value: expected value within 1s, got timeout!")
+		t.Fatal("timeout waiting for send")
 	}
 
 }

@@ -38,16 +38,17 @@ func TestZoom(test *testing.T) {
 
 		transformer, err := Zoom(parse)
 		if err != nil {
-			test.Fatalf("zoom[%d]: failed creating zoom: %s, err!", index, err)
+			test.Fatal(err)
 		}
 
 		zoomed, err := transformer(testcase.Source)
 		if err != nil {
-			test.Fatalf("zoom[%d]: failed zooming: %s, err!", index, err)
+			test.Fatal(err)
 		}
 
 		if !sdk.SameBytes(zoomed, testcase.Want) {
-			test.Fatalf("zoom[%d]: failed zooming: expected %v, got %v!", index, testcase.Want, zoomed)
+			test.Fatalf("zoomed does not match #%d! \nzoomed: %s %v\nwant: %s %v",
+				index, zoomed, zoomed, testcase.Want, testcase.Want)
 		}
 	}
 }

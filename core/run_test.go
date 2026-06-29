@@ -1,7 +1,6 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"testing"
@@ -28,15 +27,16 @@ func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
 		producers[index] = func(slot int) sdk.Producer {
 			return func(send chan<- []byte, errs chan<- error) {
 				go func(slot int) {
-					defer close(send)
-					defer close(errs)
-
 					for dataEach := 0; dataEach < testcase.DataCount; dataEach++ {
 						send <- []byte{byte(dataEach)}
 						counts[slot]++
 					}
+
+					close(send)
+					close(errs)
 				}(slot)
 			}
+
 		}(index)
 	}
 
@@ -51,15 +51,16 @@ func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
 		consumers[index] = func(slot int) sdk.Consumer {
 			return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				go func(i int) {
-					defer close(errs)
-					defer close(done)
-
 					for range recv {
 						counts[i]++
 					}
+
+					close(done)
 				}(slot)
 			}
+
 		}(index)
+
 	}
 
 	return joinConsumers(consumers, pipelineLogger()), func() []int { return counts }
@@ -92,6 +93,7 @@ func testPipeline(testcase testPipelineCase) error {
 		if producerCount[index] != testcase.DataCount {
 			return fmt.Errorf("produce count mismatch at %d! %d / %d", index, producerCount[index], testcase.DataCount)
 		}
+
 	}
 
 	consumerCount := reportConsumer()
@@ -126,7 +128,7 @@ func Test_RunPipeline(test *testing.T) {
 		}
 
 		if err := testPipeline(testcase); err != nil {
-			test.Fatalf("run-pipeline[%d]: failed running pipeline: %s, err!", i, err)
+			test.Fatalf("case %d failed: %s", i, err)
 		}
 	}
 }
@@ -135,35 +137,33 @@ func Test_RunPipeline_filtering(test *testing.T) {
 	received, limit, fac := byte(0), byte(100), byte(2)
 	testcase := &Pipeline{
 		Producer: func(send chan<- []byte, errs chan<- error) {
-			defer close(send)
-			defer close(errs)
-
 			for i := byte(0); i < limit; i++ {
 				send <- []byte{i}
 			}
+			close(send)
 		},
 		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			defer close(errs)
-			defer close(done)
-
 			for range recv {
 				received++
 			}
+
+			close(done)
 		},
 		Transformer: func(in []byte) ([]byte, error) {
 			if in[0]%fac != fac-1 {
 				return nil, nil
+
 			}
 			return in, nil
 		},
 	}
 
 	if err := RunPipeline(testcase); err != nil {
-		test.Fatalf("failed running pipeline: %s, err!", err)
+		test.Fatal(err)
 	}
 
 	if received != limit/fac {
-		test.Fatalf("failed running pipeline: expected %d, got %d!", limit/fac, received)
+		test.Fatalf("recieved %d != %d/%d!", received, limit, fac)
 	}
 }
 
@@ -190,27 +190,21 @@ func Test_RunPipeline_error(test *testing.T) {
 	errText := "error made"
 	produceErr := func(n int) sdk.Producer {
 		return func(send chan<- []byte, errs chan<- error) {
-			defer close(send)
-			defer close(errs)
-
 			for i := 0; i < n; i++ {
 				send <- []byte{0}
 			}
 
-			errs <- errors.New(errText)
+			errs <- fmt.Errorf(errText)
 		}
 	}
 
 	consumeErr := func(n int) sdk.Consumer {
 		return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			defer close(errs)
-			defer close(done)
-
 			for i := 0; i < n; i++ {
 				<-recv
 			}
 
-			errs <- errors.New(errText)
+			errs <- fmt.Errorf(errText)
 		}
 	}
 
@@ -218,7 +212,7 @@ func Test_RunPipeline_error(test *testing.T) {
 		i := 0
 		return func(in []byte) ([]byte, error) {
 			if i >= n {
-				return nil, errors.New(errText)
+				return nil, fmt.Errorf(errText)
 			}
 			i++
 			return in, nil
@@ -261,17 +255,17 @@ func Test_RunPipeline_error(test *testing.T) {
 		}, fmt.Errorf("consumer supplied error: %s", errText)},
 	}
 
-	for i, testcase := range testcases {
+	for _, testcase := range testcases {
 		didFire := false
 		testcase.pipeline.logger = pipelineTestLogger(func() {
 			didFire = true
 		})
 		if err := RunPipeline(testcase.pipeline); err == nil {
-			test.Fatalf("run-pipeline-error[%d]: failed running pipeline: expected error, got none!", i)
+			test.Fatal("no error returned")
 		} else if err.Error() != testcase.want.Error() {
-			test.Fatalf("run-pipeline-error[%d]: failed running pipeline: expected error %s, got %s!", i, testcase.want, err)
+			test.Fatalf("other error: %s != %s!", err, testcase.want)
 		} else if !didFire {
-			test.Fatalf("run-pipeline-error[%d]: failed running pipeline: expected logger hook to fire, got not fired!", i)
+			test.Fatal("logger hook did not fire")
 		}
 	}
 }

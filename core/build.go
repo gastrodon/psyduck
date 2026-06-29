@@ -6,7 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastrodon/psyduck/parse"
+	"github.com/gastrodon/psyduck/configure"
+	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
 )
@@ -56,28 +57,30 @@ func join[T any](group []chan T, ent *logrus.Entry) chan T {
 	joined := make(chan T)
 	closer := make(chan struct{})
 
+	go func(size int) {
+		closed, cLock := 0, new(sync.Mutex)
+		for closed < size {
+			<-closer
+			cLock.Lock()
+			closed++
+			cLock.Unlock()
+		}
+
+		ent.Trace("closing all of the groups")
+		close(joined)
+	}(len(group))
+
 	for i := range group {
-		go func(ishadow int) { // goroutine forwarder for every c in group
+		go func(ishadow int, closer chan<- struct{}) { // goroutine forwarder for every c in group
 			for msg := range group[ishadow] {
 				joined <- msg
 			}
 
 			ent.Tracef("forwarder %d exhausted", ishadow)
 			closer <- struct{}{}
-		}(i)
+		}(i, closer)
 	}
 
-	go func() {
-		defer func() {
-			close(joined)
-			close(closer)
-			ent.Trace("closed all of the groups")
-		}()
-
-		for i := 0; i < len(group); i++ {
-			<-closer
-		}
-	}()
 	return joined
 }
 
@@ -102,8 +105,8 @@ func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer
 	out:
 		for {
 			select {
-			case msg, ok := <-tData:
-				if !ok {
+			case msg := <-tData:
+				if msg == nil {
 					logger.Trace("tData closed, breaking out")
 					break out
 				}
@@ -119,13 +122,6 @@ func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer
 
 		logger.Trace("closing dataOut")
 		close(dataOut)
-		for err := range tErrs {
-			if err != nil {
-				logger.Error(err)
-				errs <- err
-			}
-		}
-		close(errs)
 	}
 }
 
@@ -142,10 +138,13 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 	split := mchan[[]byte](len(consumers))
 
 	tErrs := join(gErrs, logger.WithField("joined", "errs"))
+	tDone := join(gDone, logger.WithField("joined", "done"))
 	return func(dataRecv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		for i := range split {
 			go consumers[i](split[i], gErrs[i], gDone[i])
 		}
+
+		handle := make(chan error)
 
 		go func() {
 			for msg := range dataRecv {
@@ -155,42 +154,41 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 				}
 			}
 
-			for i := range split {
-				logger.Tracef("closing split[%d]\n", i)
-				close(split[i])
-			}
+			close(handle)
 		}()
 
 		go func() {
-			defer func() {
-				close(errs)
-				close(done)
-				logger.Trace("closing provided errs and done")
-			}()
+			for err := range tErrs {
+				if err != nil {
+					handle <- err
+				}
+			}
+		}()
 
-			var wg sync.WaitGroup
-			wg.Add(len(consumers))
-			for i := range consumers {
-				go func(idx int) {
-					defer wg.Done()
-					<-gDone[idx]
-				}(i)
+		for err := range handle {
+			if err != nil {
+				errs <- err
+			}
+		}
+
+		for i := range split {
+			logger.Tracef("closing split[%d]\n", i)
+			close(split[i])
+		}
+
+		closed, cLock := 0, new(sync.Mutex)
+		for range tDone {
+			cLock.Lock()
+			closed++
+			if closed == len(consumers) {
+				break
 			}
 
-			var errWg sync.WaitGroup
-			errWg.Add(1)
-			go func() {
-				defer errWg.Done()
-				for err := range tErrs {
-					if err != nil {
-						errs <- err
-					}
-				}
-			}()
+			cLock.Unlock()
+		}
 
-			wg.Wait()
-			errWg.Wait()
-		}()
+		logger.Trace("closing provided done")
+		close(done)
 	}
 }
 
@@ -218,10 +216,10 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *logrus.Logger) (sdk.Producer, error) {
-	if descriptor.ProduceFrom != nil {
+func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, library Library, logger *logrus.Logger) (sdk.Producer, error) {
+	if descriptor.RemoteProducer != nil {
 		logger.Trace("getting remote producer")
-		p, err := library.Producer(descriptor.ProduceFrom.Kind, descriptor.ProduceFrom.Options)
+		p, err := library.Producer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
 		if err != nil {
 			return nil, fmt.Errorf("failed providing remote producer: %s", err)
 		}
@@ -231,58 +229,39 @@ func collectProducer(descriptor *parse.PipelineDesc, library Library, logger *lo
 		defer t.Stop()
 		send, errs := make(chan []byte), make(chan error)
 		go p(send, errs)
-		// drain both channels in the background so the producer goroutine can
-		// always exit once it closes them, regardless of how many items it sends
-		drain := func() {
-			go func() {
-				for range send {
-				}
-			}()
-			go func() {
-				for range errs {
-				}
-			}()
-		}
 		select {
 		case <-t.C:
-			drain()
 			return nil, fmt.Errorf("timeout getting anything from the meta-producer") // stupid name? hardcoded timeout? I will fix it later TODO
 		case err := <-errs:
-			drain()
 			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
 		case msg := <-send:
-			parts, err := parse.ParseString("yaml", string(msg))
+			parts, err := configure.Partial("remote-producer", msg, context)
 			if err != nil {
 				return nil, fmt.Errorf("failed to configure remote: %s", err)
 			}
 
-			var producers []parse.PartYAML
-			for _, p := range parts.Pipelines {
-				producers = append(producers, p.Produce...)
-			}
-
-			return collectProducer(&parse.PipelineDesc{
-				Name:         descriptor.Name,
-				ProduceFrom:  nil,
-				Produce:      producers,
-				Consumers:    descriptor.Consumers,
-				Transformers: descriptor.Transformers,
-				StopAfter:    descriptor.StopAfter,
-			}, library, logger)
+			return collectProducer(&configure.Pipeline{
+				Name:           descriptor.Name,
+				RemoteProducer: nil,
+				Producers:      parts.Producers,
+				Consumers:      descriptor.Consumers,
+				Transformers:   descriptor.Transformers,
+				StopAfter:      descriptor.StopAfter,
+			}, context, library, logger)
 		}
 	}
 
 	logger.Trace("config literal producer")
-	switch len(descriptor.Produce) {
+	switch len(descriptor.Producers) {
 	case 0:
 		return nil, fmt.Errorf("1 or more producer is required")
 	case 1:
 		logger.Trace("only one producer")
-		return library.Producer(descriptor.Produce[0].Kind, descriptor.Produce[0].Options)
+		return library.Producer(descriptor.Producers[0].Kind, context, descriptor.Producers[0].Options)
 	default:
-		producers := make([]sdk.Producer, len(descriptor.Produce))
-		for index, produceDescriptor := range descriptor.Produce {
-			producer, err := library.Producer(produceDescriptor.Kind, produceDescriptor.Options)
+		producers := make([]sdk.Producer, len(descriptor.Producers))
+		for index, produceDescriptor := range descriptor.Producers {
+			producer, err := library.Producer(produceDescriptor.Kind, context, produceDescriptor.Options)
 			if err != nil {
 				return nil, err
 			}
@@ -304,16 +283,16 @@ Produces a runnable pipeline.
 Each mover in the pipeline ( every producer / consumer / transformer ) is joined
 and the resulting pipeline is returned.
 */
-func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, error) {
+func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library Library) (*Pipeline, error) {
 	logger := pipelineLogger()
-	producer, err := collectProducer(descriptor, library, logger)
+	producer, err := collectProducer(descriptor, evalCtx, library, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
 	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.Consumer(consumeDescriptor.Kind, consumeDescriptor.Options)
+		consumer, err := library.Consumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}
@@ -323,7 +302,7 @@ func BuildPipeline(descriptor *parse.PipelineDesc, library Library) (*Pipeline, 
 
 	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
 	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.Transformer(transformDescriptor.Kind, transformDescriptor.Options)
+		transformer, err := library.Transformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
 		if err != nil {
 			return nil, err
 		}

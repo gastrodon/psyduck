@@ -1,9 +1,6 @@
 package core
 
-import (
-	"fmt"
-	"sync"
-)
+import "fmt"
 
 func RunPipeline(pipeline *Pipeline) error {
 	dataProducer, errorProducer := make(chan []byte), make(chan error)
@@ -13,11 +10,7 @@ func RunPipeline(pipeline *Pipeline) error {
 	go pipeline.Producer(dataProducer, errorProducer)
 	go pipeline.Consumer(dataConsumer, errorConsumer, finishConsumer)
 
-	var wg sync.WaitGroup
-	wg.Add(2)
-
 	go func() {
-		defer wg.Done()
 		for err := range errorProducer {
 			if err != nil {
 				errs <- fmt.Errorf("producer supplied error: %s", err)
@@ -26,7 +19,6 @@ func RunPipeline(pipeline *Pipeline) error {
 	}()
 
 	go func() {
-		defer wg.Done()
 		for err := range errorConsumer {
 			if err != nil {
 				errs <- fmt.Errorf("consumer supplied error: %s", err)
@@ -50,7 +42,6 @@ func RunPipeline(pipeline *Pipeline) error {
 
 		close(dataConsumer)
 		<-finishConsumer
-		wg.Wait()
 		close(errs)
 	}()
 
