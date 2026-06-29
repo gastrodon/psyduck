@@ -90,8 +90,10 @@ func (h *HCL) Values() (map[string]cty.Value, error) {
 
 // Resources parses produce/consume/transform blocks from the HCL config,
 // resolves their attribute values against value.* and env.* namespaces,
-// and instantiates each resource through the Library.
-func (h *HCL) Resources(lib Library) (*ResourceSources, error) {
+// and instantiates each resource via the provided plugins.
+func (h *HCL) Resources(plugins []*sdk.Plugin) (*ResourceSources, error) {
+	lookup := resourceLookup(plugins)
+
 	valuesCtx, err := h.makeValuesEvalCtx()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build values eval context: %w", err)
@@ -107,40 +109,40 @@ func (h *HCL) Resources(lib Library) (*ResourceSources, error) {
 
 	for _, part := range resources.Producers {
 		key := resourceName(nsProduce, part)
-		spec, _ := lib.Spec(part.Kind)
-		parser := hclParser(spec, valuesCtx, part.Options)
-
-		p, err := lib.Producer(part.Kind, parser)
+		r, err := lookup(part.Kind)
 		if err != nil {
 			return nil, fmt.Errorf("failed to instantiate producer %s: %w", key, err)
 		}
-
+		p, err := r.ProvideProducer(hclParser(r.Spec, valuesCtx, part.Options))
+		if err != nil {
+			return nil, fmt.Errorf("failed to instantiate producer %s: %w", key, err)
+		}
 		producers[key] = LiteralProducerSet(p)
 	}
 
 	for _, part := range resources.Consumers {
 		key := resourceName(nsConsume, part)
-		spec, _ := lib.Spec(part.Kind)
-		parser := hclParser(spec, valuesCtx, part.Options)
-
-		c, err := lib.Consumer(part.Kind, parser)
+		r, err := lookup(part.Kind)
 		if err != nil {
 			return nil, fmt.Errorf("failed to instantiate consumer %s: %w", key, err)
 		}
-
+		c, err := r.ProvideConsumer(hclParser(r.Spec, valuesCtx, part.Options))
+		if err != nil {
+			return nil, fmt.Errorf("failed to instantiate consumer %s: %w", key, err)
+		}
 		consumers[key] = LiteralConsumerSet(c)
 	}
 
 	for _, part := range resources.Transformers {
 		key := resourceName(nsTransform, part)
-		spec, _ := lib.Spec(part.Kind)
-		parser := hclParser(spec, valuesCtx, part.Options)
-
-		t, err := lib.Transformer(part.Kind, parser)
+		r, err := lookup(part.Kind)
 		if err != nil {
 			return nil, fmt.Errorf("failed to instantiate transformer %s: %w", key, err)
 		}
-
+		t, err := r.ProvideTransformer(hclParser(r.Spec, valuesCtx, part.Options))
+		if err != nil {
+			return nil, fmt.Errorf("failed to instantiate transformer %s: %w", key, err)
+		}
 		transformers[key] = t
 	}
 
@@ -149,6 +151,23 @@ func (h *HCL) Resources(lib Library) (*ResourceSources, error) {
 		Consumers:    consumers,
 		Transformers: transformers,
 	}, nil
+}
+
+// resourceLookup builds an index from kind name to *sdk.Resource across all plugins.
+func resourceLookup(plugins []*sdk.Plugin) func(string) (*sdk.Resource, error) {
+	index := make(map[string]*sdk.Resource)
+	for _, p := range plugins {
+		for _, r := range p.Resources {
+			index[r.Name] = r
+		}
+	}
+	return func(kind string) (*sdk.Resource, error) {
+		r, ok := index[kind]
+		if !ok {
+			return nil, &ErrNoValue{Key: kind}
+		}
+		return r, nil
+	}
 }
 
 // ---------------------------------------------------------------------------

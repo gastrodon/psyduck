@@ -13,7 +13,7 @@ import (
 type Format interface {
 	Plugins() ([]*sdk.Plugin, error)
 	Values() (map[string]cty.Value, error)
-	Resources(Library) (*ResourceSources, error)
+	Resources([]*sdk.Plugin) (*ResourceSources, error)
 }
 
 // ResourceSources holds the resource data extracted by a Format,
@@ -64,14 +64,13 @@ func (c *Config[F]) Datasources() (Sources, error) {
 	}
 
 	allPlugins := append(plugins, stdlib.Plugin())
-	lib := NewLibrary(allPlugins...)
 
 	values, err := c.Format.Values()
 	if err != nil {
 		return nil, err
 	}
 
-	resources, err := c.Format.Resources(lib)
+	resources, err := c.Format.Resources(allPlugins)
 	if err != nil {
 		return nil, err
 	}

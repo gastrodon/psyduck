@@ -21,8 +21,8 @@ type mockFormat struct {
 	resources    *ResourceSources
 	resourcesErr error
 
-	// capturedLib records the Library passed to Resources so tests can inspect it.
-	capturedLib Library
+	// capturedPlugins records the plugins passed to Resources so tests can inspect them.
+	capturedPlugins []*sdk.Plugin
 }
 
 func (m *mockFormat) Plugins() ([]*sdk.Plugin, error) {
@@ -33,8 +33,8 @@ func (m *mockFormat) Values() (map[string]cty.Value, error) {
 	return m.values, m.valuesErr
 }
 
-func (m *mockFormat) Resources(lib Library) (*ResourceSources, error) {
-	m.capturedLib = lib
+func (m *mockFormat) Resources(plugins []*sdk.Plugin) (*ResourceSources, error) {
+	m.capturedPlugins = plugins
 	return m.resources, m.resourcesErr
 }
 
@@ -237,7 +237,7 @@ func TestConfigDatasources_EmptyFormat(t *testing.T) {
 	require.NotNil(t, sources.Env())
 }
 
-func TestConfigDatasources_LibraryIncludesBothUserAndStdlib(t *testing.T) {
+func TestConfigDatasources_PluginsIncludesBothUserAndStdlib(t *testing.T) {
 	userPlugin := &sdk.Plugin{
 		Name: "my-plugin",
 		Resources: []*sdk.Resource{
@@ -265,22 +265,13 @@ func TestConfigDatasources_LibraryIncludesBothUserAndStdlib(t *testing.T) {
 	_, err := cfg.Datasources()
 	require.NoError(t, err)
 
-	lib := mf.capturedLib
-	require.NotNil(t, lib, "Library should have been passed to Resources")
+	plugins := mf.capturedPlugins
+	require.NotNil(t, plugins, "plugins should have been passed to Resources")
 
-	// Library should know about the user plugin's resource
-	spec, ok := lib.Spec("my-resource")
-	assert.True(t, ok, "Library should contain user resource 'my-resource'")
-	_ = spec
-
-	// Library should also know about stdlib resources (e.g. "constant", "trash")
-	spec, ok = lib.Spec("constant")
-	assert.True(t, ok, "Library should contain stdlib resource 'constant'")
-
-	spec, ok = lib.Spec("trash")
-	assert.True(t, ok, "Library should contain stdlib resource 'trash'")
-
-	// Library should not contain unknown resources
-	_, ok = lib.Spec("nonexistent-resource")
-	assert.False(t, ok, "Library should not contain unknown resources")
+	names := make(map[string]bool)
+	for _, p := range plugins {
+		names[p.Name] = true
+	}
+	assert.True(t, names["my-plugin"], "user plugin should be passed to Resources")
+	assert.True(t, names["psyduck"], "stdlib plugin should be passed to Resources")
 }
