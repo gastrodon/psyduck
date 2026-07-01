@@ -1,62 +1,64 @@
 package datasource
 
 import (
+	"fmt"
+
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-// Format bridges a configuration language (HCL, JSON, etc.) to the
-// data each Datasource needs. A Format implementation is responsible
-// for parsing raw config bytes into the shapes expected here.
+// Format bridges a configuration language (HCL, JSON, etc.) to the pipeline
+// data datasource needs. A Format implementation parses raw config into the
+// shapes expected here. Values() is internal to Format implementations —
+// callers use Plugins(), Resources(), and Pipelines().
 type Format interface {
 	Plugins() ([]*sdk.Plugin, error)
 	Values() (map[string]cty.Value, error)
 	Resources([]*sdk.Plugin) (*ResourceSources, error)
+	Pipelines() (map[string]PipelineDecl, error)
 }
 
-// ResourceSources holds the resource data extracted by a Format,
-// ready to be wrapped in Datasource accessors.
+// ResourceSources holds the parsed resource bindings extracted by a Format.
+// Each binding pairs a plugin resource factory with a format-agnostic parser
+// closure. Consumed internally by Config.Datasources() and never exposed on Sources.
 type ResourceSources struct {
-	Producers    map[string]ProducerSet
-	Consumers    map[string]ConsumerSet
-	Transformers map[string]sdk.Transformer
+	Producers    map[string]ResourceBinding
+	Consumers    map[string]ResourceBinding
+	Transformers map[string]ResourceBinding
 }
 
-// Sources provides access to all datasources a pipeline build needs.
+// Sources provides access to fully-resolved pipeline descriptions.
+// Each PipelineSource contains BindingSets of parsed-but-not-instantiated resources.
 type Sources interface {
-	Env() Datasource[string]
-	Values() Datasource[cty.Value]
-	Plugins() Datasource[*sdk.Plugin]
-	Producers() Datasource[ProducerSet]
-	Consumers() Datasource[ConsumerSet]
-	Transformers() Datasource[sdk.Transformer]
+	Pipeline(name string) (PipelineSource, error)
+	Pipelines() map[string]PipelineSource
 }
 
 type sources struct {
-	env          Datasource[string]
-	values       Datasource[cty.Value]
-	plugins      Datasource[*sdk.Plugin]
-	producers    Datasource[ProducerSet]
-	consumers    Datasource[ConsumerSet]
-	transformers Datasource[sdk.Transformer]
+	pipelines map[string]PipelineSource
 }
 
-func (s *sources) Env() Datasource[string]               { return s.env }
-func (s *sources) Values() Datasource[cty.Value]         { return s.values }
-func (s *sources) Plugins() Datasource[*sdk.Plugin]      { return s.plugins }
-func (s *sources) Producers() Datasource[ProducerSet]    { return s.producers }
-func (s *sources) Consumers() Datasource[ConsumerSet]    { return s.consumers }
-func (s *sources) Transformers() Datasource[sdk.Transformer] { return s.transformers }
+func (s *sources) Pipeline(name string) (PipelineSource, error) {
+	p, ok := s.pipelines[name]
+	if !ok {
+		return PipelineSource{}, &ErrNoValue{Key: name}
+	}
+	return p, nil
+}
+
+func (s *sources) Pipelines() map[string]PipelineSource {
+	return s.pipelines
+}
 
 // Config ties a Format to the datasource construction pipeline.
 type Config[F Format] struct {
 	Format F
 }
 
-// Datasources drives the Format through its phases and returns
-// the complete set of datasources.
+// Datasources drives the Format through its phases and returns Sources
+// containing fully-resolved PipelineSources keyed by pipeline name.
 func (c *Config[F]) Datasources() (Sources, error) {
 	plugins, err := c.Format.Plugins()
 	if err != nil {
@@ -65,27 +67,54 @@ func (c *Config[F]) Datasources() (Sources, error) {
 
 	allPlugins := append(plugins, stdlib.Plugin())
 
-	values, err := c.Format.Values()
-	if err != nil {
-		return nil, err
-	}
-
 	resources, err := c.Format.Resources(allPlugins)
 	if err != nil {
 		return nil, err
 	}
 
-	pluginMap := make(map[string]*sdk.Plugin, len(allPlugins))
-	for _, p := range allPlugins {
-		pluginMap[p.Name] = p
+	decls, err := c.Format.Pipelines()
+	if err != nil {
+		return nil, err
 	}
 
-	return &sources{
-		env:          Env(),
-		values:       &mapDatasource[cty.Value]{data: values},
-		plugins:      &mapDatasource[*sdk.Plugin]{data: pluginMap},
-		producers:    &mapDatasource[ProducerSet]{data: resources.Producers},
-		consumers:    &mapDatasource[ConsumerSet]{data: resources.Consumers},
-		transformers: &mapDatasource[sdk.Transformer]{data: resources.Transformers},
-	}, nil
+	resolved := make(map[string]PipelineSource, len(decls))
+	for name, decl := range decls {
+		prodBindings := make([]ResourceBinding, 0, len(decl.Producers))
+		for _, key := range decl.Producers {
+			b, ok := resources.Producers[key]
+			if !ok {
+				return nil, fmt.Errorf("pipeline %q: unknown producer resource %q", name, key)
+			}
+			prodBindings = append(prodBindings, b)
+		}
+
+		consBindings := make([]ResourceBinding, 0, len(decl.Consumers))
+		for _, key := range decl.Consumers {
+			b, ok := resources.Consumers[key]
+			if !ok {
+				return nil, fmt.Errorf("pipeline %q: unknown consumer resource %q", name, key)
+			}
+			consBindings = append(consBindings, b)
+		}
+
+		transBindings := make([]ResourceBinding, 0, len(decl.Transformers))
+		for _, key := range decl.Transformers {
+			b, ok := resources.Transformers[key]
+			if !ok {
+				return nil, fmt.Errorf("pipeline %q: unknown transformer resource %q", name, key)
+			}
+			transBindings = append(transBindings, b)
+		}
+
+		resolved[name] = PipelineSource{
+			Name:         name,
+			Producers:    LiteralBindingSet(prodBindings...),
+			Consumers:    LiteralBindingSet(consBindings...),
+			Transformers: LiteralBindingSet(transBindings...),
+			StopAfter:    decl.StopAfter,
+			ExitOnError:  decl.ExitOnError,
+		}
+	}
+
+	return &sources{pipelines: resolved}, nil
 }

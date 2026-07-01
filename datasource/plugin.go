@@ -7,7 +7,7 @@ import (
 	"github.com/psyduck-etl/sdk"
 )
 
-func loadPluginBinary(name, soPath string) (*sdk.Plugin, error) {
+func LoadPluginBinary(name, soPath string) (*sdk.Plugin, error) {
 	p, err := plugin.Open(soPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open plugin %s at %s: %w", name, soPath, err)
@@ -29,7 +29,7 @@ func loadPluginBinary(name, soPath string) (*sdk.Plugin, error) {
 func Plugin(binPaths map[string]string) (Datasource[*sdk.Plugin], error) {
 	plugins := make(map[string]*sdk.Plugin, len(binPaths))
 	for name, path := range binPaths {
-		p, err := loadPluginBinary(name, path)
+		p, err := LoadPluginBinary(name, path)
 		if err != nil {
 			return nil, err
 		}

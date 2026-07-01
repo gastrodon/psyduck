@@ -1,9 +1,10 @@
-package datasource
+package hcl
 
 import (
 	"errors"
 	"testing"
 
+	"github.com/gastrodon/psyduck/datasource"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/zclconf/go-cty/cty"
@@ -43,14 +44,14 @@ func TestValueGetAbsentKey(t *testing.T) {
 	v, err := ds.Get("missing")
 	assert.Equal(t, cty.NilVal, v)
 
-	var target *ErrNoValue
+	var target *datasource.ErrNoValue
 	require.True(t, errors.As(err, &target))
 	assert.Equal(t, "missing", target.Key)
 }
 
 func TestValueMultipleBlocks(t *testing.T) {
-	hcl := []byte("value { a = \"1\" }\nvalue { b = \"2\" }")
-	ds, err := Value("test.hcl", hcl)
+	hclBytes := []byte("value { a = \"1\" }\nvalue { b = \"2\" }")
+	ds, err := Value("test.hcl", hclBytes)
 	require.NoError(t, err)
 
 	a, err := ds.Get("a")
@@ -63,8 +64,8 @@ func TestValueMultipleBlocks(t *testing.T) {
 }
 
 func TestValueDuplicateKeyError(t *testing.T) {
-	hcl := []byte("value { k = \"1\" }\nvalue { k = \"2\" }")
-	_, err := Value("test.hcl", hcl)
+	hclBytes := []byte("value { k = \"1\" }\nvalue { k = \"2\" }")
+	_, err := Value("test.hcl", hclBytes)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate")
 }

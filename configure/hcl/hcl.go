@@ -1,4 +1,4 @@
-package datasource
+package hcl
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gastrodon/psyduck/datasource"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -22,7 +23,7 @@ const (
 	nsTransform = "transform"
 )
 
-// HCL implements Format for HCL-based configuration files.
+// HCL implements datasource.Format for HCL-based configuration files.
 type HCL struct {
 	filename string
 	literal  []byte
@@ -33,7 +34,7 @@ type HCL struct {
 }
 
 // NewHCL creates a new HCL format reader.
-//   - filename and literal are the HCL config content (as configure.Literal accepts)
+//   - filename and literal are the HCL config content
 //   - initPath is the .psyduck directory where plugin.json and compiled .so files live
 func NewHCL(filename string, literal []byte, initPath string) *HCL {
 	return &HCL{filename: filename, literal: literal, initPath: initPath}
@@ -57,7 +58,7 @@ func (h *HCL) Plugins() ([]*sdk.Plugin, error) {
 
 	plugins := make([]*sdk.Plugin, 0, len(binPaths))
 	for name, soPath := range binPaths {
-		p, err := loadPluginBinary(name, soPath)
+		p, err := datasource.LoadPluginBinary(name, soPath)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +92,10 @@ func (h *HCL) Values() (map[string]cty.Value, error) {
 // Resources parses produce/consume/transform blocks from the HCL config,
 // resolves their attribute values against value.* and env.* namespaces,
 // and instantiates each resource via the provided plugins.
-func (h *HCL) Resources(plugins []*sdk.Plugin) (*ResourceSources, error) {
+// Resources parses produce/consume/transform blocks and returns ResourceBindings
+// that pair each plugin resource with a format-agnostic parser closure.
+// Instantiation (calling ProvideProducer etc.) is deferred to the build layer.
+func (h *HCL) Resources(plugins []*sdk.Plugin) (*datasource.ResourceSources, error) {
 	lookup := resourceLookup(plugins)
 
 	valuesCtx, err := h.makeValuesEvalCtx()
@@ -103,54 +107,61 @@ func (h *HCL) Resources(plugins []*sdk.Plugin) (*ResourceSources, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse resources: %w", err)
 	}
-	producers := make(map[string]ProducerSet)
-	consumers := make(map[string]ConsumerSet)
-	transformers := make(map[string]sdk.Transformer)
+
+	producers := make(map[string]datasource.ResourceBinding)
+	consumers := make(map[string]datasource.ResourceBinding)
+	transformers := make(map[string]datasource.ResourceBinding)
 
 	for _, part := range resources.Producers {
 		key := resourceName(nsProduce, part)
 		r, err := lookup(part.Kind)
 		if err != nil {
-			return nil, fmt.Errorf("failed to instantiate producer %s: %w", key, err)
+			return nil, fmt.Errorf("producer %s: unknown resource kind %q: %w", key, part.Kind, err)
 		}
-		p, err := r.ProvideProducer(hclParser(r.Spec, valuesCtx, part.Options))
-		if err != nil {
-			return nil, fmt.Errorf("failed to instantiate producer %s: %w", key, err)
+		producers[key] = datasource.ResourceBinding{
+			Kind:     key,
+			Resource: r,
+			Parse:    hclParser(r.Spec, valuesCtx, part.Options),
 		}
-		producers[key] = LiteralProducerSet(p)
 	}
 
 	for _, part := range resources.Consumers {
 		key := resourceName(nsConsume, part)
 		r, err := lookup(part.Kind)
 		if err != nil {
-			return nil, fmt.Errorf("failed to instantiate consumer %s: %w", key, err)
+			return nil, fmt.Errorf("consumer %s: unknown resource kind %q: %w", key, part.Kind, err)
 		}
-		c, err := r.ProvideConsumer(hclParser(r.Spec, valuesCtx, part.Options))
-		if err != nil {
-			return nil, fmt.Errorf("failed to instantiate consumer %s: %w", key, err)
+		consumers[key] = datasource.ResourceBinding{
+			Kind:     key,
+			Resource: r,
+			Parse:    hclParser(r.Spec, valuesCtx, part.Options),
 		}
-		consumers[key] = LiteralConsumerSet(c)
 	}
 
 	for _, part := range resources.Transformers {
 		key := resourceName(nsTransform, part)
 		r, err := lookup(part.Kind)
 		if err != nil {
-			return nil, fmt.Errorf("failed to instantiate transformer %s: %w", key, err)
+			return nil, fmt.Errorf("transformer %s: unknown resource kind %q: %w", key, part.Kind, err)
 		}
-		t, err := r.ProvideTransformer(hclParser(r.Spec, valuesCtx, part.Options))
-		if err != nil {
-			return nil, fmt.Errorf("failed to instantiate transformer %s: %w", key, err)
+		transformers[key] = datasource.ResourceBinding{
+			Kind:     key,
+			Resource: r,
+			Parse:    hclParser(r.Spec, valuesCtx, part.Options),
 		}
-		transformers[key] = t
 	}
 
-	return &ResourceSources{
+	return &datasource.ResourceSources{
 		Producers:    producers,
 		Consumers:    consumers,
 		Transformers: transformers,
 	}, nil
+}
+
+// Pipelines returns pipeline wiring declarations with string resource references.
+// Stub — full implementation pending configure/hcl pipeline parsing.
+func (h *HCL) Pipelines() (map[string]datasource.PipelineDecl, error) {
+	return map[string]datasource.PipelineDecl{}, nil
 }
 
 // resourceLookup builds an index from kind name to *sdk.Resource across all plugins.
@@ -164,7 +175,7 @@ func resourceLookup(plugins []*sdk.Plugin) func(string) (*sdk.Resource, error) {
 	return func(kind string) (*sdk.Resource, error) {
 		r, ok := index[kind]
 		if !ok {
-			return nil, &ErrNoValue{Key: kind}
+			return nil, &datasource.ErrNoValue{Key: kind}
 		}
 		return r, nil
 	}
@@ -174,22 +185,18 @@ func resourceLookup(plugins []*sdk.Plugin) func(string) (*sdk.Resource, error) {
 // Internal: HCL parsing helpers
 // ---------------------------------------------------------------------------
 
-// hclPipelinePart mirrors configure.pipelinePart — a single
-// produce/consume/transform block with kind and name labels.
 type hclPipelinePart struct {
 	Kind    string   `hcl:"kind,label" cty:"kind"`
 	Name    string   `hcl:"name,label" cty:"kind"`
 	Options hcl.Body `hcl:",remain"`
 }
 
-// hclPipelineParts collects all top-level resource blocks.
 type hclPipelineParts struct {
 	Producers    []*hclPipelinePart `hcl:"produce,block"`
 	Consumers    []*hclPipelinePart `hcl:"consume,block"`
 	Transformers []*hclPipelinePart `hcl:"transform,block"`
 }
 
-// resourceName builds the canonical reference key "namespace.kind.name".
 func resourceName(namespace string, part *hclPipelinePart) string {
 	return strings.Join([]string{namespace, part.Kind, part.Name}, ".")
 }
@@ -217,57 +224,6 @@ func (h *HCL) parseResources(evalCtx *hcl.EvalContext) (*hclPipelineParts, error
 	return parts, nil
 }
 
-// buildResourcesCtx builds an HCL eval context that maps resource references
-// (produce.kind.name, consume.kind.name, transform.kind.name) to their
-// canonical string keys — enabling pipeline blocks to reference resources.
-func (h *HCL) buildResourcesCtx(parts *hclPipelineParts) (*hcl.EvalContext, error) {
-	produce, err := loadResourceSlice(nsProduce, parts.Producers)
-	if err != nil {
-		return nil, err
-	}
-
-	consume, err := loadResourceSlice(nsConsume, parts.Consumers)
-	if err != nil {
-		return nil, err
-	}
-
-	transform, err := loadResourceSlice(nsTransform, parts.Transformers)
-	if err != nil {
-		return nil, err
-	}
-
-	return &hcl.EvalContext{
-		Variables: map[string]cty.Value{
-			nsProduce:   produce,
-			nsConsume:   consume,
-			nsTransform: transform,
-		},
-	}, nil
-}
-
-// loadResourceSlice builds an object value mapping kind -> name -> reference string.
-func loadResourceSlice(namespace string, parts []*hclPipelinePart) (cty.Value, error) {
-	kinds := make(map[string]map[string]cty.Value)
-	for _, part := range parts {
-		if _, ok := kinds[part.Kind]; !ok {
-			kinds[part.Kind] = make(map[string]cty.Value)
-		}
-		kinds[part.Kind][part.Name] = cty.StringVal(resourceName(namespace, part))
-	}
-
-	if len(kinds) == 0 {
-		return cty.EmptyObjectVal, nil
-	}
-
-	refs := make(map[string]cty.Value, len(kinds))
-	for name, kindMap := range kinds {
-		refs[name] = cty.ObjectVal(kindMap)
-	}
-
-	return cty.ObjectVal(refs), nil
-}
-
-// makeValuesEvalCtx builds an eval context with value.* and env.* namespaces.
 func (h *HCL) makeValuesEvalCtx() (*hcl.EvalContext, error) {
 	values, err := h.Values()
 	if err != nil {
@@ -284,12 +240,11 @@ func (h *HCL) makeValuesEvalCtx() (*hcl.EvalContext, error) {
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
 			"value": valObj,
-			"env": makeMapEnv(),
+			"env":   makeMapEnv(),
 		},
 	}, nil
 }
 
-// makeMapEnv builds a cty object from os.Environ.
 func makeMapEnv() cty.Value {
 	env := os.Environ()
 	envMap := make(map[string]cty.Value, len(env))
@@ -310,11 +265,8 @@ func makeMapEnv() cty.Value {
 // Internal: HCL parser construction + attribute decoding
 // ---------------------------------------------------------------------------
 
-// hclParser builds an sdk.Parser that decodes an HCL body into a target
-// struct using the resource's spec, the eval context, and cty tagged
-// decoding with the "psy" tag.
 func hclParser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, body hcl.Body) sdk.Parser {
-	return func(target interface{}) error {
+	return func(target any) error {
 		if spec == nil {
 			return nil
 		}
@@ -332,8 +284,6 @@ func hclParser(spec sdk.SpecMap, evalCtx *hcl.EvalContext, body hcl.Body) sdk.Pa
 	}
 }
 
-// makeBodySchema converts an sdk.SpecMap into an HCL BodySchema suitable for
-// PartialContent calls.
 func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	attributes := make([]hcl.AttributeSchema, 0, len(specMap))
 	for _, spec := range specMap {
@@ -346,9 +296,7 @@ func makeBodySchema(specMap sdk.SpecMap) *hcl.BodySchema {
 	return &hcl.BodySchema{Attributes: attributes}
 }
 
-// decodeAttributes resolves HCL attributes against the spec, validates types,
-// applies defaults, and decodes the result into target via gocty with the "psy" tag.
-func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl.Attributes, target interface{}) hcl.Diagnostics {
+func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl.Attributes, target any) hcl.Diagnostics {
 	diags := hcl.Diagnostics{}
 
 	valuesDecode := make(map[string]cty.Value)
@@ -402,8 +350,6 @@ func decodeAttributes(spec sdk.SpecMap, evalCtx *hcl.EvalContext, attributes hcl
 	return diags
 }
 
-// getAttributeValue evaluates a single attribute expression, returning NilVal
-// if the attribute is absent.
 func getAttributeValue(attributes hcl.Attributes, name string, evalCtx *hcl.EvalContext) (cty.Value, hcl.Diagnostics) {
 	attr, ok := attributes[name]
 	if !ok {
@@ -412,8 +358,6 @@ func getAttributeValue(attributes hcl.Attributes, name string, evalCtx *hcl.Eval
 	return attr.Expr.Value(evalCtx)
 }
 
-// toDynCollection normalises HCL tuples to lists and objects to maps so that
-// the cty type system accepts them for spec validation.
 func toDynCollection(value cty.Value) cty.Value {
 	switch {
 	case value.Type().IsTupleType():

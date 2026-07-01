@@ -1,8 +1,9 @@
-package datasource
+package hcl
 
 import (
 	"fmt"
 
+	"github.com/gastrodon/psyduck/datasource"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -38,7 +39,7 @@ func parseValueBlocks(body hcl.Body) (map[string]cty.Value, error) {
 
 // Value parses HCL containing value { ... } blocks and returns a
 // Datasource[cty.Value] backed by the merged key-value entries.
-func Value(filename string, literal []byte) (Datasource[cty.Value], error) {
+func Value(filename string, literal []byte) (datasource.Datasource[cty.Value], error) {
 	file, diags := hclparse.NewParser().ParseHCL(literal, filename)
 	if diags.HasErrors() {
 		return nil, diags
@@ -49,5 +50,5 @@ func Value(filename string, literal []byte) (Datasource[cty.Value], error) {
 		return nil, err
 	}
 
-	return &mapDatasource[cty.Value]{data: values}, nil
+	return datasource.NewMapDatasource(values), nil
 }

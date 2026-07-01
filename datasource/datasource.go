@@ -48,3 +48,8 @@ func (d *mapDatasource[T]) Get(key string) (T, error) {
 	}
 	return v, nil
 }
+
+// NewMapDatasource returns a Datasource[T] backed by the provided map.
+func NewMapDatasource[T any](data map[string]T) Datasource[T] {
+	return &mapDatasource[T]{data: data}
+}
