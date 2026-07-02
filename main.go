@@ -16,7 +16,7 @@ import (
 )
 
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	sources, err := parse.Read(ctx.String("chdir"))
+	sources, err := parse.SourceFromDir(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("target required")
 	}
 
-	sources, err := parse.Read(ctx.String("chdir"))
+	sources, err := parse.SourceFromDir(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}

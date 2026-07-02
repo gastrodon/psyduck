@@ -15,9 +15,9 @@ type Source struct {
 	Content []byte
 }
 
-// Read collects every .psy file in directory as its own Source,
+// SourceFromDir collects every .psy file in directory as its own Source,
 // preserving filenames for diagnostics.
-func Read(directory string) ([]Source, error) {
+func SourceFromDir(directory string) ([]Source, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read files in %s: %w", directory, err)
