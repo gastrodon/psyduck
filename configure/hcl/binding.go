@@ -46,7 +46,7 @@ func (ix *resourceIndex) lookup(ref string) (string, sdk.ResourceDescriptor, err
 	if plugin, resource, qualified := strings.Cut(ref, "."); qualified {
 		resources, ok := ix.byPlugin[plugin]
 		if !ok {
-			return "", sdk.ResourceDescriptor{}, fmt.Errorf("unknown plugin %q in resource reference %q", plugin, ref)
+			return "", sdk.ResourceDescriptor{}, fmt.Errorf("unknown plugin %q in resource reference %q — is it declared in a plugin{} block? did you run `psyduck init`?", plugin, ref)
 		}
 		r, ok := resources[resource]
 		if !ok {
@@ -58,7 +58,7 @@ func (ix *resourceIndex) lookup(ref string) (string, sdk.ResourceDescriptor, err
 	owners := ix.owners[ref]
 	switch len(owners) {
 	case 0:
-		return "", sdk.ResourceDescriptor{}, fmt.Errorf("unknown resource %q", ref)
+		return "", sdk.ResourceDescriptor{}, fmt.Errorf("unknown resource %q — if it comes from a plugin, ensure the plugin is declared and run `psyduck init`", ref)
 	case 1:
 		return owners[0], ix.byPlugin[owners[0]][ref], nil
 	default:

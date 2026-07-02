@@ -2,25 +2,17 @@ package plugins
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"plugin"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/parse"
 )
 
-// Loader turns a plugin declaration into a live sdk.Plugin. The go/plugin
-// dlopen model is one implementation; socket/RPC loaders can implement
-// this later without touching callers.
-type Loader interface {
-	Load(spec parse.PluginSpec) (sdk.Plugin, error)
-}
-
 // GoPluginLoader loads plugins compiled with -buildmode=plugin, resolving
-// .so paths from <initPath>/plugin.json (written by FetchPlugins).
+// .so paths from <initPath>/plugin.json (written by Fetch).
 type GoPluginLoader struct {
 	initPath string
 
@@ -31,6 +23,9 @@ func NewGoPluginLoader(initPath string) *GoPluginLoader {
 	return &GoPluginLoader{initPath: initPath}
 }
 
+// manifest reads plugin.json, caching the result. A missing manifest is
+// not an error — it just means no plugins have been fetched, which is
+// valid for stdlib-only pipelines.
 func (l *GoPluginLoader) manifest() (map[string]string, error) {
 	if l.binPaths != nil {
 		return l.binPaths, nil
@@ -38,6 +33,10 @@ func (l *GoPluginLoader) manifest() (map[string]string, error) {
 
 	data, err := os.ReadFile(filepath.Join(l.initPath, "plugin.json"))
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			l.binPaths = map[string]string{}
+			return l.binPaths, nil
+		}
 		return nil, fmt.Errorf("failed to read plugin manifest: %w", err)
 	}
 
@@ -50,18 +49,22 @@ func (l *GoPluginLoader) manifest() (map[string]string, error) {
 	return binPaths, nil
 }
 
-func (l *GoPluginLoader) Load(spec parse.PluginSpec) (sdk.Plugin, error) {
-	binPaths, err := l.manifest()
+// LoadAll loads every plugin listed in the manifest.
+func (l *GoPluginLoader) LoadAll() ([]sdk.Plugin, error) {
+	manifest, err := l.manifest()
 	if err != nil {
 		return nil, err
 	}
 
-	soPath, ok := binPaths[spec.Name]
-	if !ok {
-		return nil, fmt.Errorf("no binary for plugin %s — run `psyduck init`?", spec.Name)
+	loaded := make([]sdk.Plugin, 0, len(manifest))
+	for name, soPath := range manifest {
+		p, err := LoadBinary(name, soPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load plugin %s: %w", name, err)
+		}
+		loaded = append(loaded, p)
 	}
-
-	return LoadBinary(spec.Name, soPath)
+	return loaded, nil
 }
 
 // LoadBinary opens the shared object at soPath and returns the sdk.Plugin
@@ -83,17 +86,4 @@ func LoadBinary(name, soPath string) (sdk.Plugin, error) {
 	}
 
 	return makePlugin(), nil
-}
-
-// LoadAll loads every declared plugin through the given Loader.
-func LoadAll(loader Loader, specs []parse.PluginSpec) ([]sdk.Plugin, error) {
-	loaded := make([]sdk.Plugin, len(specs))
-	for i, spec := range specs {
-		p, err := loader.Load(spec)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load plugin %s: %w", spec.Name, err)
-		}
-		loaded[i] = p
-	}
-	return loaded, nil
 }

@@ -44,18 +44,14 @@ func run(ctx *cli.Context) error {
 		return err
 	}
 
-	format := hcl.NewHCL()
-	specs, err := format.Plugins(sources)
-	if err != nil {
-		return err
-	}
-
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	loaded, err := plugins.LoadAll(plugins.NewGoPluginLoader(initPath), specs)
+	loaded, err := plugins.NewGoPluginLoader(initPath).LoadAll()
 	if err != nil {
 		return err
 	}
 	loaded = append(loaded, stdlib.Plugin())
+
+	format := hcl.NewHCL()
 
 	result, err := format.Parse(sources, loaded)
 	if err != nil {
