@@ -8,15 +8,15 @@ import (
 	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
 
-	"github.com/gastrodon/psyduck/configure"
-	"github.com/gastrodon/psyduck/configure/hcl"
 	"github.com/gastrodon/psyduck/core"
+	"github.com/gastrodon/psyduck/parse"
+	"github.com/gastrodon/psyduck/parse/hcl"
 	"github.com/gastrodon/psyduck/plugins"
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	sources, err := configure.ReadFiles(ctx.String("chdir"))
+	sources, err := parse.Read(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}
@@ -39,7 +39,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("target required")
 	}
 
-	sources, err := configure.ReadFiles(ctx.String("chdir"))
+	sources, err := parse.Read(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}

@@ -1,25 +1,21 @@
-// Package configure gathers configuration sources from disk. Parsing lives
-// in format implementations (see configure/hcl).
-package configure
+package parse
 
 import (
 	"fmt"
 	"os"
 	"path"
 	"strings"
-
-	"github.com/gastrodon/psyduck/parse"
 )
 
-// ReadFiles collects every .psy file in directory as its own parse.Source,
+// Read collects every .psy file in directory as its own Source,
 // preserving filenames for diagnostics.
-func ReadFiles(directory string) ([]parse.Source, error) {
+func Read(directory string) ([]Source, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read files in %s: %w", directory, err)
 	}
 
-	sources := make([]parse.Source, 0, len(entries))
+	sources := make([]Source, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".psy") {
 			continue
@@ -30,7 +26,7 @@ func ReadFiles(directory string) ([]parse.Source, error) {
 			return nil, fmt.Errorf("failed reading %s: %w", entry.Name(), err)
 		}
 
-		sources = append(sources, parse.Source{Name: entry.Name(), Content: content})
+		sources = append(sources, Source{Name: entry.Name(), Content: content})
 	}
 
 	return sources, nil
