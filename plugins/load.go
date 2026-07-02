@@ -11,54 +11,65 @@ import (
 	"github.com/psyduck-etl/sdk"
 )
 
-// GoPluginLoader loads plugins compiled with -buildmode=plugin, resolving
-// .so paths from <initPath>/plugin.json (written by Fetch).
-type GoPluginLoader struct {
-	initPath string
-
-	binPaths map[string]string
+// Store represents the .psyduck/ workspace directory: the single source of
+// truth for where plugin binaries live, where the manifest is written, and
+// how plugins are loaded at run time.
+type Store struct {
+	root string
 }
 
-func NewGoPluginLoader(initPath string) *GoPluginLoader {
-	return &GoPluginLoader{initPath: initPath}
+func NewStore(root string) *Store {
+	return &Store{root: root}
 }
 
-// manifest reads plugin.json, caching the result. A missing manifest is
-// not an error — it just means no plugins have been fetched, which is
-// valid for stdlib-only pipelines.
-func (l *GoPluginLoader) manifest() (map[string]string, error) {
-	if l.binPaths != nil {
-		return l.binPaths, nil
-	}
+func (s *Store) pluginsDir() string {
+	return filepath.Join(s.root, "plugins")
+}
 
-	data, err := os.ReadFile(filepath.Join(l.initPath, "plugin.json"))
+func (s *Store) manifestPath() string {
+	return filepath.Join(s.root, "plugin.json")
+}
+
+func (s *Store) soPath(name string) string {
+	return filepath.Join(s.pluginsDir(), name+".so")
+}
+
+func (s *Store) readManifest() (map[string]string, error) {
+	data, err := os.ReadFile(s.manifestPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			l.binPaths = map[string]string{}
-			return l.binPaths, nil
+			return map[string]string{}, nil
 		}
 		return nil, fmt.Errorf("failed to read plugin manifest: %w", err)
 	}
 
-	binPaths := make(map[string]string)
-	if err := json.Unmarshal(data, &binPaths); err != nil {
+	m := make(map[string]string)
+	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("failed to decode plugin manifest: %w", err)
 	}
-
-	l.binPaths = binPaths
-	return binPaths, nil
+	return m, nil
 }
 
-// LoadAll loads every plugin listed in the manifest.
-func (l *GoPluginLoader) LoadAll() ([]sdk.Plugin, error) {
-	manifest, err := l.manifest()
+func (s *Store) writeManifest(m map[string]string) error {
+	b, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.manifestPath(), b, 0o644)
+}
+
+// Load reads the manifest and opens every plugin listed in it.
+// A missing manifest is not an error — it means no plugins have been built,
+// which is valid for stdlib-only pipelines.
+func (s *Store) Load() ([]sdk.Plugin, error) {
+	manifest, err := s.readManifest()
 	if err != nil {
 		return nil, err
 	}
 
 	loaded := make([]sdk.Plugin, 0, len(manifest))
 	for name, soPath := range manifest {
-		p, err := LoadBinary(name, soPath)
+		p, err := loadBinary(name, soPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load plugin %s: %w", name, err)
 		}
@@ -67,9 +78,9 @@ func (l *GoPluginLoader) LoadAll() ([]sdk.Plugin, error) {
 	return loaded, nil
 }
 
-// LoadBinary opens the shared object at soPath and returns the sdk.Plugin
+// loadBinary opens the shared object at soPath and returns the sdk.Plugin
 // from its exported `func Plugin() sdk.Plugin` symbol.
-func LoadBinary(name, soPath string) (sdk.Plugin, error) {
+func loadBinary(name, soPath string) (sdk.Plugin, error) {
 	p, err := plugin.Open(soPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open plugin %s at %s: %w", name, soPath, err)

@@ -31,7 +31,7 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 		return err
 	}
 
-	return plugins.Fetch(initPath, specs)
+	return plugins.NewStore(initPath).Build(specs)
 }
 
 func run(ctx *cli.Context) error {
@@ -45,7 +45,7 @@ func run(ctx *cli.Context) error {
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	loaded, err := plugins.NewGoPluginLoader(initPath).LoadAll()
+	loaded, err := plugins.NewStore(initPath).Load()
 	if err != nil {
 		return err
 	}

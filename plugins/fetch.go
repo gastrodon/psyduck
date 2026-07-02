@@ -1,11 +1,9 @@
 package plugins
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 
@@ -27,92 +25,97 @@ func pluginKind(spec parse.PluginSpec) int {
 	if spec.Source == "" {
 		return pluginUnknown
 	}
-
 	if pPluginGitSSH.MatchString(spec.Source) || pPluginGitHTTPS.MatchString(spec.Source) {
 		return pluginRemote
 	}
-
 	return pluginLocal
 }
 
-func buildPlugin(codePath, binPath string, spec parse.PluginSpec) (string, error) {
-	soPath, err := filepath.Abs(path.Join(binPath, path.Base(spec.Source)+".so"))
-	if err != nil {
-		return "", fmt.Errorf("failed to get abspath for .so: %w", err)
-	}
+// fetcher is an ephemeral helper created by Store.Build. It holds the
+// temporary clone directory alongside the store so it can delegate all
+// persistent-path questions back to the store.
+type fetcher struct {
+	store  *Store
+	tmpDir string
+}
 
+func (f *fetcher) cloneDir(spec parse.PluginSpec) string {
+	return filepath.Join(f.tmpDir, spec.Name)
+}
+
+func (f *fetcher) cleanup() {
+	os.RemoveAll(f.tmpDir)
+}
+
+func (f *fetcher) build(codePath string, spec parse.PluginSpec) (string, error) {
+	soPath := f.store.soPath(spec.Name)
 	cmd := exec.Command("go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
-
 	return soPath, nil
 }
 
-func fetchPlugin(cachePath, binPath string, spec parse.PluginSpec) (string, error) {
+func (f *fetcher) clone(spec parse.PluginSpec) (string, error) {
+	cloneDir := f.cloneDir(spec)
+	if out, err := exec.Command("git", "clone", spec.Source, cloneDir).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to clone %s: %w\noutput: %s", spec.Source, err, out)
+	}
+	if spec.Tag != "" {
+		if out, err := exec.Command("git", "-C", cloneDir, "checkout", spec.Tag).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("failed to checkout %s: %w\noutput: %s", spec.Tag, err, out)
+		}
+	}
+	return cloneDir, nil
+}
+
+func (f *fetcher) fetch(spec parse.PluginSpec) (string, error) {
 	switch pluginKind(spec) {
 	case pluginLocal:
 		stat, err := os.Stat(spec.Source)
 		if err != nil {
 			return "", err
 		}
-
 		if stat.IsDir() {
-			return buildPlugin(spec.Source, binPath, spec)
+			return f.build(spec.Source, spec)
 		}
-
 		soPath := spec.Source
 		if !filepath.IsAbs(soPath) {
-			soPath = filepath.Join(binPath, soPath)
+			soPath = filepath.Join(f.store.pluginsDir(), soPath)
 		}
-
 		return filepath.Abs(soPath)
 	case pluginRemote:
-		pkgCache := path.Join(cachePath, spec.Name)
-		cmdClone := exec.Command("git", "clone", spec.Source, pkgCache)
-		if out, err := cmdClone.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("failed to clone %s: %w\noutput: %s", spec.Source, err, out)
+		cloneDir, err := f.clone(spec)
+		if err != nil {
+			return "", err
 		}
-
-		if spec.Tag != "" {
-			if out, err := exec.Command("git", "-C", pkgCache, "checkout", spec.Tag).CombinedOutput(); err != nil {
-				return "", fmt.Errorf("failed to checkout %s: %w\noutput: %s", spec.Tag, err, out)
-			}
-		}
-
-		return buildPlugin(pkgCache, binPath, spec)
+		return f.build(cloneDir, spec)
 	default:
 		return "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
 	}
 }
 
-// Fetch clones and builds the declared plugins, writing the name → .so path
-// manifest to <initPath>/plugin.json. Used by the init command.
-func Fetch(initPath string, specs []parse.PluginSpec) error {
-	cachePath, err := os.MkdirTemp("", "psyduck-plugin-*")
-	if err != nil {
-		return fmt.Errorf("failed to make cache dir: %w", err)
+// Build clones and compiles the declared plugins, writing the name → .so path
+// manifest to the store's manifest file. Used by the init command.
+func (s *Store) Build(specs []parse.PluginSpec) error {
+	if err := os.MkdirAll(s.pluginsDir(), os.ModeDir|os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create plugins dir: %w", err)
 	}
-	defer os.RemoveAll(cachePath)
 
-	binPath := path.Join(initPath, "plugins")
-	if err := os.MkdirAll(binPath, os.ModeDir|os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create binpath: %w", err)
+	tmpDir, err := os.MkdirTemp("", "psyduck-plugin-*")
+	if err != nil {
+		return fmt.Errorf("failed to make temp dir: %w", err)
 	}
+	f := &fetcher{store: s, tmpDir: tmpDir}
+	defer f.cleanup()
 
 	collected := make(map[string]string, len(specs))
 	for _, spec := range specs {
-		loc, err := fetchPlugin(cachePath, binPath, spec)
+		loc, err := f.fetch(spec)
 		if err != nil {
 			return fmt.Errorf("unable to fetch %s: %w", spec.Name, err)
 		}
 		collected[spec.Name] = loc
 	}
-
-	b, err := json.Marshal(collected)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path.Join(initPath, "plugin.json"), b, 0o644)
+	return s.writeManifest(collected)
 }

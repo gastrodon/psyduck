@@ -14,9 +14,13 @@ type PluginSpec struct {
 // descriptions core runs. Parsing is two-phase because plugin declarations
 // live in the same sources being parsed:
 //
-//	specs   := format.Plugins(sources)          // cheap syntax-only pre-pass
-//	plugins := loader.LoadAll(specs)            // dlopen / fetch
-//	result  := format.Parse(sources, plugins)   // full parse with resolution
+//	// init: extract specs, build the store
+//	specs := format.Plugins(sources)
+//	store.Build(specs)
+//
+//	// run: load from the store, then fully parse
+//	plugins := store.Load()
+//	result  := format.Parse(sources, plugins)
 type Format interface {
 	// Plugins extracts plugin declarations. It must not require loaded
 	// plugins or evaluate anything beyond plugin declaration syntax.
