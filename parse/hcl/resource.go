@@ -20,17 +20,20 @@ import (
 // ("psyduck.constant"). Bare references that match resources in more than
 // one plugin are ambiguous and error with the candidate list.
 type resourceIndex struct {
+	plugins  map[string]sdk.Plugin
 	byPlugin map[string]map[string]sdk.ResourceDescriptor
 	owners   map[string][]string // resource name -> plugin names that provide it
 }
 
 func indexResources(plugins []sdk.Plugin) *resourceIndex {
 	ix := &resourceIndex{
+		plugins:  make(map[string]sdk.Plugin, len(plugins)),
 		byPlugin: make(map[string]map[string]sdk.ResourceDescriptor, len(plugins)),
 		owners:   make(map[string][]string),
 	}
 
 	for _, p := range plugins {
+		ix.plugins[p.Name()] = p
 		resources := make(map[string]sdk.ResourceDescriptor)
 		for _, r := range p.Resources() {
 			resources[r.Name] = r
@@ -143,7 +146,6 @@ func makePipeline(
 	refCtxs map[string]*hcl.EvalContext,
 	valuesCtx *hcl.EvalContext,
 	ix *resourceIndex,
-	plugins map[string]sdk.Plugin,
 ) (parse.Pipeline, error) {
 	name := block.Labels[0]
 	origin := rangeOf(block.DefRange)
@@ -206,7 +208,7 @@ func makePipeline(
 		if !ok {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: unknown produce-from reference %q", name, v.AsString())
 		}
-		pipe.Producers = remoteBindings(seed, plugins, ix, valuesCtx)
+		pipe.Producers = remoteBindings(seed, ix, valuesCtx)
 	default:
 		return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: produce or produce-from is required", name, origin)
 	}
@@ -252,51 +254,47 @@ const remoteTimeout = 10 * time.Second
 //
 // TODO stream: today only the first message is consumed, matching the old
 // collectProducer behavior. A future revision can keep draining messages.
-func remoteBindings(seed parse.Resource, plugins map[string]sdk.Plugin, ix *resourceIndex, valuesCtx *hcl.EvalContext) parse.ResourceFunc {
-	var pending []parse.Resource
-	started := false
-
+func remoteBindings(seed parse.Resource, ix *resourceIndex, valuesCtx *hcl.EvalContext) parse.ResourceFunc {
+	var yield parse.ResourceFunc
 	return func(max int) ([]parse.Resource, error) {
-		if !started {
-			started = true
-
-			plugin, ok := plugins[seed.PluginID]
-			if !ok {
-				return nil, fmt.Errorf("produce-from %s: plugin %q not loaded", seed.Ref, seed.PluginID)
-			}
-
-			instance, err := plugin.Bind(sdk.PRODUCER, seed.Resource.Name, seed.Block)
+		if yield == nil {
+			bindings, err := drainSeed(seed, ix, valuesCtx)
 			if err != nil {
-				return nil, fmt.Errorf("produce-from %s: failed to bind: %w", seed.Ref, err)
+				return nil, err
 			}
-			defer instance.Close()
-
-			send, errs := make(chan []byte), make(chan error)
-			go instance.Produce(send, errs)
-
-			timeout := time.NewTimer(remoteTimeout)
-			defer timeout.Stop()
-
-			select {
-			case <-timeout.C:
-				return nil, fmt.Errorf("produce-from %s: timeout waiting for remote producer", seed.Ref)
-			case err := <-errs:
-				return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
-			case msg := <-send:
-				bindings, err := parseRemoteProducers(seed.Ref, msg, ix, valuesCtx)
-				if err != nil {
-					return nil, err
-				}
-				pending = bindings
-			}
+			yield = parse.LiteralResourceFunc(bindings...)
 		}
+		return yield(max)
+	}
+}
 
-		if max < 1 || len(pending) == 0 {
-			return nil, nil
-		}
-		chunk := pending[:min(max, len(pending))]
-		pending = pending[len(chunk):]
-		return chunk, nil
+// drainSeed binds and runs the seed producer, takes its first message, and
+// parses it as HCL produce blocks. Guarded by remoteTimeout.
+func drainSeed(seed parse.Resource, ix *resourceIndex, valuesCtx *hcl.EvalContext) ([]parse.Resource, error) {
+	plugin, ok := ix.plugins[seed.PluginID]
+	if !ok {
+		return nil, fmt.Errorf("produce-from %s: plugin %q not loaded", seed.Ref, seed.PluginID)
+	}
+
+	instance, err := plugin.Bind(sdk.PRODUCER, seed.Resource.Name, seed.Block)
+	if err != nil {
+		return nil, fmt.Errorf("produce-from %s: failed to bind: %w", seed.Ref, err)
+	}
+	defer instance.Close()
+
+	send, errs := make(chan []byte), make(chan error)
+	go instance.Produce(send, errs)
+
+	timeout := time.NewTimer(remoteTimeout)
+	defer timeout.Stop()
+
+	select {
+	case <-timeout.C:
+		return nil, fmt.Errorf("produce-from %s: timeout waiting for remote producer", seed.Ref)
+	case err := <-errs:
+		return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
+	case msg := <-send:
+		return parseRemoteProducers(seed.Ref, msg, ix, valuesCtx)
 	}
 }
 

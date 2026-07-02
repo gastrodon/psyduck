@@ -264,6 +264,98 @@ func TestParseProducerExclusivity(t *testing.T) {
 	}
 }
 
+func TestParseMultiSource(t *testing.T) {
+	sources := []parse.Source{
+		{Name: "a.psy", Content: []byte(`
+		produce "constant" "p" { value = "hello" }
+		`)},
+		{Name: "b.psy", Content: []byte(`
+		consume "trash" "t" {}
+		pipeline "main" {
+			produce = [produce.constant.p]
+			consume = [trash.t]
+		}
+		`)},
+	}
+	pipelines, err := NewParserHCL().Parse(sources, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := drainAll(t, pipelines["main"].Producers); len(got) != 1 {
+		t.Fatalf("want 1 producer across sources, got %d", len(got))
+	}
+}
+
+func TestParseDuplicateValueKeyAcrossSources(t *testing.T) {
+	sources := []parse.Source{
+		{Name: "a.psy", Content: []byte(`value { foo = "first" }`)},
+		{Name: "b.psy", Content: []byte(`value { foo = "second" }`)},
+	}
+	_, err := NewParserHCL().Parse(sources, nil)
+	if err == nil || !strings.Contains(err.Error(), `duplicate value key "foo"`) {
+		t.Fatalf("want duplicate value key error, got: %v", err)
+	}
+}
+
+func TestParseUnknownQualifiedPlugin(t *testing.T) {
+	_, err := NewParserHCL().Parse(srcs(`
+	produce "unknown.constant" "p" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [unknown.constant.p]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), `unknown plugin "unknown"`) {
+		t.Fatalf("want unknown plugin error, got: %v", err)
+	}
+}
+
+func TestParseUnknownResourceRef(t *testing.T) {
+	// References to undeclared resources fail at HCL eval time ("Unknown variable"),
+	// before resolveRefs is reached — the ref context and bindings map are always in sync.
+	_, err := NewParserHCL().Parse(srcs(`
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.nonexistent]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "Unknown variable") {
+		t.Fatalf("want unknown variable error, got: %v", err)
+	}
+}
+
+func TestParseReservedNamespaceCollision(t *testing.T) {
+	// A plugin named "value" creates a short-form ref whose top-level segment
+	// ("value") collides with the value.* eval namespace.
+	valuePlugin := sdk.NewInProc("value",
+		&sdk.Resource{
+			Name:  "constant",
+			Kinds: sdk.PRODUCER,
+			Spec:  []*sdk.Spec{{Name: "value", Type: sdk.TypeString, Default: "0"}},
+			ProvideProducer: func(p sdk.Parser) (sdk.Producer, error) {
+				opts := new(constantOpts)
+				if err := p(opts); err != nil {
+					return nil, err
+				}
+				return func(send chan<- []byte, errs chan<- error) { close(send) }, nil
+			},
+		},
+	)
+	_, err := NewParserHCL().Parse(srcs(`
+	produce "value.constant" "p" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [value.constant.p]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{valuePlugin, testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "collides with reserved namespace") {
+		t.Fatalf("want namespace collision error, got: %v", err)
+	}
+}
+
 func TestParseProduceFrom(t *testing.T) {
 	// a producer whose single message is itself psyduck config
 	meta := sdk.NewInProc("meta",

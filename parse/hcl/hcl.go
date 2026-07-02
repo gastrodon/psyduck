@@ -155,10 +155,6 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 	}
 
 	index := indexResources(plugins)
-	pluginIx := make(map[string]sdk.Plugin, len(plugins))
-	for _, p := range plugins {
-		pluginIx[p.Name()] = p
-	}
 
 	bindings := map[string]map[string]parse.Resource{
 		blockProduce:   {},
@@ -188,7 +184,7 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 
 	pipelines := make(map[string]parse.Pipeline, len(blocks.pipelines))
 	for _, block := range blocks.pipelines {
-		pipe, err := makePipeline(block, bindings, refCtxs, valuesCtx, index, pluginIx)
+		pipe, err := makePipeline(block, bindings, refCtxs, valuesCtx, index)
 		if err != nil {
 			return nil, err
 		}

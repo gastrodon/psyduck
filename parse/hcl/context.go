@@ -2,6 +2,7 @@ package hcl
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -9,8 +10,6 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/gastrodon/psyduck/parse"
-
-	"os"
 )
 
 const (
@@ -22,15 +21,11 @@ func envVal() cty.Value {
 	env := os.Environ()
 	envMap := make(map[string]cty.Value, len(env))
 	for _, kv := range env {
-		if idx := strings.Index(kv, "="); idx >= 0 {
-			envMap[kv[:idx]] = cty.StringVal(kv[idx+1:])
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			envMap[k] = cty.StringVal(v)
 		}
 	}
-
-	if len(envMap) == 0 {
-		return cty.EmptyObjectVal
-	}
-	return cty.ObjectVal(envMap)
+	return objOrEmpty(envMap)
 }
 
 func objOrEmpty(m map[string]cty.Value) cty.Value {
@@ -43,7 +38,8 @@ func objOrEmpty(m map[string]cty.Value) cty.Value {
 // makeValuesCtx merges all value {} blocks across sources (duplicate keys
 // error) and returns the eval context exposing value.* and env.*.
 func makeValuesCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
-	envCtx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: envVal()}}
+	env := envVal()
+	envCtx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: env}}
 
 	values := make(map[string]cty.Value)
 	for _, block := range blocks {
@@ -68,7 +64,7 @@ func makeValuesCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
 			nsValue: objOrEmpty(values),
-			nsEnv:   envCtx.Variables[nsEnv],
+			nsEnv:   env,
 		},
 	}, nil
 }
@@ -101,7 +97,9 @@ func (t refTree) insert(path []string, leaf string) error {
 	return branch.insert(path[1:], leaf)
 }
 
-func (t refTree) value() cty.Value {
+// vars flattens the tree into a variables map at the current level.
+// String leaves become cty.StringVal; branches recurse and become objects.
+func (t refTree) vars() map[string]cty.Value {
 	out := make(map[string]cty.Value, len(t))
 	for key, child := range t {
 		switch c := child.(type) {
@@ -111,8 +109,10 @@ func (t refTree) value() cty.Value {
 			out[key] = c.value()
 		}
 	}
-	return objOrEmpty(out)
+	return out
 }
+
+func (t refTree) value() cty.Value { return objOrEmpty(t.vars()) }
 
 // makeRefCtx builds the eval context used for one pipeline attribute. The
 // verb determines which bindings are visible — this is how kind is inferred
@@ -131,16 +131,7 @@ func makeRefCtx(verb string, bindings map[string]parse.Resource, valuesCtx *hcl.
 		}
 	}
 
-	variables := make(map[string]cty.Value, len(tree)+2)
-	for key, child := range tree {
-		switch c := child.(type) {
-		case string:
-			variables[key] = cty.StringVal(c)
-		case refTree:
-			variables[key] = c.value()
-		}
-	}
-
+	variables := tree.vars()
 	for name, v := range valuesCtx.Variables {
 		if _, taken := variables[name]; taken {
 			return nil, fmt.Errorf("resource namespace %q collides with reserved namespace", name)
