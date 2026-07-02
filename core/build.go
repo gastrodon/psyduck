@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastrodon/psyduck/configure"
-	"github.com/hashicorp/hcl/v2"
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
+
+	"github.com/gastrodon/psyduck/parse"
 )
 
 type Pipeline struct {
@@ -216,106 +216,140 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-func collectProducer(descriptor *configure.Pipeline, context *hcl.EvalContext, library Library, logger *logrus.Logger) (sdk.Producer, error) {
-	if descriptor.RemoteProducer != nil {
-		logger.Trace("getting remote producer")
-		p, err := library.Producer(descriptor.RemoteProducer.Kind, context, descriptor.RemoteProducer.Options)
-		if err != nil {
-			return nil, fmt.Errorf("failed providing remote producer: %s", err)
-		}
-
-		// this is already scuffed
-		t := time.NewTimer(10 * time.Second)
-		defer t.Stop()
-		send, errs := make(chan []byte), make(chan error)
-		go p(send, errs)
-		select {
-		case <-t.C:
-			return nil, fmt.Errorf("timeout getting anything from the meta-producer") // stupid name? hardcoded timeout? I will fix it later TODO
-		case err := <-errs:
-			return nil, fmt.Errorf("error getting from meta-producer: %s", err)
-		case msg := <-send:
-			parts, err := configure.Partial("remote-producer", msg, context)
-			if err != nil {
-				return nil, fmt.Errorf("failed to configure remote: %s", err)
-			}
-
-			return collectProducer(&configure.Pipeline{
-				Name:           descriptor.Name,
-				RemoteProducer: nil,
-				Producers:      parts.Producers,
-				Consumers:      descriptor.Consumers,
-				Transformers:   descriptor.Transformers,
-				StopAfter:      descriptor.StopAfter,
-			}, context, library, logger)
-		}
+// throttle returns a wait func pacing calls to perMinute per minute.
+// Non-positive perMinute means unrestricted.
+func throttle(perMinute int) func() {
+	if perMinute <= 0 {
+		return func() {}
 	}
 
-	logger.Trace("config literal producer")
-	switch len(descriptor.Producers) {
-	case 0:
-		return nil, fmt.Errorf("1 or more producer is required")
-	case 1:
-		logger.Trace("only one producer")
-		return library.Producer(descriptor.Producers[0].Kind, context, descriptor.Producers[0].Options)
-	default:
-		producers := make([]sdk.Producer, len(descriptor.Producers))
-		for index, produceDescriptor := range descriptor.Producers {
-			producer, err := library.Producer(produceDescriptor.Kind, context, produceDescriptor.Options)
-			if err != nil {
-				return nil, err
-			}
+	tick := time.NewTicker(time.Minute / time.Duration(perMinute))
+	return func() { <-tick.C }
+}
 
-			producers[index] = producer
+// applyMetaProducer wraps a producer with host-owned BlockMeta behavior:
+// per-minute rate limiting and stop-after item cutoff.
+func applyMetaProducer(produce sdk.Producer, meta sdk.BlockMeta) sdk.Producer {
+	if meta.PerMinute <= 0 && meta.StopAfter <= 0 {
+		return produce
+	}
+
+	return func(send chan<- []byte, errs chan<- error) {
+		inner := make(chan []byte)
+		go produce(inner, errs)
+
+		wait, count := throttle(meta.PerMinute), 0
+		for msg := range inner {
+			wait()
+			send <- msg
+			count++
+			if meta.StopAfter > 0 && count >= meta.StopAfter {
+				break
+			}
 		}
 
-		return joinProducers(producers, logger), nil
+		close(send)
+	}
+}
+
+// applyMetaConsumer wraps a consumer with host-owned BlockMeta behavior:
+// per-minute rate limiting and stop-after item cutoff.
+func applyMetaConsumer(consume sdk.Consumer, meta sdk.BlockMeta) sdk.Consumer {
+	if meta.PerMinute <= 0 && meta.StopAfter <= 0 {
+		return consume
+	}
+
+	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		inner := make(chan []byte)
+		go consume(inner, errs, done)
+
+		wait, count := throttle(meta.PerMinute), 0
+		for msg := range recv {
+			wait()
+			inner <- msg
+			count++
+			if meta.StopAfter > 0 && count >= meta.StopAfter {
+				break
+			}
+		}
+
+		close(inner)
+	}
+}
+
+// bindChunk is how many bindings we ask a Bindings stream for at a time.
+const bindChunk = 8
+
+// drain exhausts a Bindings stream, binding each against its owning plugin
+// and handing the configured instance to collect.
+func drain(bindings parse.Bindings, plugins map[string]sdk.Plugin, collect func(parse.Binding, sdk.Instance)) error {
+	for {
+		chunk, err := bindings(bindChunk)
+		if err != nil {
+			return err
+		}
+		if len(chunk) == 0 {
+			return nil
+		}
+
+		for _, b := range chunk {
+			plugin, ok := plugins[b.PluginID]
+			if !ok {
+				return fmt.Errorf("%s: %s: no plugin %q loaded", b.Origin, b.Ref, b.PluginID)
+			}
+
+			instance, err := plugin.Bind(b.Kind, b.Resource.Name, b.Block)
+			if err != nil {
+				return fmt.Errorf("%s: %s: %w", b.Origin, b.Ref, err)
+			}
+
+			collect(b, instance)
+		}
 	}
 }
 
 /*
-descriptor is a parsed `pipeline {}` block of hcl
-context is an hcl evaluation context, used to resolve values in descriptor
-library ( TODO - deprecated ) has content loaded from plugins
+BuildPipeline turns a parsed pipeline description into a runnable Pipeline.
 
-Produces a runnable pipeline.
-
-Each mover in the pipeline ( every producer / consumer / transformer ) is joined
-and the resulting pipeline is returned.
+Each binding is resolved against its owning plugin, wrapped with host-owned
+BlockMeta behavior, and joined with its siblings.
 */
-func BuildPipeline(descriptor *configure.Pipeline, evalCtx *hcl.EvalContext, library Library) (*Pipeline, error) {
+func BuildPipeline(src parse.Pipeline, plugins map[string]sdk.Plugin) (*Pipeline, error) {
 	logger := pipelineLogger()
-	producer, err := collectProducer(descriptor, evalCtx, library, logger)
-	if err != nil {
+
+	producers := make([]sdk.Producer, 0)
+	if err := drain(src.Producers, plugins, func(b parse.Binding, instance sdk.Instance) {
+		producers = append(producers, applyMetaProducer(instance.Produce, b.Meta))
+	}); err != nil {
+		return nil, err
+	}
+	if len(producers) == 0 {
+		return nil, fmt.Errorf("%s: pipeline %q has no producers", src.Origin, src.Name)
+	}
+
+	consumers := make([]sdk.Consumer, 0)
+	if err := drain(src.Consumers, plugins, func(b parse.Binding, instance sdk.Instance) {
+		consumers = append(consumers, applyMetaConsumer(instance.Consume, b.Meta))
+	}); err != nil {
+		return nil, err
+	}
+	if len(consumers) == 0 {
+		return nil, fmt.Errorf("%s: pipeline %q has no consumers", src.Origin, src.Name)
+	}
+
+	transformers := make([]sdk.Transformer, 0)
+	if err := drain(src.Transformers, plugins, func(b parse.Binding, instance sdk.Instance) {
+		transformers = append(transformers, instance.Transform)
+	}); err != nil {
 		return nil, err
 	}
 
-	consumers := make([]sdk.Consumer, len(descriptor.Consumers))
-	for index, consumeDescriptor := range descriptor.Consumers {
-		consumer, err := library.Consumer(consumeDescriptor.Kind, evalCtx, consumeDescriptor.Options)
-		if err != nil {
-			return nil, err
-		}
-
-		consumers[index] = consumer
-	}
-
-	transformers := make([]sdk.Transformer, len(descriptor.Transformers))
-	for index, transformDescriptor := range descriptor.Transformers {
-		transformer, err := library.Transformer(transformDescriptor.Kind, evalCtx, transformDescriptor.Options)
-		if err != nil {
-			return nil, err
-		}
-
-		transformers[index] = transformer
-	}
-
 	return &Pipeline{
-		Producer:    producer,
+		Producer:    joinProducers(producers, logger),
 		Consumer:    joinConsumers(consumers, logger),
 		Transformer: stackTransform(transformers),
 		logger:      logger,
-		StopAfter:   descriptor.StopAfter,
-		ExitOnError: descriptor.ExitOnError,
+		StopAfter:   src.StopAfter,
+		ExitOnError: src.ExitOnError,
 	}, nil
 }

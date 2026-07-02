@@ -1,82 +1,79 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
 
-	"github.com/gastrodon/psyduck/configure"
-	"github.com/gastrodon/psyduck/core"
+	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
+
+	"github.com/gastrodon/psyduck/configure"
+	"github.com/gastrodon/psyduck/configure/hcl"
+	"github.com/gastrodon/psyduck/core"
+	"github.com/gastrodon/psyduck/plugins"
+	"github.com/gastrodon/psyduck/stdlib"
 )
 
-var NAME = "psyduck"
-var SUBCOMMANDS = [...]string{
-	"init",
-	"run",
-}
-
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
+	sources, err := configure.ReadFiles(ctx.String("chdir"))
 	if err != nil {
 		return err
 	}
 
-	filename := path.Base(ctx.String("chdir"))
-	_, evalCtx, err := configure.Literal(filename, literal)
+	specs, err := hcl.NewHCL().Plugins(sources)
 	if err != nil {
 		return err
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	err = os.MkdirAll(initPath, os.ModeDir|os.ModePerm)
-	if err != nil {
+	if err := os.MkdirAll(initPath, os.ModeDir|os.ModePerm); err != nil {
 		return err
 	}
 
-	pluginPaths, err := configure.FetchPlugins(initPath, filename, literal, evalCtx)
-	if err != nil {
-		return err
-	}
-
-	b, err := json.Marshal(pluginPaths)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path.Join(initPath, "plugin.json"), b, 0o644)
+	return plugins.Fetch(initPath, specs)
 }
 
 func run(ctx *cli.Context) error {
-	literal, err := configure.ReadDirectory(ctx.String("chdir"))
-	if err != nil {
-		return err
-	}
-
-	filename := path.Base(ctx.String("chdir"))
-	descriptors, evalCtx, err := configure.Literal(filename, literal)
-	if err != nil {
-		return err
-	}
-
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	plugins, err := configure.LoadPlugins(initPath, filename, literal, evalCtx)
-	if err != nil {
-		return err
-	}
-
 	if !ctx.Args().Present() {
 		return fmt.Errorf("target required")
 	}
 
-	target := ctx.Args().First()
-	descriptor, ok := descriptors[target]
-	if !ok {
-		return fmt.Errorf("can't find target %s", target)
+	sources, err := configure.ReadFiles(ctx.String("chdir"))
+	if err != nil {
+		return err
 	}
 
-	pipeline, err := core.BuildPipeline(descriptor, evalCtx, core.NewLibrary(plugins))
+	format := hcl.NewHCL()
+	specs, err := format.Plugins(sources)
+	if err != nil {
+		return err
+	}
+
+	initPath := path.Join(ctx.String("chdir"), ".psyduck")
+	loaded, err := plugins.LoadAll(plugins.NewGoPluginLoader(initPath), specs)
+	if err != nil {
+		return err
+	}
+	loaded = append(loaded, stdlib.Plugin())
+
+	result, err := format.Parse(sources, loaded)
+	if err != nil {
+		return err
+	}
+
+	target := ctx.Args().First()
+	pipe, err := result.Pipeline(target)
+	if err != nil {
+		return err
+	}
+
+	pluginIx := make(map[string]sdk.Plugin, len(loaded))
+	for _, p := range loaded {
+		pluginIx[p.Name()] = p
+	}
+
+	pipeline, err := core.BuildPipeline(pipe, pluginIx)
 	if err != nil {
 		return err
 	}
@@ -85,21 +82,10 @@ func run(ctx *cli.Context) error {
 }
 
 func main() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		panic(fmt.Sprintf("failed getting $HOME: %s", err))
-	}
-
 	app := cli.App{
 		Name:  "psyduck",
 		Usage: "run and manage etl pipelines",
 		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:      "plugin",
-				Usage:     "directory to load plugins from",
-				Value:     path.Join(home, ".psyduck.d/plugin"),
-				TakesFile: true,
-			},
 			&cli.StringFlag{
 				Name:      "chdir",
 				Usage:     "directory to execute from",

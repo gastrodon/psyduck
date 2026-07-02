@@ -16,7 +16,6 @@ require (
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/mitchellh/go-wordwrap v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
@@ -30,3 +29,5 @@ require (
 )
 
 replace github.com/zclconf/go-cty => github.com/gastrodon/go-cty v1.14.4-1
+
+replace github.com/psyduck-etl/sdk => ../psyduck-etl/sdk
