@@ -21,7 +21,7 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 		return err
 	}
 
-	specs, err := hcl.NewHCL().Plugins(sources)
+	specs, err := hcl.NewParserHCL().Plugins(sources)
 	if err != nil {
 		return err
 	}
@@ -51,17 +51,17 @@ func run(ctx *cli.Context) error {
 	}
 	loaded = append(loaded, stdlib.Plugin())
 
-	format := hcl.NewHCL()
+	format := hcl.NewParserHCL()
 
-	result, err := format.Parse(sources, loaded)
+	pipelines, err := format.Parse(sources, loaded)
 	if err != nil {
 		return err
 	}
 
 	target := ctx.Args().First()
-	pipe, err := result.Pipeline(target)
-	if err != nil {
-		return err
+	pipe, ok := pipelines[target]
+	if !ok {
+		return fmt.Errorf("no pipeline %q", target)
 	}
 
 	pluginIx := make(map[string]sdk.Plugin, len(loaded))

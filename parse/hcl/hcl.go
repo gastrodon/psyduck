@@ -1,4 +1,4 @@
-// Package hcl implements parse.Format for HCL-based .psy configuration.
+// Package hcl implements parse.Parser for HCL-based .psy configuration.
 // It is the only package that translates HCL/cty types into the
 // format-agnostic sdk and parse types.
 package hcl
@@ -57,11 +57,11 @@ var pipelineSchema = &hcl.BodySchema{
 	},
 }
 
-// HCL implements parse.Format. It is stateless; both phases take the
+// ParserHCL implements parse.Parser. It is stateless; both phases take the
 // sources they operate on.
-type HCL struct{}
+type ParserHCL struct{}
 
-func NewHCL() *HCL { return &HCL{} }
+func NewParserHCL() *ParserHCL { return &ParserHCL{} }
 
 // topBlocks is every top-level block across all sources, bucketed by type.
 // Resource blocks (produce/consume/transform) keep their block type.
@@ -106,20 +106,20 @@ func gather(sources []parse.Source) (*topBlocks, error) {
 
 // Plugins is the cheap pre-pass: extract plugin {} declarations without
 // needing any plugins loaded.
-func (h *HCL) Plugins(sources []parse.Source) ([]parse.PluginSpec, error) {
+func (h *ParserHCL) Plugins(sources []parse.Source) ([]parse.Plugin, error) {
 	blocks, err := gather(sources)
 	if err != nil {
 		return nil, err
 	}
 
-	specs := make([]parse.PluginSpec, 0, len(blocks.plugins))
+	specs := make([]parse.Plugin, 0, len(blocks.plugins))
 	for _, block := range blocks.plugins {
 		content, diags := block.Body.Content(pluginSchema)
 		if diags.HasErrors() {
 			return nil, diags
 		}
 
-		spec := parse.PluginSpec{Name: block.Labels[0]}
+		spec := parse.Plugin{Name: block.Labels[0]}
 		if attr, ok := content.Attributes["source"]; ok {
 			v, diags := attr.Expr.Value(nil)
 			if diags.HasErrors() {
@@ -143,7 +143,7 @@ func (h *HCL) Plugins(sources []parse.Source) ([]parse.PluginSpec, error) {
 
 // Parse is the full pass: resolve values, resources, and pipelines against
 // the loaded plugins and return format-agnostic pipeline descriptions.
-func (h *HCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (parse.Result, error) {
+func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[string]parse.Pipeline, error) {
 	blocks, err := gather(sources)
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func (h *HCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (parse.Result,
 		pluginIx[p.Name()] = p
 	}
 
-	bindings := map[string]map[string]parse.Binding{
+	bindings := map[string]map[string]parse.Resource{
 		blockProduce:   {},
 		blockConsume:   {},
 		blockTransform: {},
@@ -199,5 +199,5 @@ func (h *HCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (parse.Result,
 		pipelines[pipe.Name] = pipe
 	}
 
-	return parse.NewResult(pipelines), nil
+	return pipelines, nil
 }

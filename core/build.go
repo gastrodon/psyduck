@@ -282,7 +282,7 @@ const bindChunk = 8
 
 // drain exhausts a Bindings stream, binding each against its owning plugin
 // and handing the configured instance to collect.
-func drain(bindings parse.Bindings, plugins map[string]sdk.Plugin, collect func(parse.Binding, sdk.Instance)) error {
+func drain(bindings parse.Resources, plugins map[string]sdk.Plugin, collect func(parse.Resource, sdk.Instance)) error {
 	for {
 		chunk, err := bindings(bindChunk)
 		if err != nil {
@@ -318,7 +318,7 @@ func BuildPipeline(src parse.Pipeline, plugins map[string]sdk.Plugin) (*Pipeline
 	logger := pipelineLogger()
 
 	producers := make([]sdk.Producer, 0)
-	if err := drain(src.Producers, plugins, func(b parse.Binding, instance sdk.Instance) {
+	if err := drain(src.Producers, plugins, func(b parse.Resource, instance sdk.Instance) {
 		producers = append(producers, applyMetaProducer(instance.Produce, b.Meta))
 	}); err != nil {
 		return nil, err
@@ -328,7 +328,7 @@ func BuildPipeline(src parse.Pipeline, plugins map[string]sdk.Plugin) (*Pipeline
 	}
 
 	consumers := make([]sdk.Consumer, 0)
-	if err := drain(src.Consumers, plugins, func(b parse.Binding, instance sdk.Instance) {
+	if err := drain(src.Consumers, plugins, func(b parse.Resource, instance sdk.Instance) {
 		consumers = append(consumers, applyMetaConsumer(instance.Consume, b.Meta))
 	}); err != nil {
 		return nil, err
@@ -338,7 +338,7 @@ func BuildPipeline(src parse.Pipeline, plugins map[string]sdk.Plugin) (*Pipeline
 	}
 
 	transformers := make([]sdk.Transformer, 0)
-	if err := drain(src.Transformers, plugins, func(b parse.Binding, instance sdk.Instance) {
+	if err := drain(src.Transformers, plugins, func(b parse.Resource, instance sdk.Instance) {
 		transformers = append(transformers, instance.Transform)
 	}); err != nil {
 		return nil, err

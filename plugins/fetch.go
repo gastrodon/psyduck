@@ -21,7 +21,7 @@ var (
 	pPluginGitHTTPS = regexp.MustCompile(`https:\/\/.*`)
 )
 
-func pluginKind(spec parse.PluginSpec) int {
+func pluginKind(spec parse.Plugin) int {
 	if spec.Source == "" {
 		return pluginUnknown
 	}
@@ -39,7 +39,7 @@ type fetcher struct {
 	tmpDir string
 }
 
-func (f *fetcher) cloneDir(spec parse.PluginSpec) string {
+func (f *fetcher) cloneDir(spec parse.Plugin) string {
 	return filepath.Join(f.tmpDir, spec.Name)
 }
 
@@ -47,7 +47,7 @@ func (f *fetcher) cleanup() {
 	os.RemoveAll(f.tmpDir)
 }
 
-func (f *fetcher) build(codePath string, spec parse.PluginSpec) (string, error) {
+func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	soPath := f.store.soPath(spec.Name)
 	cmd := exec.Command("go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -56,7 +56,7 @@ func (f *fetcher) build(codePath string, spec parse.PluginSpec) (string, error) 
 	return soPath, nil
 }
 
-func (f *fetcher) clone(spec parse.PluginSpec) (string, error) {
+func (f *fetcher) clone(spec parse.Plugin) (string, error) {
 	cloneDir := f.cloneDir(spec)
 	if out, err := exec.Command("git", "clone", spec.Source, cloneDir).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to clone %s: %w\noutput: %s", spec.Source, err, out)
@@ -69,7 +69,7 @@ func (f *fetcher) clone(spec parse.PluginSpec) (string, error) {
 	return cloneDir, nil
 }
 
-func (f *fetcher) fetch(spec parse.PluginSpec) (string, error) {
+func (f *fetcher) fetch(spec parse.Plugin) (string, error) {
 	switch pluginKind(spec) {
 	case pluginLocal:
 		stat, err := os.Stat(spec.Source)

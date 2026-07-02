@@ -118,7 +118,7 @@ func (t refTree) value() cty.Value {
 // verb determines which bindings are visible — this is how kind is inferred
 // from context. Both the verb-qualified path (produce.constant.input) and
 // the short form (constant.input) resolve; value.* and env.* stay available.
-func makeRefCtx(verb string, bindings map[string]parse.Binding, valuesCtx *hcl.EvalContext) (*hcl.EvalContext, error) {
+func makeRefCtx(verb string, bindings map[string]parse.Resource, valuesCtx *hcl.EvalContext) (*hcl.EvalContext, error) {
 	tree := refTree{}
 	for ref := range bindings {
 		path := strings.Split(ref, ".")

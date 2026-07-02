@@ -62,7 +62,7 @@ func (s *Store) writeManifest(m map[string]string) error {
 
 // Build clones and compiles the declared plugins, writing the name → .so path
 // manifest to the store's manifest file. Used by the init command.
-func (s *Store) Build(specs []parse.PluginSpec) error {
+func (s *Store) Build(specs []parse.Plugin) error {
 	if err := os.MkdirAll(s.pluginsDir(), os.ModeDir|os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create plugins dir: %w", err)
 	}

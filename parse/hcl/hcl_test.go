@@ -55,9 +55,9 @@ func testPlugin(name string) sdk.Plugin {
 	)
 }
 
-func drainAll(t *testing.T, b parse.Bindings) []parse.Binding {
+func drainAll(t *testing.T, b parse.Resources) []parse.Resource {
 	t.Helper()
-	out := []parse.Binding{}
+	out := []parse.Resource{}
 	for {
 		chunk, err := b(4)
 		if err != nil {
@@ -71,7 +71,7 @@ func drainAll(t *testing.T, b parse.Bindings) []parse.Binding {
 }
 
 func TestPlugins(t *testing.T) {
-	specs, err := NewHCL().Plugins(srcs(`
+	specs, err := NewParserHCL().Plugins(srcs(`
 	plugin "amqp" {
 		source = "https://github.com/psyduck-etl/amqp"
 		tag    = "v1.2.3"
@@ -98,7 +98,7 @@ func TestPlugins(t *testing.T) {
 func TestParse(t *testing.T) {
 	t.Setenv("PSYDUCK_TEST_VALUE", "from-env")
 
-	result, err := NewHCL().Parse(srcs(`
+	result, err := NewParserHCL().Parse(srcs(`
 	value {
 		foo = "from-value"
 	}
@@ -129,10 +129,7 @@ func TestParse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pipe, err := result.Pipeline("main")
-	if err != nil {
-		t.Fatal(err)
-	}
+	pipe := result["main"]
 
 	if pipe.StopAfter != 9 || !pipe.ExitOnError {
 		t.Fatalf("bad pipeline flags: %#v", pipe)
@@ -181,7 +178,7 @@ func TestParse(t *testing.T) {
 func TestParseAmbiguousResource(t *testing.T) {
 	plugins := []sdk.Plugin{testPlugin("alpha"), testPlugin("beta")}
 
-	_, err := NewHCL().Parse(srcs(`
+	_, err := NewParserHCL().Parse(srcs(`
 	produce "constant" "p" {}
 	consume "alpha.trash" "t" {}
 	pipeline "main" {
@@ -194,7 +191,7 @@ func TestParseAmbiguousResource(t *testing.T) {
 	}
 
 	// qualification resolves the ambiguity
-	_, err = NewHCL().Parse(srcs(`
+	_, err = NewParserHCL().Parse(srcs(`
 	produce "beta.constant" "p" {}
 	consume "alpha.trash" "t" {}
 	pipeline "main" {
@@ -210,7 +207,7 @@ func TestParseAmbiguousResource(t *testing.T) {
 func TestParseDuplicates(t *testing.T) {
 	plugins := []sdk.Plugin{testPlugin("test")}
 
-	_, err := NewHCL().Parse(srcs(`
+	_, err := NewParserHCL().Parse(srcs(`
 	produce "constant" "p" {}
 	produce "constant" "p" {}
 	consume "trash" "t" {}
@@ -223,7 +220,7 @@ func TestParseDuplicates(t *testing.T) {
 		t.Fatalf("want duplicate resource error, got: %v", err)
 	}
 
-	_, err = NewHCL().Parse(srcs(`
+	_, err = NewParserHCL().Parse(srcs(`
 	produce "constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
@@ -243,7 +240,7 @@ func TestParseDuplicates(t *testing.T) {
 func TestParseProducerExclusivity(t *testing.T) {
 	plugins := []sdk.Plugin{testPlugin("test")}
 
-	_, err := NewHCL().Parse(srcs(`
+	_, err := NewParserHCL().Parse(srcs(`
 	produce "constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
@@ -256,7 +253,7 @@ func TestParseProducerExclusivity(t *testing.T) {
 		t.Fatalf("want exclusivity error, got: %v", err)
 	}
 
-	_, err = NewHCL().Parse(srcs(`
+	_, err = NewParserHCL().Parse(srcs(`
 	consume "trash" "t" {}
 	pipeline "main" {
 		consume = [trash.t]
@@ -286,7 +283,7 @@ func TestParseProduceFrom(t *testing.T) {
 		},
 	)
 
-	result, err := NewHCL().Parse(srcs(`
+	result, err := NewParserHCL().Parse(srcs(`
 	produce "seed" "s" {}
 	consume "trash" "t" {}
 	pipeline "main" {
@@ -298,10 +295,7 @@ func TestParseProduceFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pipe, err := result.Pipeline("main")
-	if err != nil {
-		t.Fatal(err)
-	}
+	pipe := result["main"]
 
 	producers := drainAll(t, pipe.Producers)
 	if len(producers) != 1 {
