@@ -306,8 +306,8 @@ func TestParseProduceFrom(t *testing.T) {
 	if b.PluginID != "test" || b.Resource.Name != "constant" {
 		t.Fatalf("bad remote binding: %#v", b)
 	}
-	if !strings.HasPrefix(b.Origin.SourceName, "remote://") {
-		t.Fatalf("bad remote origin: %s", b.Origin)
+	if !strings.HasPrefix(b.Block.Origin().SourceName, "remote://") {
+		t.Fatalf("bad remote origin: %s", b.Block.Origin())
 	}
 
 	opts := new(constantOpts)

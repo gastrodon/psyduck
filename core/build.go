@@ -295,12 +295,12 @@ func drain(bindings parse.Resources, plugins map[string]sdk.Plugin, collect func
 		for _, b := range chunk {
 			plugin, ok := plugins[b.PluginID]
 			if !ok {
-				return fmt.Errorf("%s: %s: no plugin %q loaded", b.Origin, b.Ref, b.PluginID)
+				return fmt.Errorf("%s: %s: no plugin %q loaded", b.Block.Origin(), b.Ref, b.PluginID)
 			}
 
 			instance, err := plugin.Bind(b.Kind, b.Resource.Name, b.Block)
 			if err != nil {
-				return fmt.Errorf("%s: %s: %w", b.Origin, b.Ref, err)
+				return fmt.Errorf("%s: %s: %w", b.Block.Origin(), b.Ref, err)
 			}
 
 			collect(b, instance)

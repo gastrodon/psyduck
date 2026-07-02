@@ -12,9 +12,8 @@ type Resource struct {
 	Kind     sdk.Kind               // the single kind this resource is used as
 	Resource sdk.ResourceDescriptor // metadata for the plugin resource
 	PluginID string                 // Name() of the owning plugin
-	Block    sdk.ConfigBlock        // the resource's config block
+	Block    sdk.ConfigBlock        // the resource's config block; Block.Origin() is where it was defined
 	Meta     sdk.BlockMeta          // pre-decoded host-owned attributes
-	Origin   sdk.SourceRange        // where the resource was defined
 }
 
 // Resources yields Resources in chunks of up to max until exhausted.

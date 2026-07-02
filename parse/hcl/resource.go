@@ -98,7 +98,6 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, valuesCtx *hcl.EvalContext
 		PluginID: pluginID,
 		Block:    &hclBlock{spec: desc.Spec, body: block.Body, evalCtx: valuesCtx, origin: origin},
 		Meta:     meta,
-		Origin:   origin,
 	}, nil
 }
 

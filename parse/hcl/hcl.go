@@ -172,7 +172,7 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 		}
 		if prev, dup := bindings[block.Type][binding.Ref]; dup {
 			return nil, fmt.Errorf("duplicate resource %s at %s (previously defined at %s)",
-				binding.Ref, binding.Origin, prev.Origin)
+				binding.Ref, binding.Block.Origin(), prev.Block.Origin())
 		}
 		bindings[block.Type][binding.Ref] = binding
 	}
