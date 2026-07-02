@@ -282,7 +282,7 @@ const bindChunk = 8
 
 // drain exhausts a Bindings stream, binding each against its owning plugin
 // and handing the configured instance to collect.
-func drain(bindings parse.Resources, plugins map[string]sdk.Plugin, collect func(parse.Resource, sdk.Instance)) error {
+func drain(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin, collect func(parse.Resource, sdk.Instance)) error {
 	for {
 		chunk, err := bindings(bindChunk)
 		if err != nil {

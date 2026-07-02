@@ -164,7 +164,7 @@ func makePipeline(
 	if err != nil {
 		return parse.Pipeline{}, err
 	}
-	pipe.Consumers = parse.LiteralResources(consumers...)
+	pipe.Consumers = parse.LiteralResourceFunc(consumers...)
 
 	transformers := []parse.Resource{}
 	if attr, ok := content.Attributes["transform"]; ok {
@@ -176,7 +176,7 @@ func makePipeline(
 			return parse.Pipeline{}, err
 		}
 	}
-	pipe.Transformers = parse.LiteralResources(transformers...)
+	pipe.Transformers = parse.LiteralResourceFunc(transformers...)
 
 	// producers are either a literal list or a produce-from seed
 	produceAttr, hasProduce := content.Attributes["produce"]
@@ -196,7 +196,7 @@ func makePipeline(
 		if len(producers) == 0 {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: at least one producer is required", name, origin)
 		}
-		pipe.Producers = parse.LiteralResources(producers...)
+		pipe.Producers = parse.LiteralResourceFunc(producers...)
 	case hasRemote:
 		v, diags := remoteAttr.Expr.Value(refCtxs[blockProduce])
 		if diags.HasErrors() {
@@ -252,7 +252,7 @@ const remoteTimeout = 10 * time.Second
 //
 // TODO stream: today only the first message is consumed, matching the old
 // collectProducer behavior. A future revision can keep draining messages.
-func remoteBindings(seed parse.Resource, plugins map[string]sdk.Plugin, ix *resourceIndex, valuesCtx *hcl.EvalContext) parse.Resources {
+func remoteBindings(seed parse.Resource, plugins map[string]sdk.Plugin, ix *resourceIndex, valuesCtx *hcl.EvalContext) parse.ResourceFunc {
 	var pending []parse.Resource
 	started := false
 

@@ -16,13 +16,13 @@ type Resource struct {
 	Meta     sdk.BlockMeta          // pre-decoded host-owned attributes
 }
 
-// Resources yields Resources in chunks of up to max until exhausted.
+// ResourceFunc yields ResourceFunc in chunks of up to max until exhausted.
 // A nil slice with nil error signals exhaustion.
-type Resources func(max int) ([]Resource, error)
+type ResourceFunc func(max int) ([]Resource, error)
 
-// LiteralResources wraps a fixed slice into a Resources that yields it in
+// LiteralResourceFunc wraps a fixed slice into a ResourceFunc that yields it in
 // chunks and then exhausts.
-func LiteralResources(resources ...Resource) Resources {
+func LiteralResourceFunc(resources ...Resource) ResourceFunc {
 	pos := 0
 	return func(max int) ([]Resource, error) {
 		if max < 1 || pos >= len(resources) {
@@ -36,15 +36,15 @@ func LiteralResources(resources ...Resource) Resources {
 }
 
 // Pipeline is a fully-resolved pipeline description. Each slot holds a
-// Resources stream of parsed-but-not-instantiated resources. Dynamic
+// ResourceFunc stream of parsed-but-not-instantiated resources. Dynamic
 // producers (produce-from) are hidden inside the Producers stream by the
 // Parser — core cannot tell them apart from literal ones.
 type Pipeline struct {
 	Name         string
 	Origin       sdk.SourceRange
-	Producers    Resources
-	Consumers    Resources
-	Transformers Resources
+	Producers    ResourceFunc
+	Consumers    ResourceFunc
+	Transformers ResourceFunc
 	StopAfter    int
 	ExitOnError  bool
 }

@@ -55,7 +55,7 @@ func testPlugin(name string) sdk.Plugin {
 	)
 }
 
-func drainAll(t *testing.T, b parse.Resources) []parse.Resource {
+func drainAll(t *testing.T, b parse.ResourceFunc) []parse.Resource {
 	t.Helper()
 	out := []parse.Resource{}
 	for {
