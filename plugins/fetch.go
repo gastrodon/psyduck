@@ -95,27 +95,3 @@ func (f *fetcher) fetch(spec parse.PluginSpec) (string, error) {
 	}
 }
 
-// Build clones and compiles the declared plugins, writing the name → .so path
-// manifest to the store's manifest file. Used by the init command.
-func (s *Store) Build(specs []parse.PluginSpec) error {
-	if err := os.MkdirAll(s.pluginsDir(), os.ModeDir|os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create plugins dir: %w", err)
-	}
-
-	tmpDir, err := os.MkdirTemp("", "psyduck-plugin-*")
-	if err != nil {
-		return fmt.Errorf("failed to make temp dir: %w", err)
-	}
-	f := &fetcher{store: s, tmpDir: tmpDir}
-	defer f.cleanup()
-
-	collected := make(map[string]string, len(specs))
-	for _, spec := range specs {
-		loc, err := f.fetch(spec)
-		if err != nil {
-			return fmt.Errorf("unable to fetch %s: %w", spec.Name, err)
-		}
-		collected[spec.Name] = loc
-	}
-	return s.writeManifest(collected)
-}
