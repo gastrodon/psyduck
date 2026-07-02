@@ -4,12 +4,14 @@ go 1.22.1
 
 require (
 	github.com/hashicorp/hcl/v2 v2.20.1
-	github.com/psyduck-etl/sdk v0.3.0
+	github.com/psyduck-etl/sdk v0.4.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/zclconf/go-cty v1.14.4
 )
+
+replace github.com/psyduck-etl/sdk => ../psyduck-etl/sdk
 
 require (
 	github.com/agext/levenshtein v1.2.3 // indirect
@@ -29,5 +31,3 @@ require (
 )
 
 replace github.com/zclconf/go-cty => github.com/gastrodon/go-cty v1.14.4-1
-
-replace github.com/psyduck-etl/sdk => ../psyduck-etl/sdk
