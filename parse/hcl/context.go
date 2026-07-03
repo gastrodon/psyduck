@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	nsValue = "value"
+	nsLocal = "local"
 	nsEnv   = "env"
 )
 
@@ -35,9 +35,9 @@ func objOrEmpty(m map[string]cty.Value) cty.Value {
 	return cty.ObjectVal(m)
 }
 
-// makeValuesCtx merges all value {} blocks across sources (duplicate keys
-// error) and returns the eval context exposing value.* and env.*.
-func makeValuesCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
+// makeLocalsCtx merges all locals {} blocks across sources (duplicate keys
+// error) and returns the eval context exposing local.* and env.*.
+func makeLocalsCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
 	env := envVal()
 	envCtx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: env}}
 
@@ -50,7 +50,7 @@ func makeValuesCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
 
 		for name, attr := range attrs {
 			if _, dup := values[name]; dup {
-				return nil, fmt.Errorf("duplicate value key %q at %s", name, attr.Range)
+				return nil, fmt.Errorf("duplicate local %q at %s", name, attr.Range)
 			}
 
 			v, diags := attr.Expr.Value(envCtx)
@@ -63,7 +63,7 @@ func makeValuesCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
 
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
-			nsValue: objOrEmpty(values),
+			nsLocal: objOrEmpty(values),
 			nsEnv:   env,
 		},
 	}, nil
@@ -117,8 +117,8 @@ func (t refTree) value() cty.Value { return objOrEmpty(t.vars()) }
 // makeRefCtx builds the eval context used for one pipeline attribute. The
 // verb determines which bindings are visible — this is how kind is inferred
 // from context. Both the verb-qualified path (produce.constant.input) and
-// the short form (constant.input) resolve; value.* and env.* stay available.
-func makeRefCtx(verb string, bindings map[string]parse.Resource, valuesCtx *hcl.EvalContext) (*hcl.EvalContext, error) {
+// the short form (constant.input) resolve; local.* and env.* stay available.
+func makeRefCtx(verb string, bindings map[string]parse.Resource, localsCtx *hcl.EvalContext) (*hcl.EvalContext, error) {
 	tree := refTree{}
 	for ref := range bindings {
 		path := strings.Split(ref, ".")
@@ -132,7 +132,7 @@ func makeRefCtx(verb string, bindings map[string]parse.Resource, valuesCtx *hcl.
 	}
 
 	variables := tree.vars()
-	for name, v := range valuesCtx.Variables {
+	for name, v := range localsCtx.Variables {
 		if _, taken := variables[name]; taken {
 			return nil, fmt.Errorf("resource namespace %q collides with reserved namespace", name)
 		}

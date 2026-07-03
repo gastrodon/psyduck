@@ -99,12 +99,12 @@ func TestParse(t *testing.T) {
 	t.Setenv("PSYDUCK_TEST_VALUE", "from-env")
 
 	result, err := NewParserHCL().Parse(srcs(`
-	value {
+	locals {
 		foo = "from-value"
 	}
 
 	produce "constant" "v" {
-		value      = value.foo
+		value      = local.foo
 		stop-after = 3
 		per-minute = 60
 	}
@@ -288,12 +288,12 @@ func TestParseMultiSource(t *testing.T) {
 
 func TestParseDuplicateValueKeyAcrossSources(t *testing.T) {
 	sources := []parse.Source{
-		{Name: "a.psy", Content: []byte(`value { foo = "first" }`)},
-		{Name: "b.psy", Content: []byte(`value { foo = "second" }`)},
+		{Name: "a.psy", Content: []byte(`locals { foo = "first" }`)},
+		{Name: "b.psy", Content: []byte(`locals { foo = "second" }`)},
 	}
 	_, err := NewParserHCL().Parse(sources, nil)
-	if err == nil || !strings.Contains(err.Error(), `duplicate value key "foo"`) {
-		t.Fatalf("want duplicate value key error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), `duplicate local "foo"`) {
+		t.Fatalf("want duplicate local error, got: %v", err)
 	}
 }
 
@@ -327,9 +327,9 @@ func TestParseUnknownResourceRef(t *testing.T) {
 }
 
 func TestParseReservedNamespaceCollision(t *testing.T) {
-	// A plugin named "value" creates a short-form ref whose top-level segment
-	// ("value") collides with the value.* eval namespace.
-	valuePlugin := sdk.NewInProc("value",
+	// A plugin named "local" creates a short-form ref whose top-level segment
+	// ("local") collides with the local.* eval namespace.
+	valuePlugin := sdk.NewInProc("local",
 		&sdk.Resource{
 			Name:  "constant",
 			Kinds: sdk.PRODUCER,
@@ -344,10 +344,10 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 		},
 	)
 	_, err := NewParserHCL().Parse(srcs(`
-	produce "value.constant" "p" {}
+	produce "local.constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
-		produce = [value.constant.p]
+		produce = [local.constant.p]
 		consume = [trash.t]
 	}
 	`), []sdk.Plugin{valuePlugin, testPlugin("test")})

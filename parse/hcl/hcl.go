@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	blockValue     = "value"
+	blockLocals    = "locals"
 	blockPlugin    = "plugin"
 	blockProduce   = "produce"
 	blockConsume   = "consume"
@@ -30,7 +30,7 @@ var verbKinds = map[string]sdk.Kind{
 
 var topSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
-		{Type: blockValue},
+		{Type: blockLocals},
 		{Type: blockPlugin, LabelNames: []string{"name"}},
 		{Type: blockProduce, LabelNames: []string{"resource", "name"}},
 		{Type: blockConsume, LabelNames: []string{"resource", "name"}},
@@ -66,7 +66,7 @@ func NewParserHCL() *ParserHCL { return &ParserHCL{} }
 // topBlocks is every top-level block across all sources, bucketed by type.
 // Resource blocks (produce/consume/transform) keep their block type.
 type topBlocks struct {
-	values    []*hcl.Block
+	locals    []*hcl.Block
 	plugins   []*hcl.Block
 	resources []*hcl.Block
 	pipelines []*hcl.Block
@@ -89,8 +89,8 @@ func gather(sources []parse.Source) (*topBlocks, error) {
 
 		for _, block := range content.Blocks {
 			switch block.Type {
-			case blockValue:
-				out.values = append(out.values, block)
+			case blockLocals:
+				out.locals = append(out.locals, block)
 			case blockPlugin:
 				out.plugins = append(out.plugins, block)
 			case blockProduce, blockConsume, blockTransform:
@@ -149,7 +149,7 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 		return nil, err
 	}
 
-	valuesCtx, err := makeValuesCtx(blocks.values)
+	localsCtx, err := makeLocalsCtx(blocks.locals)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +162,7 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 		blockTransform: {},
 	}
 	for _, block := range blocks.resources {
-		binding, err := makeBinding(block, index, valuesCtx)
+		binding, err := makeBinding(block, index, localsCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -175,7 +175,7 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 
 	refCtxs := make(map[string]*hcl.EvalContext, len(bindings))
 	for verb, set := range bindings {
-		ctx, err := makeRefCtx(verb, set, valuesCtx)
+		ctx, err := makeRefCtx(verb, set, localsCtx)
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +184,7 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 
 	pipelines := make(map[string]parse.Pipeline, len(blocks.pipelines))
 	for _, block := range blocks.pipelines {
-		pipe, err := makePipeline(block, bindings, refCtxs, valuesCtx, index)
+		pipe, err := makePipeline(block, bindings, refCtxs, localsCtx, index)
 		if err != nil {
 			return nil, err
 		}

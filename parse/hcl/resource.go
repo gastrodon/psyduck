@@ -79,7 +79,7 @@ func (ix *resourceIndex) lookup(ref string) (string, sdk.ResourceDescriptor, err
 
 // makeBinding turns one produce/consume/transform block into a
 // parse.Resource: resource resolved, config block wrapped, meta decoded.
-func makeBinding(block *hcl.Block, ix *resourceIndex, valuesCtx *hcl.EvalContext) (parse.Resource, error) {
+func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext) (parse.Resource, error) {
 	resRef, name := block.Labels[0], block.Labels[1]
 	origin := rangeOf(block.DefRange)
 
@@ -89,7 +89,7 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, valuesCtx *hcl.EvalContext
 	}
 
 	meta := sdk.BlockMeta{}
-	metaBlock := &hclBlock{spec: metaSpec, body: block.Body, evalCtx: valuesCtx, origin: origin}
+	metaBlock := &hclBlock{spec: metaSpec, body: block.Body, evalCtx: localsCtx, origin: origin}
 	if err := metaBlock.Decode(&meta); err != nil {
 		return parse.Resource{}, fmt.Errorf("%s %s.%s: failed to decode meta: %w", block.Type, resRef, name, err)
 	}
@@ -99,7 +99,7 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, valuesCtx *hcl.EvalContext
 		Kind:     verbKinds[block.Type],
 		Resource: desc,
 		PluginID: pluginID,
-		Block:    &hclBlock{spec: desc.Spec, body: block.Body, evalCtx: valuesCtx, origin: origin},
+		Block:    &hclBlock{spec: desc.Spec, body: block.Body, evalCtx: localsCtx, origin: origin},
 		Meta:     meta,
 	}, nil
 }
@@ -144,7 +144,7 @@ func makePipeline(
 	block *hcl.Block,
 	bindings map[string]map[string]parse.Resource,
 	refCtxs map[string]*hcl.EvalContext,
-	valuesCtx *hcl.EvalContext,
+	localsCtx *hcl.EvalContext,
 	ix *resourceIndex,
 ) (parse.Pipeline, error) {
 	name := block.Labels[0]
@@ -208,13 +208,13 @@ func makePipeline(
 		if !ok {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: unknown produce-from reference %q", name, v.AsString())
 		}
-		pipe.Producers = remoteBindings(seed, ix, valuesCtx)
+		pipe.Producers = remoteBindings(seed, ix, localsCtx)
 	default:
 		return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: produce or produce-from is required", name, origin)
 	}
 
 	if attr, ok := content.Attributes["stop-after"]; ok {
-		v, diags := attr.Expr.Value(valuesCtx)
+		v, diags := attr.Expr.Value(localsCtx)
 		if diags.HasErrors() {
 			return parse.Pipeline{}, diags
 		}
@@ -227,7 +227,7 @@ func makePipeline(
 	}
 
 	if attr, ok := content.Attributes["exit-on-error"]; ok {
-		v, diags := attr.Expr.Value(valuesCtx)
+		v, diags := attr.Expr.Value(localsCtx)
 		if diags.HasErrors() {
 			return parse.Pipeline{}, diags
 		}
@@ -254,11 +254,11 @@ const remoteTimeout = 10 * time.Second
 //
 // TODO stream: today only the first message is consumed, matching the old
 // collectProducer behavior. A future revision can keep draining messages.
-func remoteBindings(seed parse.Resource, ix *resourceIndex, valuesCtx *hcl.EvalContext) parse.ResourceFunc {
+func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) parse.ResourceFunc {
 	var yield parse.ResourceFunc
 	return func(max int) ([]parse.Resource, error) {
 		if yield == nil {
-			bindings, err := drainSeed(seed, ix, valuesCtx)
+			bindings, err := drainSeed(seed, ix, localsCtx)
 			if err != nil {
 				return nil, err
 			}
@@ -270,7 +270,7 @@ func remoteBindings(seed parse.Resource, ix *resourceIndex, valuesCtx *hcl.EvalC
 
 // drainSeed binds and runs the seed producer, takes its first message, and
 // parses it as HCL produce blocks. Guarded by remoteTimeout.
-func drainSeed(seed parse.Resource, ix *resourceIndex, valuesCtx *hcl.EvalContext) ([]parse.Resource, error) {
+func drainSeed(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) ([]parse.Resource, error) {
 	plugin, ok := ix.plugins[seed.PluginID]
 	if !ok {
 		return nil, fmt.Errorf("produce-from %s: plugin %q not loaded", seed.Ref, seed.PluginID)
@@ -294,13 +294,13 @@ func drainSeed(seed parse.Resource, ix *resourceIndex, valuesCtx *hcl.EvalContex
 	case err := <-errs:
 		return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
 	case msg := <-send:
-		return parseRemoteProducers(seed.Ref, msg, ix, valuesCtx)
+		return parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
 	}
 }
 
 // parseRemoteProducers parses producer definitions received from a dynamic
 // producer. The message is ordinary config; its origin names the remote.
-func parseRemoteProducers(ref string, msg []byte, ix *resourceIndex, valuesCtx *hcl.EvalContext) ([]parse.Resource, error) {
+func parseRemoteProducers(ref string, msg []byte, ix *resourceIndex, localsCtx *hcl.EvalContext) ([]parse.Resource, error) {
 	file, diags := hclparse.NewParser().ParseHCL(msg, "remote://"+ref)
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("produce-from %s: failed to parse remote config: %w", ref, diags)
@@ -315,7 +315,7 @@ func parseRemoteProducers(ref string, msg []byte, ix *resourceIndex, valuesCtx *
 
 	bindings := make([]parse.Resource, 0, len(content.Blocks))
 	for _, block := range content.Blocks {
-		b, err := makeBinding(block, ix, valuesCtx)
+		b, err := makeBinding(block, ix, localsCtx)
 		if err != nil {
 			return nil, fmt.Errorf("produce-from %s: %w", ref, err)
 		}

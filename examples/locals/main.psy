@@ -1,4 +1,4 @@
-value {
+locals {
   foo = "bar"
 }
 
@@ -7,7 +7,7 @@ consume "trash" "trash" {}
 transform "inspect" "inspect" {}
 
 produce "constant" "value" {
-  value = value.foo
+  value = local.foo
   stop-after = 30
 }
 
