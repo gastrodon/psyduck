@@ -356,6 +356,43 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 	}
 }
 
+func TestParseUnsetEnv(t *testing.T) {
+	// env vars are prescanned; unset-but-queried ones resolve to ""
+	result, err := NewParserHCL().Parse(srcs(`
+	produce "constant" "p" { value = env.PSYDUCK_DEFINITELY_UNSET_XYZ }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	opts := new(constantOpts)
+	if err := producers[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "" {
+		t.Fatalf(`unset env: want "", got %q`, opts.Value)
+	}
+
+	// non-env unknown roots still error
+	_, err = NewParserHCL().Parse(srcs(`
+	produce "constant" "p" { value = bogus.thing }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "Unknown variable") {
+		t.Fatalf("want unknown variable error, got: %v", err)
+	}
+}
+
 func TestParseUnknownAttribute(t *testing.T) {
 	// typo'd option names error at parse time (strict schema)
 	_, err := NewParserHCL().Parse(srcs(`
@@ -383,6 +420,44 @@ func TestParseEagerConfigError(t *testing.T) {
 	`), []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "invalid value for value") {
 		t.Fatalf("want eager conversion error, got: %v", err)
+	}
+}
+
+func TestParseProduceFromEnv(t *testing.T) {
+	// remote config may query env vars unseen in local sources
+	t.Setenv("PSYDUCK_REMOTE_ONLY", "from-remote-env")
+	seed := sdk.NewInProc("meta",
+		&sdk.Resource{
+			Name:  "seed",
+			Kinds: sdk.PRODUCER,
+			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+				return func(send chan<- []byte, errs chan<- error) {
+					send <- []byte(`produce "constant" "remote" { value = env.PSYDUCK_REMOTE_ONLY }`)
+					close(send)
+				}, nil
+			},
+		},
+	)
+
+	result, err := NewParserHCL().Parse(srcs(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from = produce.seed.s
+		consume      = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	opts := new(constantOpts)
+	if err := producers[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "from-remote-env" {
+		t.Fatalf("remote env not resolved: %q", opts.Value)
 	}
 }
 

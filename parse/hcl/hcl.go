@@ -149,7 +149,15 @@ func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[str
 		return nil, err
 	}
 
-	localsCtx, err := makeLocalsCtx(blocks.locals)
+	bodies := make([]hcl.Body, 0)
+	for _, group := range [][]*hcl.Block{blocks.locals, blocks.resources, blocks.pipelines} {
+		for _, block := range group {
+			bodies = append(bodies, block.Body)
+		}
+	}
+	env := envVal(envNames(bodies, nil))
+
+	localsCtx, err := makeLocalsCtx(blocks.locals, env)
 	if err != nil {
 		return nil, err
 	}

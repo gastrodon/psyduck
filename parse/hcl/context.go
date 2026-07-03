@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
 
@@ -17,13 +18,41 @@ const (
 	nsEnv   = "env"
 )
 
-func envVal() cty.Value {
-	env := os.Environ()
-	envMap := make(map[string]cty.Value, len(env))
-	for _, kv := range env {
-		if k, v, ok := strings.Cut(kv, "="); ok {
-			envMap[k] = cty.StringVal(v)
+// envNames statically collects the env.* attribute names queried by any
+// expression in the given bodies, before evaluation. Only traversals of
+// the exact shape env.NAME count.
+func envNames(bodies []hcl.Body, into map[string]bool) map[string]bool {
+	if into == nil {
+		into = map[string]bool{}
+	}
+	for _, body := range bodies {
+		syn, ok := body.(*hclsyntax.Body)
+		if !ok {
+			continue // all our sources come through hclparse; non-syntax bodies have nothing to scan
 		}
+		for _, attr := range syn.Attributes {
+			for _, traversal := range attr.Expr.Variables() {
+				if traversal.RootName() != nsEnv || len(traversal) < 2 {
+					continue
+				}
+				if step, ok := traversal[1].(hcl.TraverseAttr); ok {
+					into[step.Name] = true
+				}
+			}
+		}
+		for _, block := range syn.Blocks {
+			envNames([]hcl.Body{block.Body}, into)
+		}
+	}
+	return into
+}
+
+// envVal builds the env.* object containing exactly the queried names.
+// Unset variables resolve to "" rather than erroring.
+func envVal(names map[string]bool) cty.Value {
+	envMap := make(map[string]cty.Value, len(names))
+	for name := range names {
+		envMap[name] = cty.StringVal(os.Getenv(name))
 	}
 	return objOrEmpty(envMap)
 }
@@ -35,10 +64,36 @@ func objOrEmpty(m map[string]cty.Value) cty.Value {
 	return cty.ObjectVal(m)
 }
 
+// extendEnv returns a context whose env.* object additionally contains the
+// given names (unset → ""). Names already present keep their values.
+func extendEnv(ctx *hcl.EvalContext, names map[string]bool) *hcl.EvalContext {
+	if len(names) == 0 {
+		return ctx
+	}
+
+	merged := map[string]cty.Value{}
+	if env, ok := ctx.Variables[nsEnv]; ok && env.Type().IsObjectType() {
+		for k, v := range env.AsValueMap() { // AsValueMap returns nil for the empty object
+			merged[k] = v
+		}
+	}
+	for name := range names {
+		if _, ok := merged[name]; !ok {
+			merged[name] = cty.StringVal(os.Getenv(name))
+		}
+	}
+
+	variables := make(map[string]cty.Value, len(ctx.Variables))
+	for k, v := range ctx.Variables {
+		variables[k] = v
+	}
+	variables[nsEnv] = objOrEmpty(merged)
+	return &hcl.EvalContext{Variables: variables}
+}
+
 // makeLocalsCtx merges all locals {} blocks across sources (duplicate keys
 // error) and returns the eval context exposing local.* and env.*.
-func makeLocalsCtx(blocks []*hcl.Block) (*hcl.EvalContext, error) {
-	env := envVal()
+func makeLocalsCtx(blocks []*hcl.Block, env cty.Value) (*hcl.EvalContext, error) {
 	envCtx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: env}}
 
 	values := make(map[string]cty.Value)

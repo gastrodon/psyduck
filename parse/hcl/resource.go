@@ -329,6 +329,10 @@ func parseRemoteProducers(ref string, msg []byte, ix *resourceIndex, localsCtx *
 		return nil, fmt.Errorf("produce-from %s: remote config: %w", ref, diags)
 	}
 
+	// the env.* object was built from a prescan of local sources; remote
+	// config may query env vars unseen there, so extend it
+	localsCtx = extendEnv(localsCtx, envNames([]hcl.Body{file.Body}, nil))
+
 	bindings := make([]parse.Resource, 0, len(content.Blocks))
 	for _, block := range content.Blocks {
 		b, err := makeBinding(block, ix, localsCtx)
