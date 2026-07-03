@@ -78,7 +78,10 @@ func (ix *resourceIndex) lookup(ref string) (string, sdk.ResourceDescriptor, err
 }
 
 // makeBinding turns one produce/consume/transform block into a
-// parse.Resource: resource resolved, config block wrapped, meta decoded.
+// parse.Resource. All config evaluation is eager: the body is checked
+// strictly against the plugin spec + metaSpec (unknown attributes error),
+// and every attribute is evaluated, defaulted, and converted here. Only
+// the final decode into the plugin's struct is deferred to Bind time.
 func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext) (parse.Resource, error) {
 	resRef, name := block.Labels[0], block.Labels[1]
 	origin := rangeOf(block.DefRange)
@@ -88,10 +91,23 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext
 		return parse.Resource{}, fmt.Errorf("%s %s.%s at %s: %w", block.Type, resRef, name, origin, err)
 	}
 
-	meta := sdk.BlockMeta{}
-	metaBlock := &hclBlock{spec: metaSpec, body: block.Body, evalCtx: localsCtx, origin: origin}
-	if err := metaBlock.Decode(&meta); err != nil {
+	content, diags := block.Body.Content(blockSchema(desc.Spec))
+	if diags.HasErrors() {
+		return parse.Resource{}, fmt.Errorf("%s %s.%s: %w", block.Type, resRef, name, diags)
+	}
+
+	metaVals, err := evalValues(metaSpec, content.Attributes, localsCtx, origin)
+	if err != nil {
 		return parse.Resource{}, fmt.Errorf("%s %s.%s: failed to decode meta: %w", block.Type, resRef, name, err)
+	}
+	meta := sdk.BlockMeta{}
+	if err := (&hclBlock{values: metaVals, origin: origin}).Decode(&meta); err != nil {
+		return parse.Resource{}, fmt.Errorf("%s %s.%s: failed to decode meta: %w", block.Type, resRef, name, err)
+	}
+
+	specVals, err := evalValues(desc.Spec, content.Attributes, localsCtx, origin)
+	if err != nil {
+		return parse.Resource{}, fmt.Errorf("%s %s.%s: %w", block.Type, resRef, name, err)
 	}
 
 	return parse.Resource{
@@ -99,7 +115,7 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext
 		Kind:     verbKinds[block.Type],
 		Resource: desc,
 		PluginID: pluginID,
-		Block:    &hclBlock{spec: desc.Spec, body: block.Body, evalCtx: localsCtx, origin: origin},
+		Block:    &hclBlock{values: specVals, origin: origin},
 		Meta:     meta,
 	}, nil
 }

@@ -10,81 +10,91 @@ import (
 	"github.com/zclconf/go-cty/cty/gocty"
 )
 
-// hclBlock implements sdk.ConfigBlock over an HCL body. It is the only
-// place HCL types hide behind the sdk interface. Decode is spec-driven:
-// only attributes named by spec are read, evaluated against the eval
-// context, converted to the spec's type, and decoded into psy:-tagged
-// structs via the gocty fork.
+// hclBlock implements sdk.ConfigBlock over an already-evaluated resource
+// block. All HCL evaluation happens eagerly in makeBinding (via blockSchema
+// + evalValues), so config errors surface at parse time; Decode only maps
+// the finished cty values into the plugin's psy:-tagged struct.
 type hclBlock struct {
-	spec    []*sdk.Spec
-	body    hcl.Body
-	evalCtx *hcl.EvalContext
-	origin  sdk.SourceRange
+	values map[string]cty.Value
+	origin sdk.SourceRange
 }
 
 func (b *hclBlock) Origin() sdk.SourceRange { return b.origin }
 
 func (b *hclBlock) Decode(dst any) error {
-	if len(b.spec) == 0 {
+	if len(b.values) == 0 {
 		return nil
 	}
-
-	schema := &hcl.BodySchema{Attributes: make([]hcl.AttributeSchema, len(b.spec))}
-	for i, spec := range b.spec {
-		schema.Attributes[i] = hcl.AttributeSchema{Name: spec.Name, Required: spec.Required}
+	if err := gocty.FromCtyValueTagged(cty.ObjectVal(b.values), dst, "psy"); err != nil {
+		return fmt.Errorf("%s: failed to decode options: %w", b.origin, err)
 	}
+	return nil
+}
 
-	content, _, diags := b.body.PartialContent(schema)
-	if diags.HasErrors() {
-		return diags
+// blockSchema is the exact schema for one resource block: the plugin's spec
+// plus the host-owned metaSpec. Used with Content (not PartialContent) so
+// unknown attributes error at parse time.
+func blockSchema(spec []*sdk.Spec) *hcl.BodySchema {
+	schema := &hcl.BodySchema{Attributes: make([]hcl.AttributeSchema, 0, len(spec)+len(metaSpec))}
+	seen := make(map[string]bool, len(spec)+len(metaSpec))
+	for _, group := range [][]*sdk.Spec{spec, metaSpec} {
+		for _, s := range group {
+			if seen[s.Name] {
+				continue
+			}
+			seen[s.Name] = true
+			schema.Attributes = append(schema.Attributes, hcl.AttributeSchema{Name: s.Name, Required: s.Required})
+		}
 	}
+	return schema
+}
 
-	values := make(map[string]cty.Value, len(b.spec))
-	for _, spec := range b.spec {
-		want, err := specCty(spec)
+// evalValues evaluates the attributes named by spec against the eval
+// context, applying defaults and type conversion. Attribute presence and
+// unknown-attribute rejection are the schema's job (blockSchema + Content);
+// this only handles values.
+func evalValues(spec []*sdk.Spec, attrs hcl.Attributes, evalCtx *hcl.EvalContext, origin sdk.SourceRange) (map[string]cty.Value, error) {
+	values := make(map[string]cty.Value, len(spec))
+	for _, s := range spec {
+		want, err := specCty(s)
 		if err != nil {
-			return fmt.Errorf("%s: bad spec for %s: %w", b.origin, spec.Name, err)
+			return nil, fmt.Errorf("%s: bad spec for %s: %w", origin, s.Name, err)
 		}
 
-		attr, ok := content.Attributes[spec.Name]
+		attr, ok := attrs[s.Name]
 		if !ok {
-			v, err := defaultVal(spec, want)
+			v, err := defaultVal(s, want)
 			if err != nil {
-				return fmt.Errorf("%s: bad default for %s: %w", b.origin, spec.Name, err)
+				return nil, fmt.Errorf("%s: bad default for %s: %w", origin, s.Name, err)
 			}
-			values[spec.Name] = v
+			values[s.Name] = v
 			continue
 		}
 
-		v, diags := attr.Expr.Value(b.evalCtx)
+		v, diags := attr.Expr.Value(evalCtx)
 		if diags.HasErrors() {
-			return diags
+			return nil, diags
 		}
 
 		if v.IsNull() {
-			if spec.Required {
-				return fmt.Errorf("%s: a value is required for %s", b.origin, spec.Name)
+			if s.Required {
+				return nil, fmt.Errorf("%s: a value is required for %s", origin, s.Name)
 			}
-			v, err := defaultVal(spec, want)
+			v, err := defaultVal(s, want)
 			if err != nil {
-				return fmt.Errorf("%s: bad default for %s: %w", b.origin, spec.Name, err)
+				return nil, fmt.Errorf("%s: bad default for %s: %w", origin, s.Name, err)
 			}
-			values[spec.Name] = v
+			values[s.Name] = v
 			continue
 		}
 
 		converted, err := convert.Convert(v, want)
 		if err != nil {
-			return fmt.Errorf("%s: invalid value for %s (want %s): %w", b.origin, spec.Name, spec.Type, err)
+			return nil, fmt.Errorf("%s: invalid value for %s (want %s): %w", origin, s.Name, s.Type, err)
 		}
-		values[spec.Name] = converted
+		values[s.Name] = converted
 	}
-
-	if err := gocty.FromCtyValueTagged(cty.ObjectVal(values), dst, "psy"); err != nil {
-		return fmt.Errorf("%s: failed to decode options: %w", b.origin, err)
-	}
-
-	return nil
+	return values, nil
 }
 
 // specCty translates the sdk's format-neutral type descriptor into cty.

@@ -356,6 +356,36 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 	}
 }
 
+func TestParseUnknownAttribute(t *testing.T) {
+	// typo'd option names error at parse time (strict schema)
+	_, err := NewParserHCL().Parse(srcs(`
+	produce "constant" "p" { valeu = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "Unsupported argument") {
+		t.Fatalf("want unsupported argument error, got: %v", err)
+	}
+}
+
+func TestParseEagerConfigError(t *testing.T) {
+	// bad option values error at parse time, not at bind time
+	_, err := NewParserHCL().Parse(srcs(`
+	produce "constant" "p" { value = ["not", "a", "string"] }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`), []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "invalid value for value") {
+		t.Fatalf("want eager conversion error, got: %v", err)
+	}
+}
+
 func TestParseProduceFrom(t *testing.T) {
 	// a producer whose single message is itself psyduck config
 	meta := sdk.NewInProc("meta",
