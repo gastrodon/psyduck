@@ -8,6 +8,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
 	"github.com/zclconf/go-cty/cty/gocty"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
 
 // hclBlock implements sdk.ConfigBlock over an already-evaluated resource
@@ -29,6 +30,33 @@ func (b *hclBlock) Decode(dst any) error {
 		return fmt.Errorf("%s: failed to decode options: %w", b.origin, err)
 	}
 	return nil
+}
+
+// Values implements parse.ConfigValues: the evaluated attribute values
+// rendered as display strings. Null values (absent, no default) are omitted.
+func (b *hclBlock) Values() map[string]string {
+	out := make(map[string]string, len(b.values))
+	for name, v := range b.values {
+		if v.IsNull() {
+			continue
+		}
+		out[name] = renderValue(v)
+	}
+	return out
+}
+
+func renderValue(v cty.Value) string {
+	if v.Type() == cty.String {
+		return fmt.Sprintf("%q", v.AsString())
+	}
+	if converted, err := convert.Convert(v, cty.String); err == nil {
+		return converted.AsString()
+	}
+	raw, err := ctyjson.Marshal(v, v.Type())
+	if err != nil {
+		return fmt.Sprintf("<unrenderable: %s>", err)
+	}
+	return string(raw)
 }
 
 // blockSchema is the exact schema for one resource block: the plugin's spec

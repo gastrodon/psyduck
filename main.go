@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 
+	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
 
 	"github.com/gastrodon/psyduck/core"
@@ -33,26 +35,34 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 	return plugins.NewStore(initPath).Build(specs)
 }
 
-func run(ctx *cli.Context) error {
-	if !ctx.Args().Present() {
-		return fmt.Errorf("target required")
-	}
-
+// loadPipelines parses every .psy source in the workspace against the
+// loaded plugins + stdlib.
+func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, error) {
 	sources, err := parse.SourceFromDir(ctx.String("chdir"))
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	initPath := path.Join(ctx.String("chdir"), ".psyduck")
 	loaded, err := plugins.NewStore(initPath).Load()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	loaded = append(loaded, stdlib.Plugin())
 
-	format := hcl.NewParserHCL()
+	pipelines, err := hcl.NewParserHCL().Parse(sources, loaded)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pipelines, loaded, nil
+}
 
-	pipelines, err := format.Parse(sources, loaded)
+func run(ctx *cli.Context) error {
+	if !ctx.Args().Present() {
+		return fmt.Errorf("target required")
+	}
+
+	pipelines, loaded, err := loadPipelines(ctx)
 	if err != nil {
 		return err
 	}
@@ -69,6 +79,98 @@ func run(ctx *cli.Context) error {
 	}
 
 	return core.RunPipeline(pipeline)
+}
+
+func sortedNames(pipelines map[string]parse.Pipeline) []string {
+	names := make([]string, 0, len(pipelines))
+	for name := range pipelines {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func list(ctx *cli.Context) error {
+	pipelines, _, err := loadPipelines(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, name := range sortedNames(pipelines) {
+		if !ctx.Bool("stat") {
+			fmt.Println(name)
+			continue
+		}
+
+		spec := pipelines[name].Spec
+		remote := " "
+		if spec.RemoteSeed != nil {
+			remote = "r"
+		}
+		fmt.Printf("%s %s r%d x%d c%d\n", name, remote,
+			len(spec.Producers), len(spec.Transformers), len(spec.Consumers))
+	}
+	return nil
+}
+
+// printResource prints one resource and its config, indented under its
+// pipeline block.
+func printResource(r parse.Resource) {
+	fmt.Printf("  %s\n", r.Ref)
+	values, ok := r.Block.(parse.ConfigValues)
+	if !ok {
+		return
+	}
+	m := values.Values()
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("    %s = %s\n", k, m[k])
+	}
+}
+
+func show(ctx *cli.Context) error {
+	pipelines, _, err := loadPipelines(ctx)
+	if err != nil {
+		return err
+	}
+
+	names := ctx.Args().Slice()
+	if len(names) == 0 {
+		names = sortedNames(pipelines)
+	}
+
+	for i, name := range names {
+		pipe, ok := pipelines[name]
+		if !ok {
+			return fmt.Errorf("no pipeline %q", name)
+		}
+
+		if i > 0 {
+			fmt.Println()
+		}
+		fmt.Println(pipe.Name)
+
+		if pipe.Spec.RemoteSeed != nil {
+			printResource(*pipe.Spec.RemoteSeed)
+			fmt.Println("  *")
+		}
+		for _, r := range pipe.Spec.Producers {
+			printResource(r)
+		}
+		fmt.Println("  ->")
+		for _, r := range pipe.Spec.Transformers {
+			printResource(r)
+		}
+		fmt.Println("  ->")
+		for _, r := range pipe.Spec.Consumers {
+			printResource(r)
+		}
+	}
+	return nil
 }
 
 func main() {
@@ -90,6 +192,24 @@ func main() {
 				Action:    run,
 				Args:      true,
 				ArgsUsage: "pipeline name",
+			},
+			{
+				Name:   "list",
+				Usage:  "list pipelines by name",
+				Action: list,
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:  "stat",
+						Usage: "include resource counts: <name> <r|space> r<producers> x<transformers> c<consumers>",
+					},
+				},
+			},
+			{
+				Name:      "show",
+				Usage:     "show pipeline resources and config",
+				Action:    show,
+				Args:      true,
+				ArgsUsage: "[pipeline name ...]",
 			},
 			{
 				Name:   "init",

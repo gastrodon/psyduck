@@ -183,6 +183,7 @@ func makePipeline(
 		return parse.Pipeline{}, err
 	}
 	pipe.Consumers = parse.LiteralResourceFunc(consumers...)
+	pipe.Spec.Consumers = consumers
 
 	transformers := []parse.Resource{}
 	if attr, ok := content.Attributes["transform"]; ok {
@@ -195,6 +196,7 @@ func makePipeline(
 		}
 	}
 	pipe.Transformers = parse.LiteralResourceFunc(transformers...)
+	pipe.Spec.Transformers = transformers
 
 	// producers are either a literal list or a produce-from seed
 	produceAttr, hasProduce := content.Attributes["produce"]
@@ -215,6 +217,7 @@ func makePipeline(
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: at least one producer is required", name, origin)
 		}
 		pipe.Producers = parse.LiteralResourceFunc(producers...)
+		pipe.Spec.Producers = producers
 	case hasRemote:
 		v, diags := remoteAttr.Expr.Value(refCtxs[blockProduce])
 		if diags.HasErrors() {
@@ -225,6 +228,7 @@ func makePipeline(
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: unknown produce-from reference %q", name, v.AsString())
 		}
 		pipe.Producers = remoteBindings(seed, ix, localsCtx)
+		pipe.Spec.RemoteSeed = &seed
 	default:
 		return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: produce or produce-from is required", name, origin)
 	}

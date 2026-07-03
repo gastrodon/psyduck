@@ -47,4 +47,21 @@ type Pipeline struct {
 	Transformers ResourceFunc
 	StopAfter    int
 	ExitOnError  bool
+	Spec         PipelineSpec
+}
+
+// PipelineSpec is display-only metadata describing the pipeline's declared
+// resources. Unlike the ResourceFunc streams it is inert: reading it never
+// instantiates anything, and a produce-from seed is never run.
+type PipelineSpec struct {
+	Producers    []Resource // literal producers; empty when produce-from is used
+	RemoteSeed   *Resource  // non-nil iff the pipeline uses produce-from
+	Transformers []Resource
+	Consumers    []Resource
+}
+
+// ConfigValues is an optional interface a ConfigBlock may implement to
+// expose its evaluated attribute values, rendered as strings, for display.
+type ConfigValues interface {
+	Values() map[string]string
 }
