@@ -1,0 +1,23 @@
+# Demonstrates the locals {} block and the local.* / env.* namespaces.
+# Shared resources (consume.trash.trash, transform.inspect.inspect) are
+# declared in basics.psy — all .psy files in this directory parse together.
+
+locals {
+  foo = "bar"
+}
+
+produce "constant" "local-value" {
+  value      = local.foo
+  stop-after = 30
+}
+
+produce "constant" "env-value" {
+  value      = env.PSYDUCK_FOO # unset env vars resolve to ""
+  stop-after = 30
+}
+
+pipeline "locals" {
+  produce   = [produce.constant.local-value, produce.constant.env-value]
+  consume   = [consume.trash.trash]
+  transform = [transform.inspect.inspect]
+}

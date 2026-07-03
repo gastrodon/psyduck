@@ -1,0 +1,59 @@
+# Demonstrates produce-from: a pipeline whose producers are described by the
+# output of another producer. The seed producer runs once at build time; its
+# first message is parsed as HCL produce {} blocks.
+# The amqp plugin block lives in amqp.psy; trash/inspect live in basics.psy.
+
+# stdlib-only variant: the seed is a constant that emits HCL directly.
+produce "constant" "seed" {
+  value = <<-EOF
+  produce "constant" "remote" {
+    value      = "from-a-remote-config"
+    stop-after = 10
+  }
+  EOF
+  stop-after = 1
+}
+
+pipeline "consume-remote" {
+  produce-from = produce.constant.seed
+  consume      = [consume.trash.trash]
+  transform    = [transform.inspect.inspect]
+}
+
+# amqp variant: one pipeline writes generated config into a queue, another
+# consumes that queue as its producer description. Requires a local rabbitmq.
+produce "increment" "inc" {
+  stop-after = 8
+}
+
+consume "amqp-queue" "src-constant" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue      = "src-constant"
+}
+
+transform "sprintf" "src" {
+  format = <<-EOF
+  produce "constant" "remote" {
+    value = "%d"
+    stop-after = 10
+  }
+  EOF
+}
+
+pipeline "ready-remote" {
+  produce   = [produce.increment.inc]
+  consume   = [consume.amqp-queue.src-constant]
+  transform = [transform.sprintf.src, transform.inspect.inspect]
+}
+
+produce "amqp-queue" "src-constants" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue      = "src-constant"
+  stop-after = 1
+}
+
+pipeline "consume-remote-amqp" {
+  produce-from = produce.amqp-queue.src-constants
+  consume      = [consume.trash.trash]
+  transform    = [transform.inspect.inspect]
+}

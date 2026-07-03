@@ -1,3 +1,7 @@
+# The basics: declaring resources and wiring them into pipelines of every
+# fan shape. These shared resources (trash, inspect, constant.1/2) are also
+# referenced by the other files in this directory.
+
 consume "trash" "trash" {}
 
 transform "inspect" "inspect" {}
