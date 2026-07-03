@@ -21,7 +21,15 @@ type Store struct {
 }
 
 func NewStore(root string) *Store {
-	return &Store{root: root}
+	// The root must be absolute: relative paths would silently misbehave in
+	// fetcher.build (`go build -C` resolves -o relative to the -C directory,
+	// not our cwd) and would bake cwd-dependent paths into the manifest.
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		// Abs only fails if the cwd is undeterminable; keep the given root.
+		abs = root
+	}
+	return &Store{root: abs}
 }
 
 func (s *Store) pluginsDir() string {
