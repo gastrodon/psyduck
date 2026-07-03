@@ -5,7 +5,6 @@ import (
 	"os"
 	"path"
 
-	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
 
 	"github.com/gastrodon/psyduck/core"
@@ -64,12 +63,7 @@ func run(ctx *cli.Context) error {
 		return fmt.Errorf("no pipeline %q", target)
 	}
 
-	pluginIx := make(map[string]sdk.Plugin, len(loaded))
-	for _, p := range loaded {
-		pluginIx[p.Name()] = p
-	}
-
-	pipeline, err := core.BuildPipeline(pipe, pluginIx)
+	pipeline, err := core.BuildPipeline(pipe, loaded)
 	if err != nil {
 		return err
 	}
