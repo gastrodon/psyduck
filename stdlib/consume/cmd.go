@@ -45,9 +45,10 @@ func Cmd(parse sdk.Parser) (sdk.Consumer, error) {
 
 			if _, err := stdin.Write(msg); err != nil {
 				errs <- fmt.Errorf("cmd consumer write: %w", err)
-			}
-			if len(delim) > 0 {
-				stdin.Write(delim) //nolint:errcheck
+			} else if len(delim) > 0 {
+				if _, err := stdin.Write(delim); err != nil {
+					errs <- fmt.Errorf("cmd consumer write delimiter: %w", err)
+				}
 			}
 			stdin.Close()
 

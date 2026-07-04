@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
@@ -41,7 +42,7 @@ func HttpPoll(parse sdk.Parser) (sdk.Producer, error) {
 		for {
 			var bodyReader io.Reader
 			if config.Body != "" {
-				bodyReader = newStringReader(config.Body)
+				bodyReader = strings.NewReader(config.Body)
 			}
 
 			req, err := http.NewRequest(config.Method, config.URL, bodyReader)
