@@ -1,7 +1,5 @@
 package data
 
-import "github.com/psyduck-etl/sdk"
-
 // Continuous is the array-like half of the model: data that can only be
 // meaningfully referenced by index or by linear pattern matching. Its
 // self-returning ops are boxed as Continuous (not the concrete type) because
@@ -56,11 +54,6 @@ func (b Bytes) String() string { return string(b) }
 func (b Bytes) Bytes() []byte  { return b }
 func (b Bytes) Len() int       { return len(b) }
 
-func (b Bytes) Spec() (sdk.Spec, *any) {
-	var t any
-	return sdk.Spec{Name: "bytes", Type: sdk.TypeString}, &t
-}
-
 func (b Bytes) By(p Pattern) (Continuous, error) { return applyBy(b, p) }
 
 func (b Bytes) Get(n int) (Continuous, bool) {
@@ -92,11 +85,6 @@ func (r Runes) Kind() Kind     { return KindRunes }
 func (r Runes) String() string { return string(r) }
 func (r Runes) Bytes() []byte  { return []byte(string(r)) }
 func (r Runes) Len() int       { return len(r) }
-
-func (r Runes) Spec() (sdk.Spec, *any) {
-	var t any
-	return sdk.Spec{Name: "runes", Type: sdk.TypeString}, &t
-}
 
 func (r Runes) By(p Pattern) (Continuous, error) { return applyBy(r, p) }
 
@@ -131,11 +119,6 @@ func (s Str) Kind() Kind     { return KindStr }
 func (s Str) String() string { return string(s) }
 func (s Str) Bytes() []byte  { return []byte(s) }
 func (s Str) Len() int       { return len([]rune(s)) }
-
-func (s Str) Spec() (sdk.Spec, *any) {
-	var t any
-	return sdk.Spec{Name: "string", Type: sdk.TypeString}, &t
-}
 
 func (s Str) By(p Pattern) (Continuous, error) { return applyBy(s, p) }
 
@@ -180,15 +163,6 @@ func (l List) Len() int      { return len(l) }
 func (l List) Bytes() []byte { return marshalJSON(l) }
 
 func (l List) String() string { return string(l.Bytes()) }
-
-func (l List) Spec() (sdk.Spec, *any) {
-	var t any
-	return sdk.Spec{
-		Name:     "list",
-		Type:     sdk.TypeList,
-		ElemType: &sdk.Spec{Type: sdk.TypeString},
-	}, &t
-}
 
 func (l List) By(p Pattern) (Continuous, error) { return applyBy(l, p) }
 

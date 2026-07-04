@@ -1,10 +1,6 @@
 package data
 
-import (
-	"sort"
-
-	"github.com/psyduck-etl/sdk"
-)
+import "sort"
 
 // Discrete is the struct-like half of the model: data referenced by key (a
 // JSON object, an HCL body). K is almost always string and values are
@@ -38,15 +34,6 @@ func (o Object) Keys() []string {
 func (o Object) Get(key string) (Value, bool) {
 	v, ok := o[key]
 	return v, ok
-}
-
-func (o Object) Spec() (sdk.Spec, *any) {
-	fields := make([]*sdk.Spec, 0, len(o))
-	for _, k := range o.Keys() {
-		fields = append(fields, &sdk.Spec{Name: k, Type: sdk.TypeString})
-	}
-	var t any
-	return sdk.Spec{Name: "object", Type: sdk.TypeObject, Fields: fields}, &t
 }
 
 // TryGet coerces a raw key u into the structure's key domain via the passed

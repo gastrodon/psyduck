@@ -3,8 +3,6 @@ package data
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/psyduck-etl/sdk"
 )
 
 // Lit is an atomic JSON scalar leaf — number, bool, or null — that preserves
@@ -29,21 +27,5 @@ func (l Lit) Bytes() []byte {
 }
 
 func (l Lit) String() string { return string(l.Bytes()) }
-
-func (l Lit) Spec() (sdk.Spec, *any) {
-	var t any
-	return sdk.Spec{Name: "lit", Type: litSpecType(l.V)}, &t
-}
-
-func litSpecType(v any) sdk.SpecType {
-	switch v.(type) {
-	case bool:
-		return sdk.TypeBool
-	case float64, int, int64, json.Number:
-		return sdk.TypeFloat
-	default:
-		return sdk.TypeString
-	}
-}
 
 func sprint(v any) string { return fmt.Sprintf("%v", v) }

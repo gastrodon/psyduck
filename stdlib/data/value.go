@@ -16,11 +16,7 @@
 // boundaries (FromBytes, As, the ~[]E slice helpers, Transpose).
 package data
 
-import (
-	"fmt"
-
-	"github.com/psyduck-etl/sdk"
-)
+import "fmt"
 
 // Kind discriminates the concrete shape behind a Value. It lets pipeline code
 // dispatch on continuous-vs-discrete without a type switch on every op.
@@ -70,13 +66,6 @@ type Value interface {
 	// Bytes renders the value as raw bytes — the canonical encoding for
 	// handing the value back to the pipeline as a []byte message.
 	Bytes() []byte
-	// Spec makes a Value self-describing to the host config layer: it returns
-	// the value's sdk.Spec schema together with a pointer target (*any) ready
-	// to receive decoded data. The host Parser (func(dst any) error — the same
-	// closure that configures resources) or a plain json.Unmarshal decodes
-	// into that target, so one machinery populates both resource config and
-	// Values.
-	Spec() (sdk.Spec, *any)
 }
 
 // As recovers a concrete Value type after a boxed operation. Go forbids
