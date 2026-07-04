@@ -8,7 +8,7 @@ import (
 // ── codec chains & round-trips ─────────────────────────────────────────────
 
 func TestDecodeEncodeRoundTrip(t *testing.T) {
-	// Invariant: decode(encode(v, spec), spec) == v. The initial Value is built
+	// Invariant: Decode(Encode(v, spec), spec) == v. The initial Value is built
 	// from a natural source ("json" text, raw bytes) then round-tripped through
 	// the target spec so byte codecs (base64/hex/gzip) see a real payload.
 	cases := []struct {
@@ -26,17 +26,17 @@ func TestDecodeEncodeRoundTrip(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			v, err := decode(c.source, c.sourceSpec)
+			v, err := Decode(c.source, c.sourceSpec)
 			if err != nil {
-				t.Fatalf("seed decode(%q): %v", c.sourceSpec, err)
+				t.Fatalf("seed Decode(%q): %v", c.sourceSpec, err)
 			}
-			out, err := encode(v, c.spec)
+			out, err := Encode(v, c.spec)
 			if err != nil {
-				t.Fatalf("encode(%q): %v", c.spec, err)
+				t.Fatalf("Encode(%q): %v", c.spec, err)
 			}
-			v2, err := decode(out, c.spec)
+			v2, err := Decode(out, c.spec)
 			if err != nil {
-				t.Fatalf("decode(%q): %v", c.spec, err)
+				t.Fatalf("Decode(%q): %v", c.spec, err)
 			}
 			if string(v.Bytes()) != string(v2.Bytes()) {
 				t.Errorf("round-trip mismatch: %q -> %q", v.Bytes(), v2.Bytes())
@@ -46,7 +46,7 @@ func TestDecodeEncodeRoundTrip(t *testing.T) {
 }
 
 func TestJSONNumberFidelity(t *testing.T) {
-	v, err := decode([]byte(`{"n":42,"f":3.5,"b":true,"z":null}`), "json")
+	v, err := Decode([]byte(`{"n":42,"f":3.5,"b":true,"z":null}`), "json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,24 +68,24 @@ func TestUTF8RejectsGarbage(t *testing.T) {
 		{'a', 0x80, 'b'}, // stray continuation
 	}
 	for i, g := range garbage {
-		if _, err := decode(g, "utf-8"); err == nil {
+		if _, err := Decode(g, "utf-8"); err == nil {
 			t.Errorf("case %d: expected utf-8 decode error for % x", i, g)
 		}
 	}
 }
 
 func TestASCIIRejectsHighBytes(t *testing.T) {
-	if _, err := decode([]byte{'a', 0x80}, "ascii"); err == nil {
+	if _, err := Decode([]byte{'a', 0x80}, "ascii"); err == nil {
 		t.Error("expected ascii error on high byte")
 	}
-	if _, err := decode([]byte("plain"), "ascii"); err != nil {
+	if _, err := Decode([]byte("plain"), "ascii"); err != nil {
 		t.Errorf("valid ascii rejected: %v", err)
 	}
 }
 
 func TestLatin1AcceptsAllBytes(t *testing.T) {
 	// latin1 maps every byte to a rune, so nothing is invalid.
-	v, err := decode([]byte{0xff, 0x80, 0x41}, "latin1")
+	v, err := Decode([]byte{0xff, 0x80, 0x41}, "latin1")
 	if err != nil {
 		t.Fatalf("latin1 should accept all bytes: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestLatin1AcceptsAllBytes(t *testing.T) {
 
 func TestEmptyInput(t *testing.T) {
 	for _, spec := range []string{"bytes", "utf-8", "ascii", "latin1"} {
-		if _, err := decode([]byte{}, spec); err != nil {
+		if _, err := Decode([]byte{}, spec); err != nil {
 			t.Errorf("empty input under %q errored: %v", spec, err)
 		}
 	}
@@ -166,7 +166,7 @@ func TestStrRuneAware(t *testing.T) {
 // ── walk / bysjq selection ────────────────────────────────────────────────
 
 func TestWalkDiscreteAndContinuous(t *testing.T) {
-	v, _ := decode([]byte(`{"user":{"names":["ann","bob"]}}`), "json")
+	v, _ := Decode([]byte(`{"user":{"names":["ann","bob"]}}`), "json")
 	got, ok, err := Walk(v, Path{"user", "names", "1"})
 	if err != nil || !ok {
 		t.Fatalf("walk err=%v ok=%v", err, ok)
@@ -182,7 +182,7 @@ func TestWalkDiscreteAndContinuous(t *testing.T) {
 }
 
 func TestByJQ(t *testing.T) {
-	v, _ := decode([]byte(`{"items":[{"id":1},{"id":2}]}`), "json")
+	v, _ := Decode([]byte(`{"items":[{"id":1},{"id":2}]}`), "json")
 	got, ok, err := ByJQ(v, ".items[1].id")
 	if err != nil || !ok {
 		t.Fatalf("byjq err=%v ok=%v", err, ok)
@@ -211,7 +211,7 @@ func TestTryGet(t *testing.T) {
 }
 
 func TestTranspose(t *testing.T) {
-	v, _ := decode([]byte(`{"a":{"b":"deep"},"x":"top"}`), "json")
+	v, _ := Decode([]byte(`{"a":{"b":"deep"},"x":"top"}`), "json")
 	out, missing := Transpose(v,
 		[]Path{{"a", "b"}, {"x"}, {"nope"}},
 		[]string{"deep", "top", "gone"},

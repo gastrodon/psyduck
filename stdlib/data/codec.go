@@ -41,8 +41,10 @@ func fromNative(n any) Value {
 	}
 }
 
-// toNative lowers a Value tree back to native Go data for json.Marshal.
-func toNative(v Value) any {
+// Native lowers a Value tree to plain Go data (map[string]any, []any, string,
+// float64, bool, nil) — the shape json.Marshal, a Go text/template, or an fmt
+// verb expects.
+func Native(v Value) any {
 	switch t := v.(type) {
 	case Lit:
 		return t.V
@@ -55,13 +57,13 @@ func toNative(v Value) any {
 	case List:
 		out := make([]any, len(t))
 		for i, e := range t {
-			out[i] = toNative(e)
+			out[i] = Native(e)
 		}
 		return out
 	case Object:
 		out := make(map[string]any, len(t))
 		for k, e := range t {
-			out[k] = toNative(e)
+			out[k] = Native(e)
 		}
 		return out
 	case Value:
@@ -71,27 +73,14 @@ func toNative(v Value) any {
 	}
 }
 
-// Native lowers a Value tree to plain Go data (map[string]any, []any, string,
-// float64, bool, nil) — the shape a Go text/template or fmt verb expects.
-func Native(v Value) any { return toNative(v) }
-
 // marshalJSON renders a Value tree as compact JSON.
 func marshalJSON(v Value) []byte {
-	b, err := json.Marshal(toNative(v))
+	b, err := json.Marshal(Native(v))
 	if err != nil {
-		return []byte(sprint(toNative(v)))
+		return []byte(sprint(Native(v)))
 	}
 	return b
 }
-
-// Decode decodes raw bytes into a Value per a codec/parser chain spec such as
-// "json", "gzip|json", or "base64". It is the exported entry point transformers
-// use; FromBytes wraps it with a concrete-type assertion.
-func Decode(b []byte, spec string) (Value, error) { return decode(b, spec) }
-
-// Encode renders a Value into bytes per a codec chain spec — the inverse of
-// Decode.
-func Encode(v Value, spec string) ([]byte, error) { return encode(v, spec) }
 
 // ── decode: bytes -> Value ────────────────────────────────────────────────
 
@@ -112,11 +101,12 @@ func isTerminal(name string) bool {
 	return ok
 }
 
-// decode resolves a chain spec ("gzip|json", "utf-8", "base64") and decodes
+// Decode resolves a chain spec ("gzip|json", "utf-8", "base64") and decodes
 // bytes into a Value. Byte-level codecs (from the Pattern registry) apply left
 // to right; a terminal decoder, if any, must come last and produces the final
-// structured/string Value. A spec with no terminal yields Bytes.
-func decode(b []byte, as string) (Value, error) {
+// structured/string Value. A spec with no terminal yields Bytes. FromBytes
+// wraps this with a concrete-type assertion.
+func Decode(b []byte, as string) (Value, error) {
 	names := splitSpec(as)
 	for i, name := range names {
 		if fn, ok := terminalDecoders[name]; ok {
@@ -138,10 +128,10 @@ func decode(b []byte, as string) (Value, error) {
 	return Bytes(b), nil
 }
 
-// encode is the inverse of decode: it renders a Value into the target encoding.
+// Encode is the inverse of Decode: it renders a Value into the target encoding.
 // The terminal encoder (if the spec ends in one) runs first to produce bytes,
 // then the byte codecs apply in reverse order.
-func encode(v Value, as string) ([]byte, error) {
+func Encode(v Value, as string) ([]byte, error) {
 	names := splitSpec(as)
 	byteEnd := len(names)
 	term := ""
@@ -175,7 +165,7 @@ func terminalEncode(v Value, term string) ([]byte, error) {
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
 		enc.SetIndent("", "  ")
-		if err := enc.Encode(toNative(v)); err != nil {
+		if err := enc.Encode(Native(v)); err != nil {
 			return nil, err
 		}
 		return bytes.TrimRight(buf.Bytes(), "\n"), nil

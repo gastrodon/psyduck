@@ -84,7 +84,7 @@ func As[T Value](v Value) (T, bool) {
 //
 //	obj, err := data.FromBytes[data.Object](b, "json")
 func FromBytes[T Value](b []byte, as string) (T, error) {
-	v, err := decode(b, as)
+	v, err := Decode(b, as)
 	if err != nil {
 		var zero T
 		return zero, err

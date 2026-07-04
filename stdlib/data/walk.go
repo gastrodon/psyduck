@@ -74,7 +74,7 @@ func EvalJQ(query *gojq.Query, v Value) (Value, bool, error) {
 }
 
 func runByJQ(query *gojq.Query, v Value) (Value, bool, error) {
-	input := toNative(v)
+	input := Native(v)
 	// gojq wants json.Number-free float64 input for arithmetic; re-normalize.
 	input = normalizeForJQ(input)
 

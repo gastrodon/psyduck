@@ -9,6 +9,36 @@ import (
 	"time"
 )
 
+// RequestConfig is the shared decode target for the dual-role `request`
+// resource. Both the producer and consumer decode into this one struct, so the
+// field set is declared once rather than duplicated. Body and IntervalMs are
+// used only when producing (polling); the consumer ignores them.
+type RequestConfig struct {
+	URL          string            `psy:"url"`
+	Method       string            `psy:"method"`
+	Headers      map[string]string `psy:"headers"`
+	Body         string            `psy:"body"`
+	QueryParams  map[string]string `psy:"query-params"`
+	BasicAuth    string            `psy:"basic-auth"`
+	TimeoutMs    int               `psy:"timeout-ms"`
+	SuccessCodes []int             `psy:"success-codes"`
+	IntervalMs   int               `psy:"interval-ms"`
+}
+
+// HTTP projects the request-shaping options out of a RequestConfig (dropping
+// the producer-only Body/IntervalMs, which the caller handles).
+func (c RequestConfig) HTTP() HTTP {
+	return HTTP{
+		URL:          c.URL,
+		Method:       c.Method,
+		Headers:      c.Headers,
+		QueryParams:  c.QueryParams,
+		BasicAuth:    c.BasicAuth,
+		TimeoutMs:    c.TimeoutMs,
+		SuccessCodes: c.SuccessCodes,
+	}
+}
+
 // HTTP holds the request options shared by the request producer and consumer.
 // It is decoded from a flat config and turned into configured requests via
 // Do — the "give me a closure" surface for HTTP, so producer polling and
