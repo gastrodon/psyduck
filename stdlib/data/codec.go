@@ -71,6 +71,10 @@ func toNative(v Value) any {
 	}
 }
 
+// Native lowers a Value tree to plain Go data (map[string]any, []any, string,
+// float64, bool, nil) — the shape a Go text/template or fmt verb expects.
+func Native(v Value) any { return toNative(v) }
+
 // marshalJSON renders a Value tree as compact JSON.
 func marshalJSON(v Value) []byte {
 	b, err := json.Marshal(toNative(v))
@@ -79,6 +83,15 @@ func marshalJSON(v Value) []byte {
 	}
 	return b
 }
+
+// Decode decodes raw bytes into a Value per a codec/parser chain spec such as
+// "json", "gzip|json", or "base64". It is the exported entry point transformers
+// use; FromBytes wraps it with a concrete-type assertion.
+func Decode(b []byte, spec string) (Value, error) { return decode(b, spec) }
+
+// Encode renders a Value into bytes per a codec chain spec — the inverse of
+// Decode.
+func Encode(v Value, spec string) ([]byte, error) { return encode(v, spec) }
 
 // ── decode: bytes -> Value ────────────────────────────────────────────────
 

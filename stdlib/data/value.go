@@ -27,12 +27,12 @@ import (
 type Kind int
 
 const (
-	KindBytes Kind = iota // raw []byte
-	KindStr               // UTF-8 (or other) text
-	KindRunes             // []rune
-	KindList              // ordered []Value (continuous, array-like)
-	KindObject            // keyed map[string]Value (discrete, struct-like)
-	KindLit               // atomic JSON scalar leaf (number, bool, null)
+	KindBytes  Kind = iota // raw []byte
+	KindStr                // UTF-8 (or other) text
+	KindRunes              // []rune
+	KindList               // ordered []Value (continuous, array-like)
+	KindObject             // keyed map[string]Value (discrete, struct-like)
+	KindLit                // atomic JSON scalar leaf (number, bool, null)
 )
 
 // String names a Kind for diagnostics.

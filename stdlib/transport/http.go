@@ -1,0 +1,98 @@
+package transport
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// HTTP holds the request options shared by the request producer and consumer.
+// It is decoded from a flat config and turned into configured requests via
+// Do — the "give me a closure" surface for HTTP, so producer polling and
+// consumer posting share one code path.
+type HTTP struct {
+	URL          string
+	Method       string
+	Headers      map[string]string
+	QueryParams  map[string]string
+	BasicAuth    string // "user:pass"
+	TimeoutMs    int
+	SuccessCodes []int
+}
+
+// Client builds an http.Client honoring the configured timeout.
+func (h HTTP) Client() *http.Client {
+	timeout := time.Duration(h.TimeoutMs) * time.Millisecond
+	if h.TimeoutMs <= 0 {
+		timeout = 30 * time.Second
+	}
+	return &http.Client{Timeout: timeout}
+}
+
+// Do issues one request with the given body (nil for none) and returns the
+// response body. A status code outside SuccessCodes is an error.
+func (h HTTP) Do(client *http.Client, body []byte) ([]byte, error) {
+	target, err := url.Parse(h.URL)
+	if err != nil {
+		return nil, fmt.Errorf("http: bad url %q: %w", h.URL, err)
+	}
+	if len(h.QueryParams) > 0 {
+		q := target.Query()
+		for k, v := range h.QueryParams {
+			q.Set(k, v)
+		}
+		target.RawQuery = q.Encode()
+	}
+
+	var reader io.Reader
+	if body != nil {
+		reader = strings.NewReader(string(body))
+	}
+
+	method := h.Method
+	if method == "" {
+		method = http.MethodGet
+	}
+	req, err := http.NewRequest(method, target.String(), reader)
+	if err != nil {
+		return nil, fmt.Errorf("http: build request: %w", err)
+	}
+	for k, v := range h.Headers {
+		req.Header.Set(k, v)
+	}
+	if h.BasicAuth != "" {
+		user, pass, _ := strings.Cut(h.BasicAuth, ":")
+		req.SetBasicAuth(user, pass)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("http: read body: %w", err)
+	}
+	if !h.accepts(resp.StatusCode) {
+		return data, fmt.Errorf("http: %s returned %d", h.URL, resp.StatusCode)
+	}
+	return data, nil
+}
+
+func (h HTTP) accepts(code int) bool {
+	codes := h.SuccessCodes
+	if len(codes) == 0 {
+		codes = []int{200}
+	}
+	for _, c := range codes {
+		if c == code {
+			return true
+		}
+	}
+	return false
+}

@@ -63,9 +63,9 @@ func TestUTF8RejectsGarbage(t *testing.T) {
 	// invalid continuation byte, lone 0xff, truncated multibyte
 	garbage := [][]byte{
 		{0xff},
-		{0xc3, 0x28},       // invalid 2-byte seq
-		{0xe2, 0x82},       // truncated 3-byte (partial rune)
-		{'a', 0x80, 'b'},   // stray continuation
+		{0xc3, 0x28},     // invalid 2-byte seq
+		{0xe2, 0x82},     // truncated 3-byte (partial rune)
+		{'a', 0x80, 'b'}, // stray continuation
 	}
 	for i, g := range garbage {
 		if _, err := decode(g, "utf-8"); err == nil {
