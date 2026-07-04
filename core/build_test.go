@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/psyduck-etl/sdk"
 
@@ -97,122 +96,6 @@ func Test_stackTransform(t *testing.T) {
 	out, err = stackTransform([]sdk.Transformer{filter, spy})([]byte("_"))
 	if err != nil || out != nil || called {
 		t.Fatalf("filter: out=%q called=%v err=%v", out, called, err)
-	}
-}
-
-func Test_throttle(t *testing.T) {
-	// non-positive: never blocks
-	wait := throttle(0)
-	start := time.Now()
-	for i := 0; i < 1000; i++ {
-		wait()
-	}
-	if time.Since(start) > 100*time.Millisecond {
-		t.Fatal("throttle(0) blocked")
-	}
-
-	// 6000/min = 10ms period; 5 waits must take at least ~40ms
-	wait = throttle(6000)
-	start = time.Now()
-	for i := 0; i < 5; i++ {
-		wait()
-	}
-	if elapsed := time.Since(start); elapsed < 40*time.Millisecond {
-		t.Fatalf("throttle(6000): 5 waits took only %s", elapsed)
-	}
-}
-
-func Test_applyMetaProducer(t *testing.T) {
-	emit := func(n int) sdk.Producer {
-		return func(send chan<- []byte, errs chan<- error) {
-			for i := 0; i < n; i++ {
-				send <- []byte{byte(i)}
-			}
-			close(send)
-		}
-	}
-
-	recvAll := func(p sdk.Producer) [][]byte {
-		send, errs := make(chan []byte), make(chan error)
-		go p(send, errs)
-		got := [][]byte{}
-		for msg := range send {
-			got = append(got, msg)
-		}
-		return got
-	}
-
-	// zero meta: passthrough, all messages arrive
-	if got := recvAll(applyMetaProducer(emit(10), sdk.BlockMeta{})); len(got) != 10 {
-		t.Fatalf("passthrough: want 10, got %d", len(got))
-	}
-
-	// stop-after cuts off exactly at n and closes send
-	got := recvAll(applyMetaProducer(emit(10), sdk.BlockMeta{StopAfter: 3}))
-	if len(got) != 3 {
-		t.Fatalf("stop-after: want 3, got %d", len(got))
-	}
-	if got[0][0] != 0 || got[2][0] != 2 {
-		t.Fatalf("stop-after: wrong messages %v", got)
-	}
-
-	// stop-after larger than stream: everything arrives
-	if got := recvAll(applyMetaProducer(emit(4), sdk.BlockMeta{StopAfter: 100})); len(got) != 4 {
-		t.Fatalf("stop-after overshoot: want 4, got %d", len(got))
-	}
-
-	// per-minute paces messages: 6000/min = 10ms period, 5 msgs >= ~40ms
-	start := time.Now()
-	if got := recvAll(applyMetaProducer(emit(5), sdk.BlockMeta{PerMinute: 6000})); len(got) != 5 {
-		t.Fatalf("per-minute: want 5, got %d", len(got))
-	}
-	if elapsed := time.Since(start); elapsed < 40*time.Millisecond {
-		t.Fatalf("per-minute: not throttled, took %s", elapsed)
-	}
-}
-
-func Test_applyMetaConsumer(t *testing.T) {
-	run := func(meta sdk.BlockMeta, feed int) int {
-		count := 0
-		consume := func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			for range recv {
-				count++
-			}
-			close(done)
-		}
-
-		recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
-		go applyMetaConsumer(consume, meta)(recv, errs, done)
-
-		stop := make(chan struct{})
-		go func() {
-			defer close(recv)
-			for i := 0; i < feed; i++ {
-				select {
-				case recv <- []byte{byte(i)}:
-				case <-stop:
-					return
-				}
-			}
-		}()
-
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			t.Fatal("consumer never signalled done")
-		}
-		close(stop)
-		return count
-	}
-
-	// zero meta: passthrough
-	if got := run(sdk.BlockMeta{}, 10); got != 10 {
-		t.Fatalf("passthrough: want 10, got %d", got)
-	}
-
-	// stop-after cuts off at n, done still fires
-	if got := run(sdk.BlockMeta{StopAfter: 3}, 10); got != 3 {
-		t.Fatalf("stop-after: want 3, got %d", got)
 	}
 }
 

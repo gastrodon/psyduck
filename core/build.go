@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
 
 	"github.com/gastrodon/psyduck/parse"
+	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
 type Pipeline struct {
@@ -216,67 +216,6 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	}
 }
 
-// throttle returns a wait func pacing calls to perMinute per minute.
-// Non-positive perMinute means unrestricted.
-func throttle(perMinute int) func() {
-	if perMinute <= 0 {
-		return func() {}
-	}
-
-	tick := time.NewTicker(time.Minute / time.Duration(perMinute))
-	return func() { <-tick.C }
-}
-
-// applyMetaProducer wraps a producer with host-owned BlockMeta behavior:
-// per-minute rate limiting and stop-after item cutoff.
-func applyMetaProducer(produce sdk.Producer, meta sdk.BlockMeta) sdk.Producer {
-	if meta.PerMinute <= 0 && meta.StopAfter <= 0 {
-		return produce
-	}
-
-	return func(send chan<- []byte, errs chan<- error) {
-		inner := make(chan []byte)
-		go produce(inner, errs)
-
-		wait, count := throttle(meta.PerMinute), 0
-		for msg := range inner {
-			wait()
-			send <- msg
-			count++
-			if meta.StopAfter > 0 && count >= meta.StopAfter {
-				break
-			}
-		}
-
-		close(send)
-	}
-}
-
-// applyMetaConsumer wraps a consumer with host-owned BlockMeta behavior:
-// per-minute rate limiting and stop-after item cutoff.
-func applyMetaConsumer(consume sdk.Consumer, meta sdk.BlockMeta) sdk.Consumer {
-	if meta.PerMinute <= 0 && meta.StopAfter <= 0 {
-		return consume
-	}
-
-	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-		inner := make(chan []byte)
-		go consume(inner, errs, done)
-
-		wait, count := throttle(meta.PerMinute), 0
-		for msg := range recv {
-			wait()
-			inner <- msg
-			count++
-			if meta.StopAfter > 0 && count >= meta.StopAfter {
-				break
-			}
-		}
-
-		close(inner)
-	}
-}
-
 // bindChunk is how many bindings we ask a Bindings stream for at a time.
 const bindChunk = 8
 
@@ -324,7 +263,7 @@ func BuildPipeline(src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) 
 
 	producers := make([]sdk.Producer, 0)
 	if err := drain(src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		producers = append(producers, applyMetaProducer(instance.Produce, b.Meta))
+		producers = append(producers, flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter))
 	}); err != nil {
 		return nil, err
 	}
@@ -334,7 +273,7 @@ func BuildPipeline(src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) 
 
 	consumers := make([]sdk.Consumer, 0)
 	if err := drain(src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		consumers = append(consumers, applyMetaConsumer(instance.Consume, b.Meta))
+		consumers = append(consumers, flow.Consumer(instance.Consume, b.Meta.PerMinute, 0, b.Meta.StopAfter))
 	}); err != nil {
 		return nil, err
 	}
