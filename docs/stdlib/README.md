@@ -408,9 +408,10 @@ consume "gz-write" "compressed" {
 
 ### `tar-write`
 
-Writes each message as a separate entry in a tar archive. Requires
-`entry-name-field` to name the entries (a JSON field whose value becomes
-the tar entry filename). Without it every entry is unnamed (`""`).
+Writes each message as a separate entry in a tar archive. When
+`entry-name-field` is set, the named JSON field's value is used as the
+entry filename. Without it entries are auto-named sequentially
+(`entry-000000`, `entry-000001`, …).
 
 ```hcl
 consume "tar-write" "archive" {
