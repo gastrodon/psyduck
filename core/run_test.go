@@ -194,7 +194,7 @@ func Test_RunPipeline_error(test *testing.T) {
 				send <- []byte{0}
 			}
 
-			errs <- fmt.Errorf(errText)
+			errs <- fmt.Errorf("%s", errText)
 		}
 	}
 
@@ -204,7 +204,7 @@ func Test_RunPipeline_error(test *testing.T) {
 				<-recv
 			}
 
-			errs <- fmt.Errorf(errText)
+			errs <- fmt.Errorf("%s", errText)
 		}
 	}
 
@@ -212,7 +212,7 @@ func Test_RunPipeline_error(test *testing.T) {
 		i := 0
 		return func(in []byte) ([]byte, error) {
 			if i >= n {
-				return nil, fmt.Errorf(errText)
+				return nil, fmt.Errorf("%s", errText)
 			}
 			i++
 			return in, nil
