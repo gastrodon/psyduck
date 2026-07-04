@@ -1,0 +1,41 @@
+# data -> local socket -> meta-producer. One pipeline renders produce {} HCL
+# from a sequence and writes it to a unix socket; another listens on that
+# socket and uses the stream as its produce-from description. Parse-only here
+# (the runtime path is covered by stdlib/integration_test.go).
+produce "sequence" "pages" {
+  stop-after = 3
+}
+
+transform "render" "cfg" {
+  engine = "template"
+  decode = "bytes"
+  format = <<-EOF
+  produce "constant" "page" {
+    value      = "{{.}}"
+    stop-after = 1
+  }
+  EOF
+}
+
+consume "socket" "meta" {
+  location = "unix:///tmp/psyduck-example-meta.sock"
+  create   = true
+}
+
+pipeline "config-gen" {
+  produce   = [produce.sequence.pages]
+  transform = [transform.render.cfg]
+  consume   = [consume.socket.meta]
+}
+
+produce "listen" "meta-in" {
+  location = "unix:///tmp/psyduck-example-meta.sock"
+  create   = true
+}
+
+consume "trash" "sink" {}
+
+pipeline "scrape" {
+  produce-from = produce.listen.meta-in
+  consume      = [consume.trash.sink]
+}

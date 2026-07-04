@@ -1,0 +1,16 @@
+# http-listen receives request bodies as messages. Build-only: the server only
+# binds when the pipeline runs.
+produce "http-listen" "hook" {
+  address = ":0"
+  path    = "/ingest"
+  method  = "POST"
+  status  = 202
+  reply   = "ok"
+}
+
+consume "trash" "sink" {}
+
+pipeline "http-listen" {
+  produce = [produce.http-listen.hook]
+  consume = [consume.trash.sink]
+}

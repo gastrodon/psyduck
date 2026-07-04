@@ -1,0 +1,26 @@
+# pick-map reshapes an object by walking source paths into new keys; set adds
+# a static field. Together they cover the extract-and-annotate use case.
+produce "generate" "src" {
+  values = [
+    "{\"user\": {\"name\": \"ann\"}, \"drop_me\": 1}",
+    "{\"user\": {\"name\": \"bob\"}, \"drop_me\": 2}",
+  ]
+}
+
+transform "pick-map" "reshape" {
+  fields = { "name" = ["user", "name"] }
+}
+
+transform "set" "tag" {
+  values = { "source" = "e2e" }
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "reshape" {
+  produce   = [produce.generate.src]
+  transform = [transform.pick-map.reshape, transform.set.tag]
+  consume   = [consume.file.out]
+}

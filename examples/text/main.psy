@@ -1,0 +1,24 @@
+# Text transformers work in the string domain (decode defaults to utf-8) and
+# stack like any other stage.
+produce "generate" "src" {
+  values = ["  Hi There  "]
+}
+
+transform "trim" "t" {}
+
+transform "replace" "r" {
+  old = " "
+  new = "_"
+}
+
+transform "upper" "u" {}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "text" {
+  produce   = [produce.generate.src]
+  transform = [transform.trim.t, transform.replace.r, transform.upper.u]
+  consume   = [consume.file.out]
+}

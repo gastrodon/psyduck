@@ -1,0 +1,23 @@
+# dedupe drops repeat keys; path = [...] selects the key from object data. The
+# original message passes through unchanged.
+produce "generate" "src" {
+  values = [
+    "{\"id\":1}",
+    "{\"id\":1}",
+    "{\"id\":2}",
+  ]
+}
+
+transform "dedupe" "d" {
+  path = ["id"]
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "keyed" {
+  produce   = [produce.generate.src]
+  transform = [transform.dedupe.d]
+  consume   = [consume.file.out]
+}

@@ -1,0 +1,20 @@
+# render formats a message; engine = template gives Go text/template with the
+# decoded object as the dot.
+produce "generate" "src" {
+  values = ["{\"name\": \"ann\"}"]
+}
+
+transform "render" "r" {
+  engine = "template"
+  format = "hello {{.name}}"
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "render" {
+  produce   = [produce.generate.src]
+  transform = [transform.render.r]
+  consume   = [consume.file.out]
+}
