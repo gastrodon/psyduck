@@ -54,8 +54,11 @@ func runExample(t *testing.T, dir string) {
 		t.Fatalf("read main.psy: %v", err)
 	}
 
-	// Inject I/O paths the example references via env.*.
-	t.Setenv("PSYDUCK_OUT", filepath.Join(t.TempDir(), "out"))
+	// Inject I/O paths the example references via env.*. Keep the output path
+	// in a local — env is only for the parser to read; we read the file back
+	// from outPath so nothing can repoint PSYDUCK_OUT out from under us.
+	outPath := filepath.Join(t.TempDir(), "out")
+	t.Setenv("PSYDUCK_OUT", outPath)
 	if in := filepath.Join(dir, "input.txt"); fileExists(in) {
 		abs, err := filepath.Abs(in)
 		if err != nil {
@@ -101,7 +104,7 @@ func runExample(t *testing.T, dir string) {
 		}
 	}
 
-	got, err := os.ReadFile(os.Getenv("PSYDUCK_OUT"))
+	got, err := os.ReadFile(outPath)
 	if err != nil {
 		t.Fatalf("read output: %v", err)
 	}
