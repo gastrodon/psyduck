@@ -1,2 +1,0 @@
-{"name":"ann","source":"e2e"}
-{"name":"bob","source":"e2e"}

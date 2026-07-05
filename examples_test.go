@@ -14,60 +14,107 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-// TestExamples runs every example under examples/ as a subtest. Each example is
-// a directory with a main.psy; the verification tier is chosen by convention:
-//
-//   - expect.txt present  → parse, build, run, and diff the output against it.
-//   - parse-only marker    → parse only (for produce-from / long-lived servers
-//     whose build/run can't complete hermetically).
-//   - otherwise            → parse + build only (validates specs & references
-//     for network transports that shouldn't actually run).
-//
-// Runnable examples write their result to a file at env.PSYDUCK_OUT (injected
-// per-example) and, where they read input, from env.PSYDUCK_IN.
-func TestExamples(t *testing.T) {
-	dirs, err := filepath.Glob("examples/*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(dirs) == 0 {
-		t.Fatal("no examples found under examples/")
-	}
+type tier int
 
-	for _, dir := range dirs {
-		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		t.Run(filepath.Base(dir), func(t *testing.T) {
-			runExample(t, dir)
+const (
+	tierRun   tier = iota // parse + build + run; diff output against expect
+	tierBuild             // parse + build only
+	tierParse             // parse only
+)
+
+// fixture holds all test data for one example. The .psy source stays on disk
+// under examples/<name>/main.psy; everything else lives here so the test suite
+// doesn't scatter magic files across the tree.
+type fixture struct {
+	tier   tier
+	input  string // written to a temp file and injected as PSYDUCK_IN; empty = no input
+	expect string // expected output, trailing newlines stripped; empty = not checked
+}
+
+var examples = map[string]fixture{
+	"dev": {
+		tier:   tierRun,
+		expect: "n=1\nn=2\nn=3",
+	},
+	"encoding": {
+		tier:   tierRun,
+		expect: "aGVsbG8=\nd29ybGQ=",
+	},
+	"file-read": {
+		tier:   tierRun,
+		input:  "alpha\nbeta\ngamma",
+		expect: "ALPHA\nBETA\nGAMMA",
+	},
+	"flow": {
+		tier:   tierRun,
+		expect: "0\n1\n2",
+	},
+	"jq": {
+		tier:   tierRun,
+		expect: "1",
+	},
+	"keyed": {
+		tier:   tierRun,
+		expect: "{\"id\":1}\n{\"id\":2}",
+	},
+	"render": {
+		tier:   tierRun,
+		expect: "hello ann",
+	},
+	"reshape": {
+		tier:   tierRun,
+		expect: "{\"name\":\"ann\",\"source\":\"e2e\"}\n{\"name\":\"bob\",\"source\":\"e2e\"}",
+	},
+	"select": {
+		tier:   tierRun,
+		expect: "ann\nbob",
+	},
+	"slicing": {
+		tier:   tierRun,
+		expect: "[\"ab\",\"cd\",\"ef\"]",
+	},
+	"text": {
+		tier:   tierRun,
+		expect: "HI_THERE",
+	},
+	"http-request": {tier: tierBuild},
+	"http-listen":  {tier: tierBuild},
+	"meta-socket":  {tier: tierParse},
+}
+
+// TestExamples runs each example registered in the examples map as a subtest.
+// The .psy source is read from examples/<name>/main.psy; all input and expected
+// output data lives in the map above.
+func TestExamples(t *testing.T) {
+	for name, fix := range examples {
+		fix := fix
+		t.Run(name, func(t *testing.T) {
+			runExample(t, name, fix)
 		})
 	}
 }
 
-func runExample(t *testing.T, dir string) {
+func runExample(t *testing.T, name string, fix fixture) {
 	t.Helper()
 	plugins := []sdk.Plugin{stdlib.Plugin()}
 
-	content, err := os.ReadFile(filepath.Join(dir, "main.psy"))
+	content, err := os.ReadFile(filepath.Join("examples", name, "main.psy"))
 	if err != nil {
 		t.Fatalf("read main.psy: %v", err)
 	}
 
-	// Inject I/O paths the example references via env.*. Keep the output path
-	// in a local — env is only for the parser to read; we read the file back
-	// from outPath so nothing can repoint PSYDUCK_OUT out from under us.
 	outPath := filepath.Join(t.TempDir(), "out")
 	t.Setenv("PSYDUCK_OUT", outPath)
-	if in := filepath.Join(dir, "input.txt"); fileExists(in) {
-		abs, err := filepath.Abs(in)
-		if err != nil {
+
+	if fix.input != "" {
+		inPath := filepath.Join(t.TempDir(), "in")
+		if err := os.WriteFile(inPath, []byte(fix.input), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		t.Setenv("PSYDUCK_IN", abs)
+		t.Setenv("PSYDUCK_IN", inPath)
 	}
 
-	sources := []parse.Source{{Name: filepath.Base(dir) + "/main.psy", Content: content}}
+	sources := []parse.Source{{Name: name + "/main.psy", Content: content}}
 	pipelines, err := hcl.NewParserHCL().Parse(sources, plugins)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -76,28 +123,23 @@ func runExample(t *testing.T, dir string) {
 		t.Fatal("no pipelines defined")
 	}
 
-	// parse-only tier
-	if fileExists(filepath.Join(dir, "parse-only")) {
+	if fix.tier == tierParse {
 		return
 	}
 
-	// build every pipeline
 	built := make([]*core.Pipeline, 0, len(pipelines))
-	for name, p := range pipelines {
+	for pname, p := range pipelines {
 		bp, err := core.BuildPipeline(p, plugins)
 		if err != nil {
-			t.Fatalf("build %q: %v", name, err)
+			t.Fatalf("build %q: %v", pname, err)
 		}
 		built = append(built, bp)
 	}
 
-	// build-only tier
-	expectPath := filepath.Join(dir, "expect.txt")
-	if !fileExists(expectPath) {
+	if fix.tier == tierBuild {
 		return
 	}
 
-	// run tier: run every pipeline (runnable examples are single-pipeline)
 	for _, bp := range built {
 		if err := core.RunPipeline(bp); err != nil {
 			t.Fatalf("run: %v", err)
@@ -108,12 +150,8 @@ func runExample(t *testing.T, dir string) {
 	if err != nil {
 		t.Fatalf("read output: %v", err)
 	}
-	want, err := os.ReadFile(expectPath)
-	if err != nil {
-		t.Fatalf("read expect.txt: %v", err)
-	}
-	if normalize(got) != normalize(want) {
-		t.Errorf("output mismatch\n got: %q\nwant: %q", normalize(got), normalize(want))
+	if normalize(got) != normalize([]byte(fix.expect)) {
+		t.Errorf("output mismatch\n got: %q\nwant: %q", normalize(got), normalize([]byte(fix.expect)))
 	}
 }
 
@@ -146,8 +184,3 @@ pipeline "check" {
 }
 
 func normalize(b []byte) string { return strings.TrimRight(string(b), "\n") }
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
-}
