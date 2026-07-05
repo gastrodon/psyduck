@@ -35,13 +35,13 @@ func textString(in []byte, decode string) (string, error) {
 }
 
 // stringTransformer wraps a string→(Value) op with decode + on-error handling.
-// A nil onError defaults to data.Propagate.
+// A nil onError defaults to data.Raise.
 func stringTransformer(decode string, onError data.OnError, op func(string) (data.Value, error)) sdk.Transformer {
 	if decode == "" {
 		decode = "utf-8"
 	}
 	if onError == nil {
-		onError = data.Propagate
+		onError = data.Raise
 	}
 	fail := func(err error) ([]byte, error) { return nil, onError(err) }
 	return func(in []byte) ([]byte, error) {

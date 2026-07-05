@@ -48,14 +48,14 @@ func run(t *testing.T, fn sdk.Transformer, in string) (string, bool) {
 }
 
 func TestRecode(t *testing.T) {
-	fn := build(t, Recode, map[string]any{"decode": "bytes", "encode": "base64", "on-error": "err"})
+	fn := build(t, Recode, map[string]any{"decode": "bytes", "encode": "base64", "on-error": "raise"})
 	out, _ := run(t, fn, "hello")
 	if out != "aGVsbG8=" {
 		t.Errorf("recode base64 = %q", out)
 	}
 
 	// gzip|json -> json-pretty round-trips through the codec chain
-	fn = build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "err"})
+	fn = build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "raise"})
 	out, _ = run(t, fn, `{"b":2,"a":1}`)
 	if out != `{"a":1,"b":2}` {
 		t.Errorf("recode json normalize = %q", out)
@@ -64,14 +64,14 @@ func TestRecode(t *testing.T) {
 
 func TestPick(t *testing.T) {
 	// discrete: path
-	fn := build(t, Pick, map[string]any{"path": []string{"user", "name"}, "by": "", "decode": "json", "encode": "json", "on-error": "err"})
+	fn := build(t, Pick, map[string]any{"path": []string{"user", "name"}, "by": "", "decode": "json", "encode": "json", "on-error": "raise"})
 	out, ok := run(t, fn, `{"user":{"name":"ann"}}`)
 	if !ok || out != `"ann"` {
 		t.Errorf("pick path = %q ok=%v", out, ok)
 	}
 
 	// continuous: by (jq)
-	fn = build(t, Pick, map[string]any{"path": []string{}, "by": ".items[0]", "decode": "json", "encode": "json", "on-error": "err"})
+	fn = build(t, Pick, map[string]any{"path": []string{}, "by": ".items[0]", "decode": "json", "encode": "json", "on-error": "raise"})
 	out, ok = run(t, fn, `{"items":[7,8]}`)
 	if !ok || out != "7" {
 		t.Errorf("pick by = %q ok=%v", out, ok)
@@ -86,20 +86,20 @@ func TestPick(t *testing.T) {
 func TestPickMapSetDrop(t *testing.T) {
 	fn := build(t, PickMap, map[string]any{
 		"fields": map[string][]string{"n": {"user", "name"}},
-		"decode": "json", "encode": "json", "on-error": "err",
+		"decode": "json", "encode": "json", "on-error": "raise",
 	})
 	out, _ := run(t, fn, `{"user":{"name":"bob"}}`)
 	if out != `{"n":"bob"}` {
 		t.Errorf("pick-map = %q", out)
 	}
 
-	fn = build(t, Set, map[string]any{"values": map[string]string{"tag": "x"}, "decode": "json", "encode": "json", "on-error": "err"})
+	fn = build(t, Set, map[string]any{"values": map[string]string{"tag": "x"}, "decode": "json", "encode": "json", "on-error": "raise"})
 	out, _ = run(t, fn, `{"a":1}`)
 	if out != `{"a":1,"tag":"x"}` {
 		t.Errorf("set = %q", out)
 	}
 
-	fn = build(t, Drop, map[string]any{"fields": []string{"secret"}, "decode": "json", "encode": "json", "on-error": "err"})
+	fn = build(t, Drop, map[string]any{"fields": []string{"secret"}, "decode": "json", "encode": "json", "on-error": "raise"})
 	out, _ = run(t, fn, `{"a":1,"secret":"s"}`)
 	if out != `{"a":1}` {
 		t.Errorf("drop = %q", out)
@@ -107,13 +107,13 @@ func TestPickMapSetDrop(t *testing.T) {
 }
 
 func TestSliceChunk(t *testing.T) {
-	fn := build(t, Slice, map[string]any{"start": 1, "stop": 4, "step": 1, "decode": "bytes", "encode": "bytes", "on-error": "err"})
+	fn := build(t, Slice, map[string]any{"start": 1, "stop": 4, "step": 1, "decode": "bytes", "encode": "bytes", "on-error": "raise"})
 	out, _ := run(t, fn, "0123456")
 	if out != "123" {
 		t.Errorf("slice = %q", out)
 	}
 
-	fn = build(t, Chunk, map[string]any{"size": 2, "keep-tail": true, "decode": "bytes", "encode": "json", "on-error": "err"})
+	fn = build(t, Chunk, map[string]any{"size": 2, "keep-tail": true, "decode": "bytes", "encode": "json", "on-error": "raise"})
 	out, _ = run(t, fn, "abcde")
 	if out != `["ab","cd","e"]` {
 		t.Errorf("chunk = %q", out)
@@ -121,19 +121,19 @@ func TestSliceChunk(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	fn := build(t, Render, map[string]any{"engine": "template", "format": "{{.name}}!", "decode": "json", "encode": "bytes", "on-error": "err"})
+	fn := build(t, Render, map[string]any{"engine": "template", "format": "{{.name}}!", "decode": "json", "encode": "bytes", "on-error": "raise"})
 	out, _ := run(t, fn, `{"name":"ann"}`)
 	if out != "ann!" {
 		t.Errorf("render template = %q", out)
 	}
 
-	fn = build(t, Render, map[string]any{"engine": "printf", "format": "[%s]", "decode": "bytes", "encode": "bytes", "on-error": "err"})
+	fn = build(t, Render, map[string]any{"engine": "printf", "format": "[%s]", "decode": "bytes", "encode": "bytes", "on-error": "raise"})
 	out, _ = run(t, fn, "hi")
 	if out != "[hi]" {
 		t.Errorf("render printf = %q", out)
 	}
 
-	fn = build(t, Render, map[string]any{"engine": "jq", "format": ".a + .b", "decode": "json", "encode": "bytes", "on-error": "err"})
+	fn = build(t, Render, map[string]any{"engine": "jq", "format": ".a + .b", "decode": "json", "encode": "bytes", "on-error": "raise"})
 	out, _ = run(t, fn, `{"a":2,"b":3}`)
 	if out != "5" {
 		t.Errorf("render jq = %q", out)
@@ -141,25 +141,25 @@ func TestRender(t *testing.T) {
 }
 
 func TestText(t *testing.T) {
-	fn := build(t, Split, map[string]any{"delimiter": ",", "decode": "utf-8", "on-error": "err"})
+	fn := build(t, Split, map[string]any{"delimiter": ",", "decode": "utf-8", "on-error": "raise"})
 	out, _ := run(t, fn, "a,b,c")
 	if out != `["a","b","c"]` {
 		t.Errorf("split = %q", out)
 	}
 
-	fn = build(t, Join, map[string]any{"delimiter": "-", "on-error": "err"})
+	fn = build(t, Join, map[string]any{"delimiter": "-", "on-error": "raise"})
 	out, _ = run(t, fn, `["a","b","c"]`)
 	if out != "a-b-c" {
 		t.Errorf("join = %q", out)
 	}
 
-	fn = build(t, Upper, map[string]any{"decode": "utf-8", "on-error": "err"})
+	fn = build(t, Upper, map[string]any{"decode": "utf-8", "on-error": "raise"})
 	out, _ = run(t, fn, "héllo")
 	if out != "HÉLLO" {
 		t.Errorf("upper = %q", out)
 	}
 
-	fn = build(t, Regex, map[string]any{"pattern": `(\d+)`, "replacement": "#$1", "decode": "utf-8", "on-error": "err"})
+	fn = build(t, Regex, map[string]any{"pattern": `(\d+)`, "replacement": "#$1", "decode": "utf-8", "on-error": "raise"})
 	out, _ = run(t, fn, "id 42")
 	if out != "id #42" {
 		t.Errorf("regex = %q", out)
@@ -173,13 +173,13 @@ func TestText(t *testing.T) {
 }
 
 func TestTextGarbageOnError(t *testing.T) {
-	// invalid utf-8 with on-error=err surfaces the error
-	fn, err := Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "err"}))
+	// invalid utf-8 with on-error=raise surfaces the error
+	fn, err := Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "raise"}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fn([]byte{0xff, 0xfe}); err == nil {
-		t.Error("expected utf-8 error on garbage with on-error=err")
+		t.Error("expected utf-8 error on garbage with on-error=raise")
 	}
 
 	// on-error=drop swallows it

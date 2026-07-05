@@ -11,7 +11,7 @@ import "fmt"
 type onErrorKind int
 
 const (
-	// ON_ERROR_RAISE forwards the error unchanged (config spelling "err").
+	// ON_ERROR_RAISE forwards the error unchanged (config spelling "raise").
 	ON_ERROR_RAISE onErrorKind = iota
 	// ON_ERROR_DROP swallows the error and drops the message (config
 	// spelling "drop").
@@ -21,13 +21,13 @@ const (
 // OnError decides what happens when an operation fails on a message. It
 // receives the error and returns what should propagate: a non-nil error is
 // forwarded (core propagates whatever a transformer returns unconditionally,
-// so "err" and "drop" need no separate downstream path); nil swallows it and
-// drops the message.
+// so "raise" and "drop" need no separate downstream path); nil swallows it
+// and drops the message.
 //
 // A handler that itself fails while handling (logging, a metrics call, ...)
 // returns that failure rather than silently discarding one error or the
 // other — Drop surfaces the handling error in its place; a handler built on
-// top of Propagate should compose the two with WrapHandlerErr.
+// top of Raise should compose the two with WrapHandlerErr.
 //
 // OnError is a plain function type, not a single-method interface — the same
 // choice sdk.Parser and http.HandlerFunc make for a one-method contract. Every
@@ -49,13 +49,13 @@ func (kind onErrorKind) Handle(err error) error {
 	}
 }
 
-// Propagate and Drop are the OnError callbacks for the two built-in kinds,
+// Raise and Drop are the OnError callbacks for the two built-in kinds,
 // exposed directly so a caller that already knows which kind it wants (e.g.
 // the default when on-error is unset) doesn't have to round-trip through
 // ParseOnError.
 var (
-	Propagate OnError = ON_ERROR_RAISE.Handle
-	Drop      OnError = ON_ERROR_DROP.Handle
+	Raise OnError = ON_ERROR_RAISE.Handle
+	Drop  OnError = ON_ERROR_DROP.Handle
 )
 
 // WrapHandlerErr composes an error encountered while handling with the
@@ -65,20 +65,20 @@ func WrapHandlerErr(original, handling error) error {
 	return fmt.Errorf("while handling error %q: encountered error %q", original, handling)
 }
 
-// ParseOnError parses the config spelling of an error handler ("err" | "drop",
-// "" defaults to "err") into an OnError callback. This is the only place a
-// raw string is allowed to determine on-error behavior — everywhere else
-// works in terms of onErrorKind (or the OnError callback it produces via
+// ParseOnError parses the config spelling of an error handler ("raise" |
+// "drop", "" defaults to "raise") into an OnError callback. This is the only
+// place a raw string is allowed to determine on-error behavior — everywhere
+// else works in terms of onErrorKind (or the OnError callback it produces via
 // Handle), never the string that named it.
 func ParseOnError(s string) (OnError, error) {
 	var kind onErrorKind
 	switch s {
-	case "", "err":
+	case "", "raise":
 		kind = ON_ERROR_RAISE
 	case "drop":
 		kind = ON_ERROR_DROP
 	default:
-		return nil, fmt.Errorf("unknown error mode %q (want \"err\" or \"drop\")", s)
+		return nil, fmt.Errorf("unknown error mode %q (want \"raise\" or \"drop\")", s)
 	}
 	return kind.Handle, nil
 }

@@ -10,7 +10,7 @@ import (
 // It decodes the input per `decode`, runs op over the resulting Value, and
 // encodes the result per `encode`. op returning a nil Value drops the message.
 // onError decides what happens when any stage fails; a nil onError defaults
-// to data.Propagate.
+// to data.Raise.
 func codecTransformer(decode, encode string, onError data.OnError, op func(data.Value) (data.Value, error)) sdk.Transformer {
 	if decode == "" {
 		decode = "json"
@@ -19,7 +19,7 @@ func codecTransformer(decode, encode string, onError data.OnError, op func(data.
 		encode = decode
 	}
 	if onError == nil {
-		onError = data.Propagate
+		onError = data.Raise
 	}
 
 	fail := func(err error) ([]byte, error) { return nil, onError(err) }

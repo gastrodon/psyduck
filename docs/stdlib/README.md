@@ -59,7 +59,7 @@ messages back together.
 
 ### Errors (`on-error`)
 
-Codec-aware and text transformers take `on-error`: `"err"` (default — surface
+Codec-aware and text transformers take `on-error`: `"raise"` (default — surface
 the error) or `"drop"` (swallow the failed message). The set is deliberately
 small and open to more modes later.
 

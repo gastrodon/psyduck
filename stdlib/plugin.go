@@ -25,7 +25,7 @@ func encodingSpec(decDefault, encDefault string) []*sdk.Spec {
 	return []*sdk.Spec{
 		{Name: "decode", Description: "codec chain to decode input (e.g. \"json\", \"gzip|json\")", Type: sdk.TypeString, Default: decDefault},
 		{Name: "encode", Description: "codec chain to encode output", Type: sdk.TypeString, Default: encDefault},
-		{Name: "on-error", Description: "\"err\" (default) or \"drop\"", Type: sdk.TypeString, Default: "err"},
+		{Name: "on-error", Description: "\"raise\" (default) or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 	}
 }
 
@@ -262,14 +262,14 @@ func Plugin() sdk.Plugin {
 			Spec: []*sdk.Spec{
 				{Name: "delimiter", Description: "split on this (default newline)", Type: sdk.TypeString, Default: "\n"},
 				{Name: "decode", Description: "string codec (default utf-8)", Type: sdk.TypeString, Default: "utf-8"},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
 			Name: "join", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.Join,
 			Spec: []*sdk.Spec{
 				{Name: "delimiter", Description: "join with this", Type: sdk.TypeString, Default: ""},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
@@ -279,7 +279,7 @@ func Plugin() sdk.Plugin {
 				{Name: "new", Description: "replacement", Type: sdk.TypeString, Default: ""},
 				{Name: "count", Description: "max replacements (0 = all)", Type: sdk.TypeInt, Default: 0},
 				{Name: "decode", Description: "string codec (default utf-8)", Type: sdk.TypeString, Default: "utf-8"},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
@@ -288,7 +288,7 @@ func Plugin() sdk.Plugin {
 				{Name: "pattern", Description: "regular expression", Type: sdk.TypeString, Required: true},
 				{Name: "replacement", Description: "replacement ($1 groups supported)", Type: sdk.TypeString, Default: ""},
 				{Name: "decode", Description: "string codec (default utf-8)", Type: sdk.TypeString, Default: "utf-8"},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
@@ -297,21 +297,21 @@ func Plugin() sdk.Plugin {
 				{Name: "chars", Description: "characters to trim (empty = whitespace)", Type: sdk.TypeString, Default: ""},
 				{Name: "side", Description: "both, left, or right", Type: sdk.TypeString, Default: "both"},
 				{Name: "decode", Description: "string codec (default utf-8)", Type: sdk.TypeString, Default: "utf-8"},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
 			Name: "upper", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.Upper,
 			Spec: []*sdk.Spec{
 				{Name: "decode", Description: "string codec (default utf-8)", Type: sdk.TypeString, Default: "utf-8"},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
 			Name: "lower", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.Lower,
 			Spec: []*sdk.Spec{
 				{Name: "decode", Description: "string codec (default utf-8)", Type: sdk.TypeString, Default: "utf-8"},
-				{Name: "on-error", Description: "\"err\" or \"drop\"", Type: sdk.TypeString, Default: "err"},
+				{Name: "on-error", Description: "\"raise\" or \"drop\"", Type: sdk.TypeString, Default: "raise"},
 			},
 		},
 		&sdk.Resource{
