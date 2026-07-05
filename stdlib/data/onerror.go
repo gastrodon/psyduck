@@ -49,6 +49,20 @@ func (kind onErrorKind) Handle(err error) error {
 	}
 }
 
+// String is the config spelling of kind — the single source of truth
+// ParseOnError matches incoming strings against, so the spelling is never
+// duplicated as a bare literal.
+func (kind onErrorKind) String() string {
+	switch kind {
+	case ON_ERROR_RAISE:
+		return "raise"
+	case ON_ERROR_DROP:
+		return "drop"
+	default:
+		panic(fmt.Sprintf("data: onErrorKind(%d) is not a valid on-error kind", int(kind)))
+	}
+}
+
 // Raise and Drop are the OnError callbacks for the two built-in kinds,
 // exposed directly so a caller that already knows which kind it wants (e.g.
 // the default when on-error is unset) doesn't have to round-trip through
@@ -65,20 +79,21 @@ func WrapHandlerErr(original, handling error) error {
 	return fmt.Errorf("while handling error %q: encountered error %q", original, handling)
 }
 
-// ParseOnError parses the config spelling of an error handler ("raise" |
-// "drop", "" defaults to "raise") into an OnError callback. This is the only
-// place a raw string is allowed to determine on-error behavior — everywhere
-// else works in terms of onErrorKind (or the OnError callback it produces via
-// Handle), never the string that named it.
+// ParseOnError parses the config spelling of an error handler (ON_ERROR_RAISE
+// or ON_ERROR_DROP's String(), "" defaults to ON_ERROR_RAISE) into an OnError
+// callback. s is matched only against the actual const values' spellings (or
+// the "" default) — never a bare literal that could drift from them — so this
+// is the only place a raw string is allowed to determine on-error behavior;
+// everywhere else works in terms of onErrorKind or the OnError callback
+// Handle produces from one.
 func ParseOnError(s string) (OnError, error) {
-	var kind onErrorKind
-	switch s {
-	case "", "raise":
-		kind = ON_ERROR_RAISE
-	case "drop":
-		kind = ON_ERROR_DROP
-	default:
-		return nil, fmt.Errorf("unknown error mode %q (want \"raise\" or \"drop\")", s)
+	if s == "" {
+		return ON_ERROR_RAISE.Handle, nil
 	}
-	return kind.Handle, nil
+	for _, kind := range []onErrorKind{ON_ERROR_RAISE, ON_ERROR_DROP} {
+		if kind.String() == s {
+			return kind.Handle, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown error mode %q (want %q or %q)", s, ON_ERROR_RAISE, ON_ERROR_DROP)
 }
