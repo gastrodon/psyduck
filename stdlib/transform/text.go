@@ -35,20 +35,15 @@ func textString(in []byte, decode string) (string, error) {
 }
 
 // stringTransformer wraps a string→(Value) op with decode + on-error handling.
-func stringTransformer(decode, onError string, op func(string) (data.Value, error)) (sdk.Transformer, error) {
-	mode, err := data.ParseErrMode(onError)
-	if err != nil {
-		return nil, err
-	}
+// A nil onError defaults to data.Propagate.
+func stringTransformer(decode string, onError data.OnError, op func(string) (data.Value, error)) sdk.Transformer {
 	if decode == "" {
 		decode = "utf-8"
 	}
-	fail := func(err error) ([]byte, error) {
-		if mode == data.ErrDrop {
-			return nil, nil
-		}
-		return nil, err
+	if onError == nil {
+		onError = data.Propagate
 	}
+	fail := func(err error) ([]byte, error) { return nil, onError(err) }
 	return func(in []byte) ([]byte, error) {
 		s, err := textString(in, decode)
 		if err != nil {
@@ -62,7 +57,7 @@ func stringTransformer(decode, onError string, op func(string) (data.Value, erro
 			return nil, nil
 		}
 		return out.Bytes(), nil
-	}, nil
+	}
 }
 
 type splitConfig struct {
@@ -82,14 +77,18 @@ func Split(parse sdk.Parser) (sdk.Transformer, error) {
 	if delim == "" {
 		delim = "\n"
 	}
-	return stringTransformer(config.Decode, config.OnError, func(s string) (data.Value, error) {
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return stringTransformer(config.Decode, onError, func(s string) (data.Value, error) {
 		parts := strings.Split(s, delim)
 		list := make(data.List, len(parts))
 		for i, p := range parts {
 			list[i] = data.Str(p)
 		}
 		return list, nil
-	})
+	}), nil
 }
 
 type joinConfig struct {
@@ -104,24 +103,18 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
-	mode, err := data.ParseErrMode(config.OnError)
+	onError, err := data.ParseOnError(config.OnError)
 	if err != nil {
 		return nil, err
 	}
 	return func(in []byte) ([]byte, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
-			if mode == data.ErrDrop {
-				return nil, nil
-			}
-			return nil, err
+			return nil, onError(err)
 		}
 		list, ok := v.(data.List)
 		if !ok {
-			if mode == data.ErrDrop {
-				return nil, nil
-			}
-			return nil, fmt.Errorf("join: want a list, got %s", v.Kind())
+			return nil, onError(fmt.Errorf("join: want a list, got %s", v.Kind()))
 		}
 		parts := make([]string, len(list))
 		for i, e := range list {
@@ -149,9 +142,13 @@ func Replace(parse sdk.Parser) (sdk.Transformer, error) {
 	if count == 0 {
 		count = -1
 	}
-	return stringTransformer(config.Decode, config.OnError, func(s string) (data.Value, error) {
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return stringTransformer(config.Decode, onError, func(s string) (data.Value, error) {
 		return data.Str(strings.Replace(s, config.Old, config.New, count)), nil
-	})
+	}), nil
 }
 
 type regexConfig struct {
@@ -172,9 +169,13 @@ func Regex(parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("regex: compile %q: %w", config.Pattern, err)
 	}
-	return stringTransformer(config.Decode, config.OnError, func(s string) (data.Value, error) {
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return stringTransformer(config.Decode, onError, func(s string) (data.Value, error) {
 		return data.Str(re.ReplaceAllString(s, config.Replacement)), nil
-	})
+	}), nil
 }
 
 type trimConfig struct {
@@ -191,9 +192,13 @@ func Trim(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
-	return stringTransformer(config.Decode, config.OnError, func(s string) (data.Value, error) {
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return stringTransformer(config.Decode, onError, func(s string) (data.Value, error) {
 		return data.Str(trimSide(s, config.Chars, config.Side)), nil
-	})
+	}), nil
 }
 
 func trimSide(s, chars, side string) string {
@@ -230,9 +235,13 @@ func Upper(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
-	return stringTransformer(config.Decode, config.OnError, func(s string) (data.Value, error) {
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return stringTransformer(config.Decode, onError, func(s string) (data.Value, error) {
 		return data.Str(strings.ToUpper(s)), nil
-	})
+	}), nil
 }
 
 // Lower lowercases the text.
@@ -241,9 +250,13 @@ func Lower(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
-	return stringTransformer(config.Decode, config.OnError, func(s string) (data.Value, error) {
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return stringTransformer(config.Decode, onError, func(s string) (data.Value, error) {
 		return data.Str(strings.ToLower(s)), nil
-	})
+	}), nil
 }
 
 type hashConfig struct {

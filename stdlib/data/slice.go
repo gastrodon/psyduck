@@ -8,17 +8,13 @@ package data
 // of string and []T has no core type in Go — so Str converts to Runes at the
 // boundary and back.
 
-// normSlice normalizes start/stop against length n. Negative indices count
-// from the end (Python-style). trunc reports whether the requested bounds fell
-// outside [0,n] and had to be clamped.
+// normSlice normalizes start/stop against length n. Values are plain
+// indices — a Continuous is not assumed to have a calculable end, so a
+// negative value is not reinterpreted relative to one; it clamps to 0 like
+// any other out-of-range bound. trunc reports whether the requested bounds
+// fell outside [0,n] and had to be clamped.
 func normSlice(n, start, stop int) (lo, hi int, trunc bool) {
 	lo, hi = start, stop
-	if lo < 0 {
-		lo += n
-	}
-	if hi < 0 {
-		hi += n
-	}
 	if lo < 0 {
 		lo, trunc = 0, true
 	}

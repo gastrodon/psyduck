@@ -176,8 +176,8 @@ func Plugin() sdk.Plugin {
 		&sdk.Resource{
 			Name: "slice", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.Slice,
 			Spec: concat([]*sdk.Spec{
-				{Name: "start", Description: "start index (negative counts from end)", Type: sdk.TypeInt, Default: 0},
-				{Name: "stop", Description: "stop index (0 = to end)", Type: sdk.TypeInt, Default: 0},
+				{Name: "start", Description: "start index (clamped to bounds; no counting from the end)", Type: sdk.TypeInt, Default: 0},
+				{Name: "stop", Description: "stop index (0 or below = through the end)", Type: sdk.TypeInt, Default: 0},
 				{Name: "step", Description: "take every step-th element", Type: sdk.TypeInt, Default: 1},
 			}, encodingSpec("bytes", "")),
 		},

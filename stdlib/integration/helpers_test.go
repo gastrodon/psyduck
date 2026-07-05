@@ -189,4 +189,9 @@ func assertSameSet(t *testing.T, got, want []string) {
 
 // drainErrs discards all errors from ch so producer/consumer goroutines don't
 // block on a full error channel during a test.
-func drainErrs(ch <-chan error) { go func() { for range ch {} }() }
+func drainErrs(ch <-chan error) {
+	go func() {
+		for range ch {
+		}
+	}()
+}

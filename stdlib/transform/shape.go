@@ -31,8 +31,12 @@ func Recode(parse sdk.Parser) (sdk.Transformer, error) {
 	if config.Encode == "" {
 		config.Encode = "bytes"
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError,
-		func(v data.Value) (data.Value, error) { return v, nil })
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return codecTransformer(config.Decode, config.Encode, onError,
+		func(v data.Value) (data.Value, error) { return v, nil }), nil
 }
 
 // ── pick ─────────────────────────────────────────────────────────────────
@@ -56,6 +60,10 @@ func Pick(parse sdk.Parser) (sdk.Transformer, error) {
 	if (len(config.Path) == 0) == (config.By == "") {
 		return nil, fmt.Errorf("pick: set exactly one of `path` or `by`")
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		if config.By != "" {
@@ -71,7 +79,7 @@ func Pick(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		return out, nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // ── pick-map ───────────────────────────────────────────────────────────────
@@ -91,6 +99,10 @@ func PickMap(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		dsts := make([]string, 0, len(config.Fields))
@@ -102,7 +114,7 @@ func PickMap(parse sdk.Parser) (sdk.Transformer, error) {
 		out, _ := data.Transpose(v, srcs, dsts)
 		return out, nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // ── set ────────────────────────────────────────────────────────────────────
@@ -121,6 +133,10 @@ func Set(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		obj, ok := v.(data.Object)
@@ -136,7 +152,7 @@ func Set(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		return next, nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // ── drop ───────────────────────────────────────────────────────────────────
@@ -154,6 +170,10 @@ func Drop(parse sdk.Parser) (sdk.Transformer, error) {
 	if err := parse(config); err != nil {
 		return nil, err
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		obj, ok := v.(data.Object)
@@ -169,5 +189,5 @@ func Drop(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		return next, nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }

@@ -2,6 +2,7 @@ package transform
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/psyduck-etl/sdk"
 
@@ -28,7 +29,12 @@ type sliceConfig struct {
 }
 
 // Slice extracts a sub-range of continuous data (bytes, string, or list).
-// A stop of 0 means "to the end"; negative indices count from the end.
+// start/stop are plain offsets, not indices relative to a calculable end: a
+// Continuous is not assumed to know its length up front, so there is no
+// negative "count from the end" and stop is never auto-filled from one. A
+// stop of 0 or below means "through the end" — Slice clamps out-of-range
+// bounds rather than erroring, so any sufficiently large stop has the same
+// effect as an explicit length.
 func Slice(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(sliceConfig)
 	if err := parse(config); err != nil {
@@ -37,20 +43,25 @@ func Slice(parse sdk.Parser) (sdk.Transformer, error) {
 	if config.Decode == "" {
 		config.Decode = "bytes"
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+
+	stop := config.Stop
+	if stop <= 0 {
+		stop = math.MaxInt
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		c, err := asContinuous(v, "slice")
 		if err != nil {
 			return nil, err
 		}
-		stop := config.Stop
-		if stop == 0 {
-			stop = c.Len()
-		}
 		out, _ := c.Slice(config.Start, stop, config.Step)
 		return out, nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // ── chunk ──────────────────────────────────────────────────────────────────
@@ -76,6 +87,10 @@ func Chunk(parse sdk.Parser) (sdk.Transformer, error) {
 	if config.Encode == "" {
 		config.Encode = "json"
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		c, err := asContinuous(v, "chunk")
@@ -84,7 +99,7 @@ func Chunk(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		return windows(c.Chunk(config.Size, config.KeepTail)), nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // ── every ──────────────────────────────────────────────────────────────────
@@ -109,6 +124,10 @@ func Every(parse sdk.Parser) (sdk.Transformer, error) {
 	if config.Encode == "" {
 		config.Encode = "json"
 	}
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
 
 	op := func(v data.Value) (data.Value, error) {
 		c, err := asContinuous(v, "every")
@@ -117,7 +136,7 @@ func Every(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		return windows(c.Every(config.Step, config.Size)), nil
 	}
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // windows lifts a slice of continuous windows into a data.List.

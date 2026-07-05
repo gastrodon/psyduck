@@ -77,7 +77,11 @@ func Render(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("render: unknown engine %q (want template, printf, or jq)", engine)
 	}
 
-	return codecTransformer(config.Decode, config.Encode, config.OnError, op)
+	onError, err := data.ParseOnError(config.OnError)
+	if err != nil {
+		return nil, err
+	}
+	return codecTransformer(config.Decode, config.Encode, onError, op), nil
 }
 
 // printfArgs spreads a list message into separate verbs; any other value is a

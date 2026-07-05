@@ -121,9 +121,9 @@ func TestBytesSlice(t *testing.T) {
 	if string(out.Bytes()) != "02468" {
 		t.Errorf("step slice = %q, want 02468", out.Bytes())
 	}
-	out, _ = b.Slice(-3, -1, 1) // negative indices
-	if string(out.Bytes()) != "78" {
-		t.Errorf("negative slice = %q, want 78", out.Bytes())
+	out, trunc = b.Slice(-3, -1, 1) // negative bounds clamp to 0, not from-the-end
+	if string(out.Bytes()) != "" || !trunc {
+		t.Errorf("negative slice = %q trunc=%v, want empty true", out.Bytes(), trunc)
 	}
 }
 
