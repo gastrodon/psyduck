@@ -1,6 +1,8 @@
 package consume
 
 import (
+	"fmt"
+
 	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib/transport"
@@ -8,7 +10,7 @@ import (
 
 type fileConfig struct {
 	Location     string  `psy:"location"`
-	Follow       bool    `psy:"follow"` // producer-side; ignored when writing
+	Follow       bool    `psy:"follow"` // producer-only
 	Append       bool    `psy:"append"`
 	Create       bool    `psy:"create"`
 	Sep          *string `psy:"sep"`
@@ -25,6 +27,9 @@ func File(parse sdk.Parser) (sdk.Consumer, error) {
 	config := new(fileConfig)
 	if err := parse(config); err != nil {
 		return nil, err
+	}
+	if config.Follow {
+		return nil, fmt.Errorf("file consumer: follow is a producer-only attribute")
 	}
 
 	d := transport.Delimit{

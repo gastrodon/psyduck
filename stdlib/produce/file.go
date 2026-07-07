@@ -1,6 +1,7 @@
 package produce
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -14,7 +15,7 @@ import (
 type fileConfig struct {
 	Location     string  `psy:"location"`
 	Follow       bool    `psy:"follow"`
-	Append       bool    `psy:"append"` // consumer-side; ignored when reading
+	Append       bool    `psy:"append"` // consumer-only
 	Create       bool    `psy:"create"`
 	Sep          *string `psy:"sep"`
 	SepByte      *int    `psy:"sep-byte"`
@@ -29,6 +30,9 @@ func File(parse sdk.Parser) (sdk.Producer, error) {
 	config := new(fileConfig)
 	if err := parse(config); err != nil {
 		return nil, err
+	}
+	if config.Append {
+		return nil, fmt.Errorf("file producer: append is a consumer-only attribute")
 	}
 
 	d := transport.Delimit{
