@@ -23,25 +23,12 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 		return nil, err
 	}
 
-	addr := config.Address
-	if addr == "" {
-		addr = ":8080"
-	}
-	path := config.Path
-	if path == "" {
-		path = "/"
-	}
-	status := config.Status
-	if status == 0 {
-		status = http.StatusOK
-	}
-
 	return func(send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
 		mux := http.NewServeMux()
-		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc(config.Path, func(w http.ResponseWriter, r *http.Request) {
 			if config.Method != "" && r.Method != config.Method {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
@@ -52,13 +39,13 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 				return
 			}
 			send <- body
-			w.WriteHeader(status)
+			w.WriteHeader(config.Status)
 			if config.Reply != "" {
 				_, _ = io.WriteString(w, config.Reply)
 			}
 		})
 
-		if err := http.ListenAndServe(addr, mux); err != nil {
+		if err := http.ListenAndServe(config.Address, mux); err != nil {
 			errs <- err
 		}
 	}, nil
