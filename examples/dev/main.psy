@@ -1,0 +1,18 @@
+# count replaces the message with a running tally every n messages.
+produce "sequence" "src" {
+  stop-after = 3
+}
+
+transform "count" "c" {
+  prefix = "n="
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "dev" {
+  produce   = [produce.sequence.src]
+  transform = [transform.count.c]
+  consume   = [consume.file.out]
+}

@@ -1,0 +1,18 @@
+# sequence emits an integer stream; head passes only the first n.
+produce "sequence" "src" {
+  stop-after = 10
+}
+
+transform "head" "h" {
+  count = 3
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "flow" {
+  produce   = [produce.sequence.src]
+  transform = [transform.head.h]
+  consume   = [consume.file.out]
+}

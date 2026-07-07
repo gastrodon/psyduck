@@ -2,27 +2,31 @@ package transform
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/psyduck-etl/sdk"
 )
 
 type inspectConfig struct {
-	BeString bool `psy:"be-string"`
+	Prefix string `psy:"prefix"`
+	Output string `psy:"output"`
 }
 
+// Inspect logs each message and passes it through unchanged — the debug tap.
+// Output is "stdout" (default) or "stderr"; prefix is prepended to each line.
 func Inspect(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(inspectConfig)
 	if err := parse(config); err != nil {
 		return nil, err
 	}
 
-	formatter := func(data []byte) interface{} { return data }
-	if config.BeString {
-		formatter = func(data []byte) interface{} { return string(data) }
+	out := os.Stdout
+	if config.Output == "stderr" {
+		out = os.Stderr
 	}
 
 	return func(data []byte) ([]byte, error) {
-		fmt.Println(formatter(data))
+		fmt.Fprintf(out, "%s%s\n", config.Prefix, data)
 		return data, nil
 	}, nil
 }

@@ -1,0 +1,17 @@
+# The request transport is dual-role: producing polls the URL, consuming posts
+# each message. Build-only (no network): parsing + building validates the
+# spec — map headers, list success codes, required url.
+produce "request" "api" {
+  url           = "http://example.invalid/items"
+  headers       = { "Authorization" = "Bearer x" }
+  query-params  = { "page" = "1" }
+  success-codes = [200, 204]
+  stop-after    = 1
+}
+
+consume "trash" "sink" {}
+
+pipeline "http-request" {
+  produce = [produce.request.api]
+  consume = [consume.trash.sink]
+}

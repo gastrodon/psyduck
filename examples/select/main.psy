@@ -1,0 +1,23 @@
+# pick extracts one value. path = [...] walks discrete/object data by key;
+# encode = "bytes" emits the leaf unquoted.
+produce "generate" "src" {
+  values = [
+    "{\"user\": {\"name\": \"ann\"}}",
+    "{\"user\": {\"name\": \"bob\"}}",
+  ]
+}
+
+transform "pick" "name" {
+  path   = ["user", "name"]
+  encode = "bytes"
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "select" {
+  produce   = [produce.generate.src]
+  transform = [transform.pick.name]
+  consume   = [consume.file.out]
+}

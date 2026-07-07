@@ -22,7 +22,7 @@ pipeline "consume-remote" {
 
 # amqp variant: one pipeline writes generated config into a queue, another
 # consumes that queue as its producer description. Requires a local rabbitmq.
-produce "increment" "inc" {
+produce "sequence" "inc" {
   stop-after = 8
 }
 
@@ -31,19 +31,22 @@ consume "amqp-queue" "src-constant" {
   queue      = "src-constant"
 }
 
-transform "sprintf" "src" {
+# render (engine = template) turns each sequence value into a produce {} block.
+transform "render" "src" {
+  engine = "template"
+  decode = "bytes"
   format = <<-EOF
   produce "constant" "remote" {
-    value = "%d"
+    value = "{{.}}"
     stop-after = 10
   }
   EOF
 }
 
 pipeline "ready-remote" {
-  produce   = [produce.increment.inc]
+  produce   = [produce.sequence.inc]
   consume   = [consume.amqp-queue.src-constant]
-  transform = [transform.sprintf.src, transform.inspect.inspect]
+  transform = [transform.render.src, transform.inspect.inspect]
 }
 
 produce "amqp-queue" "src-constants" {

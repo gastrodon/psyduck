@@ -1,0 +1,18 @@
+# chunk splits continuous data into fixed windows, emitted as a JSON array.
+produce "generate" "src" {
+  values = ["abcdef"]
+}
+
+transform "chunk" "c" {
+  size = 2
+}
+
+consume "file" "out" {
+  location = env.PSYDUCK_OUT
+}
+
+pipeline "slicing" {
+  produce   = [produce.generate.src]
+  transform = [transform.chunk.c]
+  consume   = [consume.file.out]
+}
