@@ -13,6 +13,7 @@ transform "pick" "name" {
 }
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 

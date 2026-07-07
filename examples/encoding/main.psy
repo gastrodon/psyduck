@@ -9,6 +9,7 @@ transform "recode" "b64" {
 }
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 

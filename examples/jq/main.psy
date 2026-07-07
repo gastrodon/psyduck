@@ -15,6 +15,7 @@ transform "jq" "v" {
 }
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 

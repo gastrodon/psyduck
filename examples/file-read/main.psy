@@ -1,12 +1,14 @@
 # The file transport reads the way it writes. Here it reads lines from
 # env.PSYDUCK_IN, uppercases them, and writes them back out.
 produce "file" "src" {
+  sep      = "\n"
   location = env.PSYDUCK_IN
 }
 
 transform "upper" "u" {}
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 

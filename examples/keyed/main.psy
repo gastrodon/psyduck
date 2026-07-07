@@ -13,6 +13,7 @@ transform "dedupe" "d" {
 }
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 

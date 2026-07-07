@@ -16,6 +16,7 @@ transform "set" "tag" {
 }
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 

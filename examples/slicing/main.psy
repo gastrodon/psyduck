@@ -8,6 +8,7 @@ transform "chunk" "c" {
 }
 
 consume "file" "out" {
+  sep      = "\n"
   location = env.PSYDUCK_OUT
 }
 
