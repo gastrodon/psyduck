@@ -65,6 +65,60 @@ func TestHTTPWebhookReceiver(t *testing.T) {
 	}
 }
 
+// TestHTTPWebhookBodyCap verifies that max-body-bytes rejects oversize POSTs
+// with 413 and does not forward their bodies to the pipeline.
+func TestHTTPWebhookBodyCap(t *testing.T) {
+	addr := freePort(t)
+
+	p, err := produce.HTTPListen(parser(map[string]any{
+		"address":        addr,
+		"path":           "/ingest",
+		"method":         "POST",
+		"status":         200,
+		"reply":          "",
+		"max-body-bytes": 8,
+	}))
+	if err != nil {
+		t.Fatalf("HTTPListen: %v", err)
+	}
+	send := make(chan []byte, 2)
+	errs := make(chan error, 1)
+	go p(send, errs)
+	drainErrs(errs)
+
+	waitForHTTP(t, "http://"+addr+"/ingest")
+
+	// Under the cap: accepted, body delivered.
+	resp, err := http.Post("http://"+addr+"/ingest", "text/plain", strings.NewReader("okay"))
+	if err != nil {
+		t.Fatalf("small POST: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("small POST: want 200, got %d", resp.StatusCode)
+	}
+
+	// Over the cap: 413 and nothing lands on send.
+	resp, err = http.Post("http://"+addr+"/ingest", "text/plain", strings.NewReader("this body is definitely over eight bytes"))
+	if err != nil {
+		t.Fatalf("big POST: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Errorf("big POST: want 413, got %d", resp.StatusCode)
+	}
+
+	msgs := readN(t, send, 1, 2*time.Second)
+	if string(msgs[0]) != "okay" {
+		t.Errorf("body = %q, want %q", msgs[0], "okay")
+	}
+	select {
+	case extra := <-send:
+		t.Errorf("unexpected extra message %q (oversize POST should have been rejected)", extra)
+	default:
+	}
+}
+
 // TestHTTPWebhookMethodGating verifies that the http-listen method filter
 // rejects requests with the wrong verb and does not forward their bodies.
 func TestHTTPWebhookMethodGating(t *testing.T) {

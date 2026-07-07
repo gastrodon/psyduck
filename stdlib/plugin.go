@@ -138,6 +138,10 @@ func Plugin() sdk.Plugin {
 				{Name: "method", Description: "filter by HTTP method (empty = any)", Type: sdk.TypeString, Default: ""},
 				{Name: "status", Description: "response status code", Type: sdk.TypeInt, Default: 200},
 				{Name: "reply", Description: "response body", Type: sdk.TypeString, Default: ""},
+				{Name: "max-body-bytes", Description: "reject requests whose body exceeds this many bytes (0 = unlimited)", Type: sdk.TypeInt, Default: 1 << 20},
+				{Name: "read-timeout-ms", Description: "per-connection read timeout (slowloris cap)", Type: sdk.TypeInt, Default: 10000},
+				{Name: "write-timeout-ms", Description: "per-connection write timeout", Type: sdk.TypeInt, Default: 10000},
+				{Name: "idle-timeout-ms", Description: "keep-alive idle timeout", Type: sdk.TypeInt, Default: 60000},
 			},
 		},
 

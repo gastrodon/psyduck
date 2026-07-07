@@ -85,7 +85,7 @@ small and open to more modes later.
 | `socket` | produce + consume | `location` (`tcp://`/`udp://`/`unix://`), `create`, + framing |
 | `listen` | produce | `location` (`tcp://`/`unix://`/`udp://`), `create`, + framing |
 | `request` | produce + consume | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `interval-ms` |
-| `http-listen` | produce | `address`, `path`, `method`, `status`, `reply` |
+| `http-listen` | produce | `address`, `path`, `method`, `status`, `reply`, `max-body-bytes`, `read-timeout-ms`, `write-timeout-ms`, `idle-timeout-ms` |
 
 `produce "file" {}` reads; `consume "file" {}` writes — you write files the way
 you read them, and POST the way you GET.
