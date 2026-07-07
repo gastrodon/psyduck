@@ -81,13 +81,17 @@ func run(ctx *cli.Context) error {
 	return core.RunPipeline(pipeline)
 }
 
-func sortedNames(pipelines map[string]parse.Pipeline) []string {
-	names := make([]string, 0, len(pipelines))
-	for name := range pipelines {
-		names = append(names, name)
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
 	}
-	sort.Strings(names)
-	return names
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedNames(pipelines map[string]parse.Pipeline) []string {
+	return sortedKeys(pipelines)
 }
 
 func list(ctx *cli.Context) error {
@@ -122,12 +126,7 @@ func printResource(r parse.Resource) {
 		return
 	}
 	m := values.Values()
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys[string](m) {
 		fmt.Printf("    %s = %s\n", k, m[k])
 	}
 }

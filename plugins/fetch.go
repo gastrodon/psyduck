@@ -94,4 +94,3 @@ func (f *fetcher) fetch(spec parse.Plugin) (string, error) {
 		return "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
 	}
 }
-
