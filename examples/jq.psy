@@ -1,12 +1,12 @@
 # filter drops messages whose predicate is false/null; jq reshapes what remains.
-produce "generate" "src" {
+produce "generate" "jq" {
   values = [
     "{\"v\":1,\"keep\":true}",
     "{\"v\":2,\"keep\":false}",
   ]
 }
 
-transform "filter" "f" {
+transform "filter" "jq" {
   expression = ".keep"
 }
 
@@ -14,13 +14,8 @@ transform "jq" "v" {
   expression = ".v"
 }
 
-consume "file" "out" {
-  sep      = "\n"
-  location = env.PSYDUCK_OUT
-}
-
 pipeline "jq" {
-  produce   = [produce.generate.src]
-  transform = [transform.filter.f, transform.jq.v]
+  produce   = [produce.generate.jq]
+  transform = [transform.filter.jq, transform.jq.v]
   consume   = [consume.file.out]
 }

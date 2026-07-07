@@ -1,6 +1,6 @@
 # render formats a message; engine = template gives Go text/template with the
 # decoded object as the dot.
-produce "generate" "src" {
+produce "generate" "render" {
   values = ["{\"name\": \"ann\"}"]
 }
 
@@ -9,13 +9,8 @@ transform "render" "r" {
   format = "hello {{.name}}"
 }
 
-consume "file" "out" {
-  sep      = "\n"
-  location = env.PSYDUCK_OUT
-}
-
 pipeline "render" {
-  produce   = [produce.generate.src]
+  produce   = [produce.generate.render]
   transform = [transform.render.r]
   consume   = [consume.file.out]
 }

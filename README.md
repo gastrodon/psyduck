@@ -133,9 +133,10 @@ runtime log verbosity.
 - [`docs/plugins.md`](docs/plugins.md) — writing plugins in Go: the
   `sdk.Plugin` interface, `Spec` fields, `psy` struct tags, and how psyduck
   loads binaries.
-- [`examples/`](examples/) — self-contained `.psy` fixtures exercised by the
-  test suite. Each `examples/<name>/main.psy` is one pipeline demonstrating a
-  specific stdlib feature.
+- [`examples/`](examples/) — one workspace of `.psy` fixtures exercised by the
+  test suite. `shared.psy` holds the consumers reused across examples; each
+  `examples/<name>.psy` defines one pipeline demonstrating a specific stdlib
+  feature.
 
 ## Layout
 

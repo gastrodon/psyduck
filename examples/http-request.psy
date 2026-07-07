@@ -9,8 +9,6 @@ produce "request" "api" {
   stop-after    = 1
 }
 
-consume "trash" "sink" {}
-
 pipeline "http-request" {
   produce = [produce.request.api]
   consume = [consume.trash.sink]

@@ -35,8 +35,6 @@ produce "listen" "meta-in" {
   create   = true
 }
 
-consume "trash" "sink" {}
-
 pipeline "scrape" {
   produce-from = produce.listen.meta-in
   consume      = [consume.trash.sink]

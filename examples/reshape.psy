@@ -1,6 +1,6 @@
 # pick-map reshapes an object by walking source paths into new keys; set adds
 # a static field. Together they cover the extract-and-annotate use case.
-produce "generate" "src" {
+produce "generate" "reshape" {
   values = [
     "{\"user\": {\"name\": \"ann\"}, \"drop_me\": 1}",
     "{\"user\": {\"name\": \"bob\"}, \"drop_me\": 2}",
@@ -15,13 +15,8 @@ transform "set" "tag" {
   values = { "source" = "e2e" }
 }
 
-consume "file" "out" {
-  sep      = "\n"
-  location = env.PSYDUCK_OUT
-}
-
 pipeline "reshape" {
-  produce   = [produce.generate.src]
+  produce   = [produce.generate.reshape]
   transform = [transform.pick-map.reshape, transform.set.tag]
   consume   = [consume.file.out]
 }

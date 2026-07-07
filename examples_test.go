@@ -22,15 +22,17 @@ const (
 	tierParse             // parse only
 )
 
-// fixture holds all test data for one example. The .psy source stays on disk
-// under examples/<name>/main.psy; everything else lives here so the test suite
-// doesn't scatter magic files across the tree.
+// fixture holds the test data for one example pipeline. The .psy sources
+// live under examples/*.psy — one workspace, one file per example plus
+// shared.psy for the consumers reused across them.
 type fixture struct {
 	tier   tier
 	input  string // written to a temp file and injected as PSYDUCK_IN; empty = no input
 	expect string // expected output, trailing newlines stripped; empty = not checked
 }
 
+// examples is keyed by pipeline name (matches the `pipeline "<name>"` block
+// in examples/<name>.psy — except meta-socket.psy, which defines two).
 var examples = map[string]fixture{
 	"dev": {
 		tier:   tierRun,
@@ -79,12 +81,13 @@ var examples = map[string]fixture{
 	},
 	"http-request": {tier: tierBuild},
 	"http-listen":  {tier: tierBuild},
-	"meta-socket":  {tier: tierParse},
+	"config-gen":   {tier: tierParse},
+	"scrape":       {tier: tierParse},
 }
 
-// TestExamples runs each example registered in the examples map as a subtest.
-// The .psy source is read from examples/<name>/main.psy; all input and expected
-// output data lives in the map above.
+// TestExamples runs each pipeline registered in the examples map as a subtest.
+// Every subtest parses the whole examples/ workspace (so shared.psy and the
+// per-example .psy files link up), then builds/runs only the target pipeline.
 func TestExamples(t *testing.T) {
 	for name, fix := range examples {
 		fix := fix
@@ -98,11 +101,6 @@ func runExample(t *testing.T, name string, fix fixture) {
 	t.Helper()
 	plugins := []sdk.Plugin{stdlib.Plugin()}
 
-	content, err := os.ReadFile(filepath.Join("examples", name, "main.psy"))
-	if err != nil {
-		t.Fatalf("read main.psy: %v", err)
-	}
-
 	outPath := filepath.Join(t.TempDir(), "out")
 	t.Setenv("PSYDUCK_OUT", outPath)
 
@@ -114,36 +112,34 @@ func runExample(t *testing.T, name string, fix fixture) {
 		t.Setenv("PSYDUCK_IN", inPath)
 	}
 
-	sources := []parse.Source{{Name: name + "/main.psy", Content: content}}
+	sources, err := parse.SourceFromDir("examples")
+	if err != nil {
+		t.Fatalf("read examples/: %v", err)
+	}
 	pipelines, err := hcl.NewParserHCL().Parse(sources, plugins)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if len(pipelines) == 0 {
-		t.Fatal("no pipelines defined")
+	pipe, ok := pipelines[name]
+	if !ok {
+		t.Fatalf("pipeline %q not defined in examples/", name)
 	}
 
 	if fix.tier == tierParse {
 		return
 	}
 
-	built := make([]*core.Pipeline, 0, len(pipelines))
-	for pname, p := range pipelines {
-		bp, err := core.BuildPipeline(p, plugins)
-		if err != nil {
-			t.Fatalf("build %q: %v", pname, err)
-		}
-		built = append(built, bp)
+	built, err := core.BuildPipeline(pipe, plugins)
+	if err != nil {
+		t.Fatalf("build %q: %v", name, err)
 	}
 
 	if fix.tier == tierBuild {
 		return
 	}
 
-	for _, bp := range built {
-		if err := core.RunPipeline(bp); err != nil {
-			t.Fatalf("run: %v", err)
-		}
+	if err := core.RunPipeline(built); err != nil {
+		t.Fatalf("run: %v", err)
 	}
 
 	got, err := os.ReadFile(outPath)

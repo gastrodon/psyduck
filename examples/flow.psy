@@ -1,0 +1,14 @@
+# sequence emits an integer stream; head passes only the first n.
+produce "sequence" "flow" {
+  stop-after = 10
+}
+
+transform "head" "flow" {
+  count = 3
+}
+
+pipeline "flow" {
+  produce   = [produce.sequence.flow]
+  transform = [transform.head.flow]
+  consume   = [consume.file.out]
+}

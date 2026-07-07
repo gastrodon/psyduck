@@ -1,0 +1,14 @@
+# count replaces the message with a running tally every n messages.
+produce "sequence" "dev" {
+  stop-after = 3
+}
+
+transform "count" "dev" {
+  prefix = "n="
+}
+
+pipeline "dev" {
+  produce   = [produce.sequence.dev]
+  transform = [transform.count.dev]
+  consume   = [consume.file.out]
+}

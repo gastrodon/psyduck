@@ -8,8 +8,6 @@ produce "http-listen" "hook" {
   reply   = "ok"
 }
 
-consume "trash" "sink" {}
-
 pipeline "http-listen" {
   produce = [produce.http-listen.hook]
   consume = [consume.trash.sink]

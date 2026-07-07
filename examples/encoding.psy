@@ -1,5 +1,5 @@
 # recode is the universal codec converter: decode one format, encode another.
-produce "generate" "src" {
+produce "generate" "encoding" {
   values = ["hello", "world"]
 }
 
@@ -8,13 +8,8 @@ transform "recode" "b64" {
   encode = "base64"
 }
 
-consume "file" "out" {
-  sep      = "\n"
-  location = env.PSYDUCK_OUT
-}
-
 pipeline "encoding" {
-  produce   = [produce.generate.src]
+  produce   = [produce.generate.encoding]
   transform = [transform.recode.b64]
   consume   = [consume.file.out]
 }

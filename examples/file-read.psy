@@ -1,19 +1,14 @@
 # The file transport reads the way it writes. Here it reads lines from
 # env.PSYDUCK_IN, uppercases them, and writes them back out.
-produce "file" "src" {
+produce "file" "file-read" {
   sep      = "\n"
   location = env.PSYDUCK_IN
 }
 
-transform "upper" "u" {}
-
-consume "file" "out" {
-  sep      = "\n"
-  location = env.PSYDUCK_OUT
-}
+transform "upper" "file-read" {}
 
 pipeline "file-read" {
-  produce   = [produce.file.src]
-  transform = [transform.upper.u]
+  produce   = [produce.file.file-read]
+  transform = [transform.upper.file-read]
   consume   = [consume.file.out]
 }

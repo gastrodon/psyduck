@@ -1,0 +1,14 @@
+# Consumers shared across the examples in this workspace.
+#
+# consume.file.out writes newline-framed messages to env.PSYDUCK_OUT. Every
+# tierRun example targets it; the test suite sets PSYDUCK_OUT to a temp file
+# and diffs the result.
+#
+# consume.trash.sink discards messages. Build-only examples (no side effect
+# under test) use it to satisfy the "pipeline needs a consumer" rule.
+consume "file" "out" {
+  sep      = "\n"
+  location = env.PSYDUCK_OUT
+}
+
+consume "trash" "sink" {}
