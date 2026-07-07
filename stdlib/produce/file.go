@@ -12,14 +12,14 @@ import (
 )
 
 type fileConfig struct {
-	Location     string `psy:"location"`
-	Follow       bool   `psy:"follow"`
-	Append       bool   `psy:"append"` // consumer-side; ignored when reading
-	Create       bool   `psy:"create"`
-	Sep          string `psy:"sep"`
-	SepByte      int    `psy:"sep-byte"`
-	SepByteIndex int    `psy:"sep-byte-index"`
-	Group        int    `psy:"group"`
+	Location     string  `psy:"location"`
+	Follow       bool    `psy:"follow"`
+	Append       bool    `psy:"append"` // consumer-side; ignored when reading
+	Create       bool    `psy:"create"`
+	Sep          *string `psy:"sep"`
+	SepByte      *int    `psy:"sep-byte"`
+	SepByteIndex *int    `psy:"sep-byte-index"`
+	Group        int     `psy:"group"`
 }
 
 // File reads bytes from a location (file path, "-" for stdin, or a socket URI)

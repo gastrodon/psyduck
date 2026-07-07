@@ -7,14 +7,14 @@ import (
 )
 
 type fileConfig struct {
-	Location     string `psy:"location"`
-	Follow       bool   `psy:"follow"` // producer-side; ignored when writing
-	Append       bool   `psy:"append"`
-	Create       bool   `psy:"create"`
-	Sep          string `psy:"sep"`
-	SepByte      int    `psy:"sep-byte"`
-	SepByteIndex int    `psy:"sep-byte-index"`
-	Group        int    `psy:"group"`
+	Location     string  `psy:"location"`
+	Follow       bool    `psy:"follow"` // producer-side; ignored when writing
+	Append       bool    `psy:"append"`
+	Create       bool    `psy:"create"`
+	Sep          *string `psy:"sep"`
+	SepByte      *int    `psy:"sep-byte"`
+	SepByteIndex *int    `psy:"sep-byte-index"`
+	Group        int     `psy:"group"`
 }
 
 // File writes each message to a location (file path, "-" stdout, "--" stderr,

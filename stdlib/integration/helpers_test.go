@@ -14,28 +14,41 @@ import (
 
 // parser builds an sdk.Parser that populates a struct's psy-tagged fields from
 // vals using reflection. It is the integration-test stand-in for the HCL config
-// layer so tests stay independent of the parser package.
+// layer so tests stay independent of the parser package. Scalar values assigned
+// to pointer fields are auto-boxed; a value of nil leaves the field zero.
 func parser(vals map[string]any) sdk.Parser {
 	return func(dst any) error {
 		rv := reflect.ValueOf(dst).Elem()
 		rt := rv.Type()
 		for i := 0; i < rt.NumField(); i++ {
-			if tag := rt.Field(i).Tag.Get("psy"); tag != "" {
-				if v, ok := vals[tag]; ok {
-					rv.Field(i).Set(reflect.ValueOf(v))
-				}
+			tag := rt.Field(i).Tag.Get("psy")
+			if tag == "" {
+				continue
 			}
+			v, ok := vals[tag]
+			if !ok || v == nil {
+				continue
+			}
+			field := rv.Field(i)
+			val := reflect.ValueOf(v)
+			if field.Kind() == reflect.Pointer && val.Kind() != reflect.Pointer {
+				boxed := reflect.New(field.Type().Elem())
+				boxed.Elem().Set(val)
+				val = boxed
+			}
+			field.Set(val)
 		}
 		return nil
 	}
 }
 
 // delimitCfg returns a standard config map for stream transports using
-// newline framing (sep="\n"). sep-byte=-1 signals "unset" to Delimit.Validate.
+// newline framing. Only sep is set — sep-byte and sep-byte-index stay nil,
+// which Delimit.Validate treats as "unset".
 func delimitCfg(loc string, create bool) map[string]any {
 	return map[string]any{
 		"location": loc, "create": create,
-		"sep": "\n", "sep-byte": -1, "sep-byte-index": 0, "group": 0,
+		"sep": "\n", "group": 0,
 	}
 }
 

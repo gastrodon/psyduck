@@ -7,12 +7,12 @@ import (
 )
 
 type socketConfig struct {
-	Location     string `psy:"location"`
-	Create       bool   `psy:"create"`
-	Sep          string `psy:"sep"`
-	SepByte      int    `psy:"sep-byte"`
-	SepByteIndex int    `psy:"sep-byte-index"`
-	Group        int    `psy:"group"`
+	Location     string  `psy:"location"`
+	Create       bool    `psy:"create"`
+	Sep          *string `psy:"sep"`
+	SepByte      *int    `psy:"sep-byte"`
+	SepByteIndex *int    `psy:"sep-byte-index"`
+	Group        int     `psy:"group"`
 }
 
 // Socket dials a tcp://, udp://, or unix:// location and writes each message to

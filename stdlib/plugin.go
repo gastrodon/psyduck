@@ -8,14 +8,15 @@ import (
 	"github.com/gastrodon/psyduck/stdlib/transform"
 )
 
-// delimitSpec is the shared stream-framing surface for every transport:
-// mutually-exclusive separators plus grouping. It maps onto the continuous
-// chunking of the underlying byte stream.
+// delimitSpec is the shared stream-framing surface for every transport.
+// Exactly one of sep, sep-byte, or sep-byte-index must be set — none carries
+// a default, and Delimit.Validate rejects any combination other than one.
+// group batches that many pieces into one emitted message.
 func delimitSpec() []*sdk.Spec {
 	return []*sdk.Spec{
-		{Name: "sep", Description: "string separator to split/join on", Type: sdk.TypeString, Default: "\n"},
-		{Name: "sep-byte", Description: "single byte separator 0..255 (-1 = unset)", Type: sdk.TypeInt, Default: -1},
-		{Name: "sep-byte-index", Description: "fixed chunk size in bytes (0 = unset)", Type: sdk.TypeInt, Default: 0},
+		{Name: "sep", Description: "string separator to split/join on", Type: sdk.TypeString},
+		{Name: "sep-byte", Description: "single byte separator 0..255", Type: sdk.TypeInt},
+		{Name: "sep-byte-index", Description: "fixed chunk size in bytes", Type: sdk.TypeInt},
 		{Name: "group", Description: "pieces per emitted message (0/1 = one)", Type: sdk.TypeInt, Default: 0},
 	}
 }

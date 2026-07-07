@@ -13,40 +13,53 @@ import (
 )
 
 // Delimit configures how a byte stream is split into messages (read) and
-// joined back (write). The separator forms are resolved by precedence —
-// sep-byte-index, then sep-byte, then sep — so setting a higher-precedence
-// form overrides a lower one. group batches that many pieces into one message.
+// joined back (write). Exactly one of Sep, SepByte, or SepByteIndex must be
+// set — the fields are pointers so nil unambiguously means "unset" (crucially
+// letting SepByte hold the legal NUL value 0). group batches that many pieces
+// into one message.
 type Delimit struct {
-	Sep          string `psy:"sep"`            // string separator; default "\n"
-	SepByte      int    `psy:"sep-byte"`       // single byte 0..255; -1 = unset
-	SepByteIndex int    `psy:"sep-byte-index"` // fixed chunk size in bytes; 0 = unset
-	Group        int    `psy:"group"`          // pieces per emitted message; 0/1 = one
+	Sep          *string `psy:"sep"`            // string separator
+	SepByte      *int    `psy:"sep-byte"`       // single byte separator 0..255
+	SepByteIndex *int    `psy:"sep-byte-index"` // fixed chunk size in bytes
+	Group        int     `psy:"group"`          // pieces per emitted message; 0/1 = one
 }
 
-// Validate rejects incompatible separator combinations and out-of-range bytes.
+// Validate requires exactly one of Sep, SepByte, or SepByteIndex to be set
+// and range-checks the numeric forms. Callers must Validate before Split or
+// Joiner; downstream code assumes valid state.
 func (d Delimit) Validate() error {
-	if d.SepByte >= 0 && d.SepByteIndex > 0 {
-		return fmt.Errorf("sep-byte and sep-byte-index are mutually exclusive")
+	set := 0
+	if d.Sep != nil {
+		set++
 	}
-	if d.SepByte > 255 {
-		return fmt.Errorf("sep-byte must be 0..255, got %d", d.SepByte)
+	if d.SepByte != nil {
+		set++
+	}
+	if d.SepByteIndex != nil {
+		set++
+	}
+	if set != 1 {
+		return fmt.Errorf("exactly one of sep, sep-byte, sep-byte-index must be set (got %d)", set)
+	}
+	if d.SepByte != nil && (*d.SepByte < 0 || *d.SepByte > 255) {
+		return fmt.Errorf("sep-byte must be 0..255, got %d", *d.SepByte)
+	}
+	if d.SepByteIndex != nil && *d.SepByteIndex <= 0 {
+		return fmt.Errorf("sep-byte-index must be > 0, got %d", *d.SepByteIndex)
 	}
 	return nil
 }
 
-// sepBytes returns the separator bytes and whether the stream is delimited at
-// all. Fixed-size (sep-byte-index) framing has no separator bytes and is
-// reported separately via fixedSize.
-func (d Delimit) sepBytes() ([]byte, bool) {
+// sepBytes returns the separator bytes for stream-delimited framing, or nil
+// when framing is fixed-size (sep-byte-index). Assumes Validate has passed.
+func (d Delimit) sepBytes() []byte {
 	switch {
-	case d.SepByteIndex > 0:
-		return nil, false
-	case d.SepByte >= 0:
-		return []byte{byte(d.SepByte)}, true
-	case d.Sep != "":
-		return []byte(d.Sep), true
+	case d.SepByteIndex != nil:
+		return nil
+	case d.SepByte != nil:
+		return []byte{byte(*d.SepByte)}
 	default:
-		return nil, false
+		return []byte(*d.Sep)
 	}
 }
 
@@ -58,17 +71,9 @@ func (d Delimit) group() int {
 }
 
 // Split reads r, cuts it into messages per the separator/group rules, and
-// calls emit once per message. A stream with no separator and no fixed size is
-// emitted whole as a single message.
+// calls emit once per message. Assumes Validate has passed.
 func (d Delimit) Split(r io.Reader, emit func([]byte) error) error {
-	sep, delimited := d.sepBytes()
-	if !delimited && d.SepByteIndex <= 0 {
-		all, err := io.ReadAll(r)
-		if err != nil {
-			return err
-		}
-		return emit(all)
-	}
+	sep := d.sepBytes()
 
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
@@ -103,8 +108,8 @@ func (d Delimit) Split(r io.Reader, emit func([]byte) error) error {
 }
 
 func (d Delimit) splitFunc(sep []byte) bufio.SplitFunc {
-	if d.SepByteIndex > 0 {
-		n := d.SepByteIndex
+	if d.SepByteIndex != nil {
+		n := *d.SepByteIndex
 		return func(data []byte, atEOF bool) (int, []byte, error) {
 			if atEOF && len(data) == 0 {
 				return 0, nil, nil
@@ -141,10 +146,9 @@ type Joiner struct {
 	batch [][]byte
 }
 
-// Joiner builds a write-side joiner over w.
+// Joiner builds a write-side joiner over w. Assumes Validate has passed.
 func (d Delimit) Joiner(w io.Writer) *Joiner {
-	sep, _ := d.sepBytes()
-	return &Joiner{w: w, sep: sep, group: d.group()}
+	return &Joiner{w: w, sep: d.sepBytes(), group: d.group()}
 }
 
 // Write buffers msg, flushing a joined batch once group messages accumulate.

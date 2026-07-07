@@ -11,12 +11,12 @@ import (
 )
 
 type listenConfig struct {
-	Location     string `psy:"location"`
-	Create       bool   `psy:"create"`
-	Sep          string `psy:"sep"`
-	SepByte      int    `psy:"sep-byte"`
-	SepByteIndex int    `psy:"sep-byte-index"`
-	Group        int    `psy:"group"`
+	Location     string  `psy:"location"`
+	Create       bool    `psy:"create"`
+	Sep          *string `psy:"sep"`
+	SepByte      *int    `psy:"sep-byte"`
+	SepByteIndex *int    `psy:"sep-byte-index"`
+	Group        int     `psy:"group"`
 }
 
 // Listen binds a location and emits framed messages read from every accepted
