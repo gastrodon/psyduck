@@ -84,16 +84,17 @@ transform "pick" "name" {
 
 ## Framing decisions
 
-Transports carry a byte stream; framing carves it into messages. The four
-options are mutually exclusive:
+Transports carry a byte stream; framing carves it into messages. You must set
+exactly one of `sep`, `sep-byte`, or `sep-byte-index`. The `group` option can
+layer on top of any of them:
 
 | You want | Set |
 |---|---|
-| Newline-delimited records (default) | (nothing — `sep = "\n"`) |
+| Newline-delimited records | `sep = "\n"` |
 | Whole-stream as one message | `sep = ""` |
 | Fixed-size binary records | `sep-byte-index = N` |
 | Split on a single byte (e.g. 0x00) | `sep-byte = 0` |
-| Emit windows of records | `group = N` |
+| Emit windows of records | `group = N` (with any of the above) |
 
 Framing on `consume` is symmetric: whatever separator split incoming data
 also joins outgoing data. Reading and writing the same file with the same
@@ -126,11 +127,13 @@ become the transport's job — not yours.
 consume "socket" "bus" {
   location = "unix:///tmp/psyduck-bus.sock"
   create   = true
+  sep      = "\n"
 }
 
 produce "socket" "bus" {
   location = "unix:///tmp/psyduck-bus.sock"
   create   = true
+  sep      = "\n"
 }
 
 pipeline "ingest" {                  # readers of raw data → bus
@@ -172,6 +175,7 @@ transform "render" "cfg" {
 consume "socket" "meta" {
   location = "unix:///tmp/psyduck-meta.sock"
   create   = true
+  sep      = "\n"
 }
 
 pipeline "plan" {
@@ -184,6 +188,12 @@ pipeline "plan" {
 produce "listen" "meta-in" {
   location = "unix:///tmp/psyduck-meta.sock"
   create   = true
+  sep      = "\n"
+}
+
+consume "file" "results" {
+  location = "results.jsonl"
+  sep      = "\n"
 }
 
 pipeline "scrape" {

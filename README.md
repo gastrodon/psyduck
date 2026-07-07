@@ -48,6 +48,7 @@ transform "render" "greet" {
 
 consume "file" "out" {
   location = "-"   # stdout
+  sep      = "\n"
 }
 
 pipeline "hello" {

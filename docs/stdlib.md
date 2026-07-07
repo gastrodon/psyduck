@@ -47,13 +47,14 @@ serializes then compresses.
 Transports cut a byte stream into messages with mutually-exclusive separators
 plus grouping:
 
-| Attribute | Default | Meaning |
+| Attribute | Required | Meaning |
 |---|---|---|
-| `sep` | `"\n"` | string separator |
-| `sep-byte` | `-1` | single byte 0..255 (`-1` = unset) |
-| `sep-byte-index` | `0` | fixed chunk size in bytes (`0` = unset) |
-| `group` | `0` | pieces per emitted message (`0`/`1` = one) |
+| `sep` | one of these three | string separator |
+| `sep-byte` | one of these three | single byte 0..255 |
+| `sep-byte-index` | one of these three | fixed chunk size in bytes |
+| `group` | no (default 0) | pieces per emitted message (`0`/`1` = one) |
 
+Exactly one of `sep`, `sep-byte`, or `sep-byte-index` must be set.
 Set `sep = ""` for whole-stream (one message). On write, the same options join
 messages back together.
 
@@ -176,6 +177,7 @@ transform "render" "cfg" {
 consume "socket" "meta" {
   location = "unix:///tmp/psyduck-meta.sock"
   create   = true
+  sep      = "\n"
 }
 
 pipeline "config-gen" {
@@ -188,9 +190,10 @@ pipeline "config-gen" {
 produce "listen" "meta-in" {
   location = "unix:///tmp/psyduck-meta.sock"
   create   = true
+  sep      = "\n"
 }
 
-consume "file" "results" { location = "results.jsonl" }
+consume "file" "results" { location = "results.jsonl"  sep = "\n" }
 
 pipeline "scrape" {
   produce-from = produce.listen.meta-in
