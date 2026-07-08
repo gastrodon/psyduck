@@ -1,3 +1,4 @@
 .psyduck
 coverage.*
 psyduck
+*.lock
