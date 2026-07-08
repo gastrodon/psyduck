@@ -85,9 +85,11 @@ psyduck show hello/main.psy           # print resource config
 ```
 
 Flags go *before* the file argument, not after — `psyduck list hello/main.psy
---stat` silently drops `--stat` instead of erroring (Go's flag parsing stops
-looking for flags at the first non-flag argument, and the file is that first
-argument). This is a real sharp edge, not just a style preference.
+--stat` errors with `unrecognized flag "--stat"` rather than running. Go's
+flag parsing stops looking for flags at the first non-flag argument, so
+anything flag-shaped typed after the file never reaches the flag parser at
+all; psyduck checks for that explicitly and rejects it instead of silently
+ignoring it.
 
 ### Using an external plugin
 

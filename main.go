@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
@@ -24,7 +25,27 @@ func entryPath(ctx *cli.Context) (string, error) {
 	if !ctx.Args().Present() {
 		return "", fmt.Errorf("pipeline file required")
 	}
+	if err := rejectStrayFlags(ctx.Args().Tail()); err != nil {
+		return "", err
+	}
 	return ctx.Args().First(), nil
+}
+
+// rejectStrayFlags errors on any argument that looks like a flag. Go's
+// flag parsing stops recognizing flags at the first non-flag argument —
+// since the file is always that first argument here, a flag typed after
+// it (e.g. `psyduck list hello/main.psy --stat`) never reaches the flag
+// parser at all; it just lands, unrecognized, among the positional
+// arguments (ctx.Args().Tail()). Without this check that would silently
+// do nothing instead of erroring — or, for `show`, silently be treated as
+// a pipeline name to filter by.
+func rejectStrayFlags(args []string) error {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			return fmt.Errorf("unrecognized flag %q (flags must come before the file argument)", a)
+		}
+	}
+	return nil
 }
 
 // storeFor returns the content-addressed plugin store for entry: a
