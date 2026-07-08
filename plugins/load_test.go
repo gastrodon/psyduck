@@ -5,13 +5,14 @@ package plugins
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
+
+	"github.com/gastrodon/psyduck/parse"
 )
 
 // jsonBlock is a ConfigBlock backed by a JSON blob, mirroring the SDK's own
@@ -27,34 +28,26 @@ func (b jsonBlock) Decode(dst any) error {
 	return json.Unmarshal(b.data, dst)
 }
 
-// buildExamplePlugin compiles cmd/example-plugin to a .so at outPath. Tests
-// run from the package directory, so the module root is one level up.
-func buildExamplePlugin(t *testing.T, outPath string) {
+// examplePluginDir locates cmd/example-plugin. Tests run from the package
+// directory, so the module root is one level up.
+func examplePluginDir(t *testing.T) string {
 	t.Helper()
 	src, err := filepath.Abs("../cmd/example-plugin")
 	if err != nil {
 		t.Fatalf("abs example plugin path: %v", err)
 	}
-	cmd := exec.Command("go", "build", "-C", src, "-o", outPath, "-buildmode", "plugin")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build example plugin: %v\n%s", err, out)
-	}
+	return src
 }
 
 func TestLoad_Integration(t *testing.T) {
 	store := NewStore(t.TempDir())
-	if err := os.MkdirAll(store.pluginsDir(), 0o755); err != nil {
-		t.Fatalf("mkdir plugins: %v", err)
+
+	locked, err := store.Build([]parse.Plugin{{Name: "example-plugin", Source: examplePluginDir(t)}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
 	}
 
-	soPath := store.soPath("example-plugin")
-	buildExamplePlugin(t, soPath)
-
-	if err := store.writeManifest(map[string]string{"example-plugin": soPath}); err != nil {
-		t.Fatalf("writeManifest: %v", err)
-	}
-
-	plugins, err := store.Load()
+	plugins, err := store.Load(locked)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -120,13 +113,35 @@ Loop:
 	}
 }
 
-func TestLoad_MissingPlugin(t *testing.T) {
+func TestBuild_DedupesSharedHash(t *testing.T) {
+	// Two different plugin names built from the same source dir produce
+	// byte-identical .so files and should collapse to one stored binary.
 	store := NewStore(t.TempDir())
-	if err := store.writeManifest(map[string]string{"missing-plugin": "/nonexistent/plugin.so"}); err != nil {
-		t.Fatalf("writeManifest: %v", err)
+
+	locked, err := store.Build([]parse.Plugin{
+		{Name: "a", Source: examplePluginDir(t)},
+		{Name: "b", Source: examplePluginDir(t)},
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if locked["a"].Hash == "" || locked["a"].Hash != locked["b"].Hash {
+		t.Fatalf("want matching non-empty hashes for identical builds, got %#v", locked)
 	}
 
-	_, err := store.Load()
+	entries, err := os.ReadDir(store.pluginsDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("want exactly 1 stored binary, got %d", len(entries))
+	}
+}
+
+func TestLoad_MissingPlugin(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_, err := store.Load(map[string]LockedPlugin{"missing-plugin": {Hash: "deadbeef"}})
 	if err == nil {
 		t.Fatal("Load succeeded, want error")
 	}
@@ -137,23 +152,40 @@ func TestLoad_MissingPlugin(t *testing.T) {
 
 func TestLoad_InvalidPluginFile(t *testing.T) {
 	store := NewStore(t.TempDir())
-	if err := os.MkdirAll(store.pluginsDir(), 0o755); err != nil {
-		t.Fatalf("mkdir plugins: %v", err)
+
+	hash, err := store.storeBinary(mustWriteTemp(t, "not a real plugin"))
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	badPath := filepath.Join(store.pluginsDir(), "bad.so")
-	if err := os.WriteFile(badPath, nil, 0o644); err != nil {
-		t.Fatalf("write bad plugin: %v", err)
-	}
-	if err := store.writeManifest(map[string]string{"bad-plugin": badPath}); err != nil {
-		t.Fatalf("writeManifest: %v", err)
-	}
-
-	_, err := store.Load()
+	_, err = store.Load(map[string]LockedPlugin{"bad-plugin": {Hash: hash}})
 	if err == nil {
 		t.Fatal("Load succeeded, want error")
 	}
 	if !strings.Contains(err.Error(), "bad-plugin") {
+		t.Errorf("error should mention plugin name, got: %v", err)
+	}
+}
+
+func TestLoad_HashMismatch(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	hash, err := store.storeBinary(mustWriteTemp(t, "original content"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Corrupt the stored binary after the fact — Load must catch the drift
+	// rather than silently opening whatever's on disk.
+	if err := os.WriteFile(store.hashPath(hash), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = store.Load(map[string]LockedPlugin{"corrupted": {Hash: hash}})
+	if err == nil {
+		t.Fatal("Load succeeded over a tampered binary, want a hash-mismatch error")
+	}
+	if !strings.Contains(err.Error(), "corrupted") {
 		t.Errorf("error should mention plugin name, got: %v", err)
 	}
 }

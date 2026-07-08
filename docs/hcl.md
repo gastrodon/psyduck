@@ -15,7 +15,7 @@ file, `import` it explicitly (see [Imports](#imports) below).
 A file is run by pointing the CLI at it directly:
 
 ```sh
-psyduck --chdir path/to/workspace run <file>.psy
+psyduck run path/to/<file>.psy
 ```
 
 Every `pipeline{}` block declared *directly* in that file runs: a file with

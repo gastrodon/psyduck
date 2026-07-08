@@ -1,8 +1,8 @@
 package plugins
 
 import (
-	"encoding/json"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,9 +13,11 @@ import (
 	"github.com/gastrodon/psyduck/parse"
 )
 
-// Store represents the .psyduck/ workspace directory: the single source of
-// truth for where plugin binaries live, where the manifest is written, and
-// how plugins are loaded at run time.
+// Store represents the .psyduck/ directory: content-addressed storage for
+// built plugin binaries, keyed by the sha256 of their own bytes. The
+// mapping from plugin name to hash lives in a separate per-file lock file
+// (see lock.go) — the store itself only knows how to place and retrieve
+// binaries by hash, so the same store can back any number of lock files.
 type Store struct {
 	root string
 }
@@ -23,7 +25,7 @@ type Store struct {
 func NewStore(root string) *Store {
 	// The root must be absolute: relative paths would silently misbehave in
 	// fetcher.build (`go build -C` resolves -o relative to the -C directory,
-	// not our cwd) and would bake cwd-dependent paths into the manifest.
+	// not our cwd).
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		// Abs only fails if the cwd is undeterminable; keep the given root.
@@ -36,74 +38,73 @@ func (s *Store) pluginsDir() string {
 	return filepath.Join(s.root, "plugins")
 }
 
-func (s *Store) manifestPath() string {
-	return filepath.Join(s.root, "plugin.json")
+func (s *Store) hashPath(hash string) string {
+	return filepath.Join(s.pluginsDir(), hash+".so")
 }
 
-func (s *Store) soPath(name string) string {
-	return filepath.Join(s.pluginsDir(), name+".so")
-}
-
-func (s *Store) readManifest() (map[string]string, error) {
-	data, err := os.ReadFile(s.manifestPath())
+// storeBinary content-addresses the file at path into the store: hashes
+// its bytes and writes them to <hash>.so. It always writes, even if a
+// file already exists at that hash path — the expensive work (build or
+// clone) already happened by the time storeBinary is called, so skipping
+// the write would only save one cheap copy at the cost of never
+// self-healing a hash slot whose on-disk content has drifted (e.g. been
+// tampered with, or corrupted) from what its filename promises. Two specs
+// that build to identical bytes still dedupe, since they land on the same
+// hash path with the same (correct) content either way. Returns the hash.
+func (s *Store) storeBinary(path string) (string, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return map[string]string{}, nil
-		}
-		return nil, fmt.Errorf("failed to read plugin manifest: %w", err)
+		return "", fmt.Errorf("failed to read plugin binary: %w", err)
 	}
 
-	m := make(map[string]string)
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, fmt.Errorf("failed to decode plugin manifest: %w", err)
-	}
-	return m, nil
-}
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	dest := s.hashPath(hash)
 
-func (s *Store) writeManifest(m map[string]string) error {
-	b, err := json.Marshal(m)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.manifestPath(), b, 0o644)
-}
-
-// Build clones and compiles the declared plugins, writing the name → .so path
-// manifest to the store's manifest file. Used by the init command.
-func (s *Store) Build(specs []parse.Plugin) error {
 	if err := os.MkdirAll(s.pluginsDir(), os.ModeDir|os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create plugins dir: %w", err)
+		return "", fmt.Errorf("failed to create plugins dir: %w", err)
 	}
+	if err := os.WriteFile(dest, data, 0o644); err != nil {
+		return "", fmt.Errorf("failed to store plugin binary: %w", err)
+	}
+	return hash, nil
+}
 
+// Build clones and compiles every declared plugin, content-addressing
+// each resulting binary into the store. It returns the lock data for the
+// caller to write next to the source file being init'd — the store
+// itself holds no name-based state, so nothing here depends on which
+// file the specs came from.
+func (s *Store) Build(specs []parse.Plugin) (map[string]LockedPlugin, error) {
 	tmpDir, err := os.MkdirTemp("", "psyduck-plugin-*")
 	if err != nil {
-		return fmt.Errorf("failed to make temp dir: %w", err)
+		return nil, fmt.Errorf("failed to make temp dir: %w", err)
 	}
 	f := &fetcher{store: s, tmpDir: tmpDir}
 	defer f.cleanup()
 
-	collected := make(map[string]string, len(specs))
+	locked := make(map[string]LockedPlugin, len(specs))
 	for _, spec := range specs {
-		loc, err := f.fetch(spec)
+		hash, err := f.fetch(spec)
 		if err != nil {
-			return fmt.Errorf("unable to fetch %s: %w", spec.Name, err)
+			return nil, fmt.Errorf("unable to fetch %s: %w", spec.Name, err)
 		}
-		collected[spec.Name] = loc
+		locked[spec.Name] = LockedPlugin{Source: spec.Source, Tag: spec.Tag, Hash: hash}
 	}
-	return s.writeManifest(collected)
+	return locked, nil
 }
 
-// Load reads the manifest and opens every plugin listed in it.
-// A missing manifest is not an error — it means no plugins have been built,
-// which is valid for stdlib-only pipelines.
-func (s *Store) Load() ([]sdk.Plugin, error) {
-	manifest, err := s.readManifest()
-	if err != nil {
-		return nil, err
-	}
-
-	loaded := make([]sdk.Plugin, 0, len(manifest))
-	for name, soPath := range manifest {
+// Load opens every plugin recorded in locked, verifying each binary's
+// content still matches its locked hash before opening it — catching a
+// store that's missing, corrupted, or drifted out of sync with the lock
+// file it's supposed to satisfy.
+func (s *Store) Load(locked map[string]LockedPlugin) ([]sdk.Plugin, error) {
+	loaded := make([]sdk.Plugin, 0, len(locked))
+	for name, entry := range locked {
+		soPath := s.hashPath(entry.Hash)
+		if err := verifyHash(soPath, entry.Hash); err != nil {
+			return nil, fmt.Errorf("plugin %s: %w", name, err)
+		}
 		p, err := loadBinary(name, soPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load plugin %s: %w", name, err)
@@ -111,6 +112,19 @@ func (s *Store) Load() ([]sdk.Plugin, error) {
 		loaded = append(loaded, p)
 	}
 	return loaded, nil
+}
+
+// verifyHash confirms the file at path still hashes to want.
+func verifyHash(path, want string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("binary missing at %s (run init again): %w", path, err)
+	}
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != want {
+		return fmt.Errorf("hash mismatch at %s: locked %s, found %s (run init again)", path, want, got)
+	}
+	return nil
 }
 
 // loadBinary opens the shared object at soPath and returns the sdk.Plugin

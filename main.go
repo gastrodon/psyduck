@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"sort"
 
 	"github.com/psyduck-etl/sdk"
@@ -16,13 +16,21 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-// entryPath resolves the pipeline file argument (relative to --chdir) that
-// run/init/list/show all take as their first positional argument.
+// entryPath validates and returns the pipeline file argument that
+// run/init/list/show all take as their first positional argument. There's
+// no separate --chdir anymore — the file's own path is the only root
+// anything needs (imports resolve relative to it, and so does its store).
 func entryPath(ctx *cli.Context) (string, error) {
 	if !ctx.Args().Present() {
 		return "", fmt.Errorf("pipeline file required")
 	}
-	return path.Join(ctx.String("chdir"), ctx.Args().First()), nil
+	return ctx.Args().First(), nil
+}
+
+// storeFor returns the content-addressed plugin store for entry: a
+// .psyduck/ directory next to the file, alongside its .lock.
+func storeFor(entry string) *plugins.Store {
+	return plugins.NewStore(filepath.Join(filepath.Dir(entry), ".psyduck"))
 }
 
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
@@ -36,26 +44,31 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 		return err
 	}
 
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	if err := os.MkdirAll(initPath, os.ModeDir|os.ModePerm); err != nil {
+	locked, err := storeFor(entry).Build(specs)
+	if err != nil {
 		return err
 	}
 
-	return plugins.NewStore(initPath).Build(specs)
+	return plugins.WriteLock(entry, &plugins.Lock{Plugins: locked})
 }
 
 // loadPipelines resolves entry and its transitive imports against the
-// loaded plugins + stdlib, and returns every pipeline{} declared directly
-// in entry (imported pipelines are data for entry to reuse, not part of
-// what runs).
+// plugins its lock file declares (see plugins.ReadLock — every file that's
+// run must have been init'd first, this isn't optional) plus stdlib, and
+// returns every pipeline{} declared directly in entry (imported pipelines
+// are data for entry to reuse, not part of what runs).
 func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, error) {
 	entry, err := entryPath(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	loaded, err := plugins.NewStore(initPath).Load()
+	lock, err := plugins.ReadLock(entry)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	loaded, err := storeFor(entry).Load(lock.Plugins)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -204,14 +217,6 @@ func main() {
 	app := cli.App{
 		Name:  "psyduck",
 		Usage: "run and manage etl pipelines",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:      "chdir",
-				Usage:     "directory to execute from",
-				Value:     ".",
-				TakesFile: true,
-			},
-		},
 		Commands: []*cli.Command{
 			{
 				Name:      "run",

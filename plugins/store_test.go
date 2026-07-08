@@ -1,10 +1,8 @@
 package plugins
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"reflect"
 	"testing"
 )
 
@@ -25,12 +23,11 @@ func TestStorePaths(t *testing.T) {
 	store := NewStore(root)
 
 	cases := []struct {
-		name     string
+		name      string
 		got, want string
 	}{
 		{"pluginsDir", store.pluginsDir(), filepath.Join(root, "plugins")},
-		{"manifestPath", store.manifestPath(), filepath.Join(root, "plugin.json")},
-		{"soPath", store.soPath("myplugin"), filepath.Join(root, "plugins", "myplugin.so")},
+		{"hashPath", store.hashPath("deadbeef"), filepath.Join(root, "plugins", "deadbeef.so")},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -39,51 +36,70 @@ func TestStorePaths(t *testing.T) {
 	}
 }
 
-func TestReadManifest_MissingReturnsEmpty(t *testing.T) {
+func TestStoreBinary_ContentAddressed(t *testing.T) {
 	store := NewStore(t.TempDir())
-	m, err := store.readManifest()
-	if err != nil {
-		t.Fatalf("readManifest: %v", err)
+
+	src := filepath.Join(t.TempDir(), "plugin.so")
+	if err := os.WriteFile(src, []byte("fake plugin bytes"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if len(m) != 0 {
-		t.Errorf("manifest = %v, want empty", m)
+
+	hash, err := store.storeBinary(src)
+	if err != nil {
+		t.Fatalf("storeBinary: %v", err)
+	}
+	if hash == "" {
+		t.Fatal("storeBinary returned empty hash")
+	}
+
+	got, err := os.ReadFile(store.hashPath(hash))
+	if err != nil {
+		t.Fatalf("stored binary not found at hash path: %v", err)
+	}
+	if string(got) != "fake plugin bytes" {
+		t.Errorf("stored content = %q, want %q", got, "fake plugin bytes")
 	}
 }
 
-func TestReadManifest_MalformedErrors(t *testing.T) {
+func TestStoreBinary_DedupesIdenticalContent(t *testing.T) {
 	store := NewStore(t.TempDir())
-	if err := os.WriteFile(store.manifestPath(), []byte(`{invalid`), 0o644); err != nil {
-		t.Fatalf("write malformed manifest: %v", err)
+
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.so")
+	b := filepath.Join(dir, "b.so")
+	if err := os.WriteFile(a, []byte("same bytes"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := store.readManifest(); err == nil {
-		t.Error("readManifest on malformed JSON: want error, got nil")
+	if err := os.WriteFile(b, []byte("same bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hashA, err := store.storeBinary(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hashB, err := store.storeBinary(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hashA != hashB {
+		t.Errorf("identical content hashed differently: %q vs %q", hashA, hashB)
+	}
+
+	entries, err := os.ReadDir(store.pluginsDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("want exactly 1 stored binary after dedup, got %d", len(entries))
 	}
 }
 
-func TestManifest_RoundTrip(t *testing.T) {
-	store := NewStore(t.TempDir())
-	want := map[string]string{
-		"plugin1": "/path/to/plugin1.so",
-		"plugin2": "/path/to/plugin2.so",
+func mustWriteTemp(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "plugin.so")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.writeManifest(want); err != nil {
-		t.Fatalf("writeManifest: %v", err)
-	}
-	got, err := store.readManifest()
-	if err != nil {
-		t.Fatalf("readManifest: %v", err)
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("manifest = %v, want %v", got, want)
-	}
-
-	// On-disk format is JSON — users may inspect plugin.json directly.
-	data, err := os.ReadFile(store.manifestPath())
-	if err != nil {
-		t.Fatalf("read manifest file: %v", err)
-	}
-	var parsed map[string]string
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		t.Errorf("manifest on disk is not valid JSON: %v", err)
-	}
+	return path
 }
