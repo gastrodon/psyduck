@@ -1,5 +1,9 @@
 # pick-map reshapes an object by walking source paths into new keys; set adds
 # a static field. Together they cover the extract-and-annotate use case.
+import {
+  shared = "shared.psy"
+}
+
 produce "generate" "reshape" {
   values = [
     "{\"user\": {\"name\": \"ann\"}, \"drop_me\": 1}",
@@ -18,5 +22,5 @@ transform "set" "tag" {
 pipeline "reshape" {
   produce   = [produce.generate.reshape]
   transform = [transform.pick-map.reshape, transform.set.tag]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

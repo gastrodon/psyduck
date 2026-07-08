@@ -7,14 +7,20 @@ reference for the language. It focuses on the stdlib — for plugins, see
 [stdlib.md](stdlib.md); for idiomatic patterns and recipes, see
 [patterns.md](patterns.md).
 
-A **workspace** is any directory containing `.psy` files. All `.psy` files in
-that directory parse together as a single configuration — resources declared
-in one file may be referenced from any other. Each pipeline can be run
-independently by name:
+**A `.psy` file is the unit of configuration.** Resources, locals, and
+plugins declared in one file are visible only within that file — there's no
+implicit directory-wide sharing. To reuse something declared in another
+file, `import` it explicitly (see [Imports](#imports) below).
+
+A file is run by pointing the CLI at it directly:
 
 ```sh
-psyduck --chdir path/to/workspace run <pipeline-name>
+psyduck --chdir path/to/workspace run <file>.psy
 ```
+
+Every `pipeline{}` block declared *directly* in that file runs: a file with
+none is an error, one runs by itself, and more than one run concurrently in
+the same process (see [Running a file](#running-a-file)).
 
 ## Top-level blocks
 
@@ -23,6 +29,7 @@ A `.psy` file contains any number of these blocks, in any order:
 ```hcl
 locals    { ... }                        # named constant values
 plugin    "name" { ... }                 # external plugin declaration (see plugins.md)
+import    { ... }                        # reuse resources/pipelines from another file
 produce   "resource" "name" { ... }      # producer binding
 consume   "resource" "name" { ... }      # consumer binding
 transform "resource" "name" { ... }      # transformer binding
@@ -61,8 +68,8 @@ Two **meta attributes** are host-owned and accepted on every resource block
 | `stop-after` | int | stop this resource after n items (0 = unrestricted) |
 | `per-minute` | int | rate limit, items per minute (0 = unrestricted) |
 
-Declaring the same `(verb, resource, name)` triple twice anywhere in the
-workspace is an error.
+Declaring the same `(verb, resource, name)` triple twice in the same file is
+an error.
 
 ## Pipelines
 
@@ -84,7 +91,7 @@ pipeline "hello" {
 | `exit-on-error` | bool | stop the pipeline on the first error |
 
 Exactly one of `produce` / `produce-from` describes the producer set.
-Pipeline names must be unique across the workspace.
+Pipeline names must be unique within the file.
 
 Data flows: every producer's messages are merged (fan-in), passed through
 the transformer stack in order, and each resulting message is delivered to
@@ -101,9 +108,10 @@ produce = [constant.greeting]           # short form — verb inferred from the 
 ```
 
 The visible refs are scoped by attribute: `produce` only sees producer
-bindings, `consume` only consumers, and so on. `local.*` and `env.*` remain
-available; a resource name that collides with a reserved namespace
-(`local`, `env`) is an error.
+bindings, `consume` only consumers, and so on. `local.*`, `env.*`, and
+`imports.*` remain available in every attribute; a resource name that
+collides with a reserved namespace (`local`, `env`, `imports`) is an
+error.
 
 ### Fan shapes
 
@@ -125,9 +133,10 @@ pipeline "many-to-many" { produce = [produce.constant.1, produce.constant.2]   c
 ## `locals {}` and `env.*`
 
 `locals` declares named constant values, terraform-style. All `locals`
-blocks across all files in the workspace are merged; duplicate names are an
-error. Values are referenced as `local.<name>` and may themselves use
-`env.*`:
+blocks within one file are merged; duplicate names are an error. `locals`
+are file-scoped — a file never sees another file's `local.*` values, even
+one it imports. Values are referenced as `local.<name>` and may themselves
+use `env.*`:
 
 ```hcl
 locals {
@@ -175,6 +184,77 @@ run as if they had been declared literally.
 The seed can be any producer, so the config may come from anywhere a
 producer can read: a file, a socket, an HTTP response — anything the stdlib
 or a plugin exposes.
+
+## Imports
+
+A file reuses another file's resources or pipelines through `import`:
+
+```hcl
+import {
+  shared = "shared.psy"          # relative to this file's own directory
+  lib    = "${env.LIB_DIR}/lib.psy"
+}
+```
+
+Each attribute is one import: the name is the local alias, the value is a
+path (an ordinary string, so `env.*` interpolation works). More than one
+`import{}` block may appear; duplicate aliases are an error, same as
+`locals`.
+
+Every import is a *whole-file* import — there's no way to import a single
+resource directly. The imported file is exposed under `imports.<alias>`,
+shaped the same way the file itself is:
+
+```
+imports.<alias>.produce.<kind>.<name>          # a produce "<kind>" "<name>" {} in that file
+imports.<alias>.consume.<kind>.<name>
+imports.<alias>.transform.<kind>.<name>
+imports.<alias>.pipeline.<name>.produce         # that file's pipeline "<name>" {}, as ordered ref lists
+imports.<alias>.pipeline.<name>.consume
+imports.<alias>.pipeline.<name>.transform
+imports.<alias>.pipeline.<name>.stop-after
+imports.<alias>.pipeline.<name>.exit-on-error
+```
+
+Use it like any other ref, in any attribute where refs are valid:
+
+```hcl
+import {
+  shared = "shared.psy"
+}
+
+pipeline "main" {
+  produce = [produce.sequence.s]
+  consume = [imports.shared.consume.file.out]     # one resource from shared.psy
+}
+
+pipeline "reuse" {
+  produce = imports.shared.pipeline.upstream.produce   # a whole producer list, reused verbatim
+  consume = [imports.shared.consume.file.out]
+}
+```
+
+Imports are **not transitive**: importing a file exposes only what *that
+file itself* declares, not whatever it in turn imports. Importing the same
+file from two different places resolves it once (its resources are shared,
+not duplicated), and an import cycle (A imports B imports A) is a parse
+error.
+
+## Running a file
+
+`psyduck run <file>.psy` builds and runs every `pipeline{}` block declared
+*directly* in that file — not ones only reachable through `imports.*`:
+
+- **Zero** pipelines in the file is an error; nothing runs.
+- **One** pipeline runs directly.
+- **More than one** run concurrently, each in its own goroutine, sharing the
+  process. `run` waits for all of them and exits non-zero if any of them
+  returned an error.
+
+`psyduck init`, `list`, and `show` take the same file argument. `init`
+resolves `plugin{}` declarations across the file's entire import closure —
+not just the file itself — since a plugin an imported resource depends on
+still needs to be fetched and built for the importing file to run.
 
 ## External plugins
 

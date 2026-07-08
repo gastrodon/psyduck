@@ -1,5 +1,9 @@
 # dedupe drops repeat keys; path = [...] selects the key from object data. The
 # original message passes through unchanged.
+import {
+  shared = "shared.psy"
+}
+
 produce "generate" "keyed" {
   values = [
     "{\"id\":1}",
@@ -15,5 +19,5 @@ transform "dedupe" "keyed" {
 pipeline "keyed" {
   produce   = [produce.generate.keyed]
   transform = [transform.dedupe.keyed]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

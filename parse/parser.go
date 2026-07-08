@@ -11,23 +11,30 @@ type Plugin struct {
 }
 
 // Parser bridges a configuration language (HCL, YAML, ...) to the pipeline
-// descriptions core runs. Parsing is two-phase because plugin declarations
-// live in the same sources being parsed:
+// descriptions core runs. Parsing operates on one entry file at a time;
+// import{} declarations inside it (and transitively inside whatever it
+// imports) are followed on demand via load. Parsing is two-phase because
+// plugin declarations live in the same sources being parsed:
 //
-//	// init: extract specs, build the store
-//	specs := parser.Plugins(sources)
+//	// init: extract specs (following imports), build the store
+//	specs := parser.Plugins(entry, parse.OSLoader)
 //	store.Build(specs)
 //
 //	// run: load from the store, then fully parse
 //	plugins := store.Load()
-//	pipelines, err := parser.Parse(sources, plugins)
+//	pipelines, err := parser.Parse(entry, parse.OSLoader, plugins)
 type Parser interface {
-	// Plugins extracts plugin declarations. It must not require loaded
-	// plugins or evaluate anything beyond plugin declaration syntax.
-	Plugins(sources []Source) ([]Plugin, error)
+	// Plugins extracts every plugin{} declaration reachable from entry,
+	// following import{} blocks transitively. It must not require loaded
+	// plugins or evaluate anything beyond plugin/import declaration
+	// syntax.
+	Plugins(entry string, load Loader) ([]Plugin, error)
 
-	// Parse ingests sources and resolves everything needed to build
-	// pipelines. All parser-specific state (eval contexts, AST nodes)
-	// stays behind the Pipelines and the sdk.ConfigBlocks inside them.
-	Parse(sources []Source, plugins []sdk.Plugin) (map[string]Pipeline, error)
+	// Parse resolves entry — and its transitive imports — against the
+	// given plugins, and returns every pipeline{} block declared directly
+	// in entry (pipelines reachable only via import don't run on their
+	// own; they're data for entry's pipelines to reuse). All
+	// parser-specific state (eval contexts, AST nodes) stays behind the
+	// Pipelines and the sdk.ConfigBlocks inside them.
+	Parse(entry string, load Loader, plugins []sdk.Plugin) (map[string]Pipeline, error)
 }

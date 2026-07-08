@@ -3,39 +3,48 @@ package parse
 import (
 	"fmt"
 	"os"
-	"path"
-	"strings"
+	"path/filepath"
 )
 
 // Source is a chunk of configuration with enough identity to attribute
 // errors back to its origin. It intentionally does not commit to being a
 // file: a producer that generates config dynamically yields the same type.
+//
+// When Source comes from a real file (via SourceFromFile / a Loader),
+// Name is a filesystem path and import{} attributes inside its Content
+// resolve relative to filepath.Dir(Name).
 type Source struct {
-	Name    string // "pipeline.psy", "remote://abc123", "stdin", ...
+	Name    string // a filesystem path, or a synthetic label ("remote://abc123", "stdin", ...)
 	Content []byte
 }
 
-// SourceFromDir collects every .psy file in directory as its own Source,
-// preserving filenames for diagnostics.
-func SourceFromDir(directory string) ([]Source, error) {
-	entries, err := os.ReadDir(directory)
+// Loader reads the source found at path. Parsers call it on demand as
+// import{} blocks are discovered, rather than requiring every reachable
+// file to be read upfront. Keeping this as an injected function (instead
+// of parse/hcl reading files directly) preserves Source's format-agnostic
+// design and keeps import resolution unit-testable against in-memory
+// fixtures.
+type Loader func(path string) (Source, error)
+
+// SourceFromFile reads a single .psy file as a Source, keyed by its path.
+func SourceFromFile(path string) (Source, error) {
+	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read files in %s: %w", directory, err)
+		return Source{}, fmt.Errorf("failed reading %s: %w", path, err)
 	}
+	return Source{Name: path, Content: content}, nil
+}
 
-	sources := make([]Source, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".psy") {
-			continue
-		}
+// OSLoader is the default Loader, backed by the local filesystem.
+func OSLoader(path string) (Source, error) { return SourceFromFile(path) }
 
-		content, err := os.ReadFile(path.Join(directory, entry.Name()))
-		if err != nil {
-			return nil, fmt.Errorf("failed reading %s: %w", entry.Name(), err)
-		}
-
-		sources = append(sources, Source{Name: entry.Name(), Content: content})
+// ResolveImportPath resolves an import{} path attribute (importPath)
+// relative to the file that declared it (fromFile), and normalizes the
+// result. Parsers use this so the same logical file always produces the
+// same path string regardless of which importer reached it.
+func ResolveImportPath(fromFile, importPath string) string {
+	if filepath.IsAbs(importPath) {
+		return filepath.Clean(importPath)
 	}
-
-	return sources, nil
+	return filepath.Clean(filepath.Join(filepath.Dir(fromFile), importPath))
 }

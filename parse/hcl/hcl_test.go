@@ -1,6 +1,7 @@
 package hcl
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,8 +10,22 @@ import (
 	"github.com/gastrodon/psyduck/parse"
 )
 
-func srcs(content string) []parse.Source {
-	return []parse.Source{{Name: "test.psy", Content: []byte(content)}}
+// files simulates a small multi-file workspace for import tests: an
+// in-memory parse.Loader backed by a map of path -> content.
+type files map[string]string
+
+func (f files) load(path string) (parse.Source, error) {
+	content, ok := f[path]
+	if !ok {
+		return parse.Source{}, fmt.Errorf("no such file %q", path)
+	}
+	return parse.Source{Name: path, Content: []byte(content)}, nil
+}
+
+// src wraps a single file's content as a one-file workspace, returning the
+// entry path and loader Plugins/Parse expect.
+func src(content string) (string, parse.Loader) {
+	return "test.psy", files{"test.psy": content}.load
 }
 
 type constantOpts struct {
@@ -71,7 +86,7 @@ func drainAll(t *testing.T, b parse.ResourceFunc) []parse.Resource {
 }
 
 func TestPlugins(t *testing.T) {
-	specs, err := NewParserHCL().Plugins(srcs(`
+	entry, load := src(`
 	plugin "amqp" {
 		source = "https://github.com/psyduck-etl/amqp"
 		tag    = "v1.2.3"
@@ -79,7 +94,8 @@ func TestPlugins(t *testing.T) {
 	plugin "local" {
 		source = "./plugins/local"
 	}
-	`))
+	`)
+	specs, err := NewParserHCL().Plugins(entry, load)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +111,40 @@ func TestPlugins(t *testing.T) {
 	}
 }
 
+func TestPluginsFollowsImports(t *testing.T) {
+	fs := files{
+		"main.psy": `
+		import {
+			lib = "lib.psy"
+		}
+		plugin "amqp" {
+			source = "https://github.com/psyduck-etl/amqp"
+		}
+		`,
+		"lib.psy": `
+		plugin "local" {
+			source = "./plugins/local"
+		}
+		`,
+	}
+	specs, err := NewParserHCL().Plugins("main.psy", fs.load)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	names := map[string]bool{}
+	for _, s := range specs {
+		names[s.Name] = true
+	}
+	if !names["amqp"] || !names["local"] {
+		t.Fatalf("want plugins from both main and its import, got: %#v", specs)
+	}
+}
+
 func TestParse(t *testing.T) {
 	t.Setenv("PSYDUCK_TEST_VALUE", "from-env")
 
-	result, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	locals {
 		foo = "from-value"
 	}
@@ -124,7 +170,8 @@ func TestParse(t *testing.T) {
 		stop-after    = 9
 		exit-on-error = true
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,27 +225,29 @@ func TestParse(t *testing.T) {
 func TestParseAmbiguousResource(t *testing.T) {
 	plugins := []sdk.Plugin{testPlugin("alpha"), testPlugin("beta")}
 
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "constant" "p" {}
 	consume "alpha.trash" "t" {}
 	pipeline "main" {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), plugins)
+	`)
+	_, err := NewParserHCL().Parse(entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "alpha.constant, beta.constant") {
 		t.Fatalf("want ambiguity error listing candidates, got: %v", err)
 	}
 
 	// qualification resolves the ambiguity
-	_, err = NewParserHCL().Parse(srcs(`
+	entry, load = src(`
 	produce "beta.constant" "p" {}
 	consume "alpha.trash" "t" {}
 	pipeline "main" {
 		produce = [beta.constant.p]
 		consume = [alpha.trash.t]
 	}
-	`), plugins)
+	`)
+	_, err = NewParserHCL().Parse(entry, load, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +256,7 @@ func TestParseAmbiguousResource(t *testing.T) {
 func TestParseDuplicates(t *testing.T) {
 	plugins := []sdk.Plugin{testPlugin("test")}
 
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "constant" "p" {}
 	produce "constant" "p" {}
 	consume "trash" "t" {}
@@ -215,12 +264,13 @@ func TestParseDuplicates(t *testing.T) {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), plugins)
+	`)
+	_, err := NewParserHCL().Parse(entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "duplicate resource") {
 		t.Fatalf("want duplicate resource error, got: %v", err)
 	}
 
-	_, err = NewParserHCL().Parse(srcs(`
+	entry, load = src(`
 	produce "constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
@@ -231,7 +281,8 @@ func TestParseDuplicates(t *testing.T) {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), plugins)
+	`)
+	_, err = NewParserHCL().Parse(entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "duplicate pipeline") {
 		t.Fatalf("want duplicate pipeline error, got: %v", err)
 	}
@@ -240,7 +291,7 @@ func TestParseDuplicates(t *testing.T) {
 func TestParseProducerExclusivity(t *testing.T) {
 	plugins := []sdk.Plugin{testPlugin("test")}
 
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
@@ -248,64 +299,228 @@ func TestParseProducerExclusivity(t *testing.T) {
 		produce-from = produce.constant.p
 		consume      = [trash.t]
 	}
-	`), plugins)
+	`)
+	_, err := NewParserHCL().Parse(entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("want exclusivity error, got: %v", err)
 	}
 
-	_, err = NewParserHCL().Parse(srcs(`
+	entry, load = src(`
 	consume "trash" "t" {}
 	pipeline "main" {
 		consume = [trash.t]
 	}
-	`), plugins)
+	`)
+	_, err = NewParserHCL().Parse(entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "produce or produce-from is required") {
 		t.Fatalf("want missing producer error, got: %v", err)
 	}
 }
 
-func TestParseMultiSource(t *testing.T) {
-	sources := []parse.Source{
-		{Name: "a.psy", Content: []byte(`
-		produce "constant" "p" { value = "hello" }
-		`)},
-		{Name: "b.psy", Content: []byte(`
+func TestParseImportWholeFile(t *testing.T) {
+	fs := files{
+		"a.psy": `produce "constant" "p" { value = "hello" }`,
+		"b.psy": `
+		import {
+			a = "a.psy"
+		}
 		consume "trash" "t" {}
 		pipeline "main" {
+			produce = [imports.a.produce.constant.p]
+			consume = [trash.t]
+		}
+		`,
+	}
+	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := drainAll(t, pipelines["main"].Producers)
+	if len(got) != 1 {
+		t.Fatalf("want 1 producer via import, got %d", len(got))
+	}
+	opts := new(constantOpts)
+	if err := got[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "hello" {
+		t.Fatalf("bad imported value: %q", opts.Value)
+	}
+
+	// b.psy's own pipeline set is exactly its own pipeline{} blocks —
+	// a.psy declares none, and importing it doesn't run it.
+	if len(pipelines) != 1 {
+		t.Fatalf("want exactly b.psy's own pipelines, got %#v", pipelines)
+	}
+}
+
+func TestParseImportReusesWholePipeline(t *testing.T) {
+	fs := files{
+		"a.psy": `
+		produce "constant" "p" { value = "hello" }
+		consume "trash" "t" {}
+		pipeline "inner" {
 			produce = [produce.constant.p]
 			consume = [trash.t]
 		}
-		`)},
+		`,
+		"b.psy": `
+		import {
+			a = "a.psy"
+		}
+		pipeline "outer" {
+			produce = imports.a.pipeline.inner.produce
+			consume = imports.a.pipeline.inner.consume
+		}
+		`,
 	}
-	pipelines, err := NewParserHCL().Parse(sources, []sdk.Plugin{testPlugin("test")})
+	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pipe, ok := pipelines["outer"]
+	if !ok {
+		t.Fatalf("want pipeline %q, got %#v", "outer", pipelines)
+	}
+	if got := drainAll(t, pipe.Producers); len(got) != 1 {
+		t.Fatalf("want 1 producer reused from imported pipeline, got %d", len(got))
+	}
+	if got := drainAll(t, pipe.Consumers); len(got) != 1 {
+		t.Fatalf("want 1 consumer reused from imported pipeline, got %d", len(got))
+	}
+}
+
+func TestParseImportPluginQualified(t *testing.T) {
+	plugins := []sdk.Plugin{testPlugin("alpha"), testPlugin("beta")}
+	fs := files{
+		"a.psy": `produce "beta.constant" "p" {}`,
+		"b.psy": `
+		import {
+			a = "a.psy"
+		}
+		consume "alpha.trash" "t" {}
+		pipeline "main" {
+			produce = [imports.a.produce.beta.constant.p]
+			consume = [alpha.trash.t]
+		}
+		`,
+	}
+	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := drainAll(t, pipelines["main"].Producers); len(got) != 1 {
-		t.Fatalf("want 1 producer across sources, got %d", len(got))
+		t.Fatalf("want 1 producer via qualified import, got %d", len(got))
 	}
 }
 
-func TestParseDuplicateValueKeyAcrossSources(t *testing.T) {
-	sources := []parse.Source{
-		{Name: "a.psy", Content: []byte(`locals { foo = "first" }`)},
-		{Name: "b.psy", Content: []byte(`locals { foo = "second" }`)},
+func TestParseImportCycle(t *testing.T) {
+	fs := files{
+		"a.psy": `import { b = "b.psy" }`,
+		"b.psy": `import { a = "a.psy" }`,
 	}
-	_, err := NewParserHCL().Parse(sources, nil)
+	_, err := NewParserHCL().Parse("a.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "cycle") {
+		t.Fatalf("want import cycle error, got: %v", err)
+	}
+}
+
+func TestParseImportDiamond(t *testing.T) {
+	fs := files{
+		"d.psy": `produce "constant" "p" { value = "shared" }`,
+		"b.psy": `
+		import { d = "d.psy" }
+		consume "trash" "t" {}
+		pipeline "via-b" {
+			produce = [imports.d.produce.constant.p]
+			consume = [trash.t]
+		}
+		`,
+		"c.psy": `
+		import { d = "d.psy" }
+		consume "trash" "t" {}
+		pipeline "via-c" {
+			produce = [imports.d.produce.constant.p]
+			consume = [trash.t]
+		}
+		`,
+		"a.psy": `
+		import {
+			b = "b.psy"
+			c = "c.psy"
+		}
+		consume "trash" "t" {}
+		pipeline "main" {
+			produce = [imports.b.pipeline.via-b.produce[0], imports.c.pipeline.via-c.produce[0]]
+			consume = [trash.t]
+		}
+		`,
+	}
+	// b.psy and c.psy both import d.psy; d.psy should resolve once (not
+	// error as a spurious duplicate or cycle), and be reachable through
+	// both paths.
+	pipelines, err := NewParserHCL().Parse("a.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatalf("diamond import should resolve cleanly, got: %v", err)
+	}
+	if got := drainAll(t, pipelines["main"].Producers); len(got) != 2 {
+		t.Fatalf("want 2 producers reached via the diamond, got %d", len(got))
+	}
+}
+
+func TestParseDuplicateLocal(t *testing.T) {
+	entry, load := src(`
+	locals { foo = "first" }
+	locals { foo = "second" }
+	`)
+	_, err := NewParserHCL().Parse(entry, load, nil)
 	if err == nil || !strings.Contains(err.Error(), `duplicate local "foo"`) {
 		t.Fatalf("want duplicate local error, got: %v", err)
 	}
 }
 
+func TestParseLocalsNotSharedAcrossImports(t *testing.T) {
+	// Each file has its own locals{} namespace; two different files
+	// declaring the same local key is not a conflict.
+	fs := files{
+		"a.psy": `locals { foo = "from-a" }`,
+		"b.psy": `
+		import { a = "a.psy" }
+		locals { foo = "from-b" }
+		produce "constant" "p" { value = local.foo }
+		consume "trash" "t" {}
+		pipeline "main" {
+			produce = [produce.constant.p]
+			consume = [trash.t]
+		}
+		`,
+	}
+	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := drainAll(t, pipelines["main"].Producers)
+	opts := new(constantOpts)
+	if err := got[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "from-b" {
+		t.Fatalf("local.* leaked across import boundary: %q", opts.Value)
+	}
+}
+
 func TestParseUnknownQualifiedPlugin(t *testing.T) {
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "unknown.constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [unknown.constant.p]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), `unknown plugin "unknown"`) {
 		t.Fatalf("want unknown plugin error, got: %v", err)
 	}
@@ -314,13 +529,14 @@ func TestParseUnknownQualifiedPlugin(t *testing.T) {
 func TestParseUnknownResourceRef(t *testing.T) {
 	// References to undeclared resources fail at HCL eval time ("Unknown variable"),
 	// before resolveRefs is reached — the ref context and bindings map are always in sync.
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [produce.constant.nonexistent]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "Unknown variable") {
 		t.Fatalf("want unknown variable error, got: %v", err)
 	}
@@ -343,14 +559,15 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 			},
 		},
 	)
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "local.constant" "p" {}
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [local.constant.p]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{valuePlugin, testPlugin("test")})
+	`)
+	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{valuePlugin, testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "collides with reserved namespace") {
 		t.Fatalf("want namespace collision error, got: %v", err)
 	}
@@ -358,14 +575,15 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 
 func TestParseUnsetEnv(t *testing.T) {
 	// env vars are prescanned; unset-but-queried ones resolve to ""
-	result, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "constant" "p" { value = env.PSYDUCK_DEFINITELY_UNSET_XYZ }
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,14 +598,15 @@ func TestParseUnsetEnv(t *testing.T) {
 	}
 
 	// non-env unknown roots still error
-	_, err = NewParserHCL().Parse(srcs(`
+	entry, load = src(`
 	produce "constant" "p" { value = bogus.thing }
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	_, err = NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "Unknown variable") {
 		t.Fatalf("want unknown variable error, got: %v", err)
 	}
@@ -395,14 +614,15 @@ func TestParseUnsetEnv(t *testing.T) {
 
 func TestParseUnknownAttribute(t *testing.T) {
 	// typo'd option names error at parse time (strict schema)
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "constant" "p" { valeu = "x" }
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "Unsupported argument") {
 		t.Fatalf("want unsupported argument error, got: %v", err)
 	}
@@ -410,14 +630,15 @@ func TestParseUnknownAttribute(t *testing.T) {
 
 func TestParseEagerConfigError(t *testing.T) {
 	// bad option values error at parse time, not at bind time
-	_, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "constant" "p" { value = ["not", "a", "string"] }
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce = [produce.constant.p]
 		consume = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test")})
+	`)
+	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "invalid value for value") {
 		t.Fatalf("want eager conversion error, got: %v", err)
 	}
@@ -439,14 +660,15 @@ func TestParseProduceFromEnv(t *testing.T) {
 		},
 	)
 
-	result, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "seed" "s" {}
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce-from = produce.seed.s
 		consume      = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test"), seed})
+	`)
+	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test"), seed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -480,14 +702,15 @@ func TestParseProduceFrom(t *testing.T) {
 		},
 	)
 
-	result, err := NewParserHCL().Parse(srcs(`
+	entry, load := src(`
 	produce "seed" "s" {}
 	consume "trash" "t" {}
 	pipeline "main" {
 		produce-from = produce.seed.s
 		consume      = [trash.t]
 	}
-	`), []sdk.Plugin{testPlugin("test"), meta})
+	`)
+	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test"), meta})
 	if err != nil {
 		t.Fatal(err)
 	}

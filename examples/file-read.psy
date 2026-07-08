@@ -1,5 +1,9 @@
 # The file transport reads the way it writes. Here it reads lines from
 # env.PSYDUCK_IN, uppercases them, and writes them back out.
+import {
+  shared = "shared.psy"
+}
+
 produce "file" "file-read" {
   sep      = "\n"
   location = env.PSYDUCK_IN
@@ -10,5 +14,5 @@ transform "upper" "file-read" {}
 pipeline "file-read" {
   produce   = [produce.file.file-read]
   transform = [transform.upper.file-read]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

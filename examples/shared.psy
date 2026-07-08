@@ -1,4 +1,6 @@
-# Consumers shared across the examples in this workspace.
+# Consumers reused across the other files in examples/. Each file that wants
+# them declares its own `import { shared = "shared.psy" }` and references
+# imports.shared.consume.<name> — there's no implicit workspace-wide sharing.
 #
 # consume.file.out writes newline-framed messages to env.PSYDUCK_OUT. Every
 # tierRun example targets it; the test suite sets PSYDUCK_OUT to a temp file

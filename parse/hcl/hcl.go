@@ -4,8 +4,6 @@
 package hcl
 
 import (
-	"fmt"
-
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
@@ -16,6 +14,7 @@ import (
 const (
 	blockLocals    = "locals"
 	blockPlugin    = "plugin"
+	blockImport    = "import"
 	blockProduce   = "produce"
 	blockConsume   = "consume"
 	blockTransform = "transform"
@@ -28,10 +27,13 @@ var verbKinds = map[string]sdk.Kind{
 	blockTransform: sdk.TRANSFORMER,
 }
 
+var resourceVerbs = []string{blockProduce, blockConsume, blockTransform}
+
 var topSchema = &hcl.BodySchema{
 	Blocks: []hcl.BlockHeaderSchema{
 		{Type: blockLocals},
 		{Type: blockPlugin, LabelNames: []string{"name"}},
+		{Type: blockImport},
 		{Type: blockProduce, LabelNames: []string{"resource", "name"}},
 		{Type: blockConsume, LabelNames: []string{"resource", "name"}},
 		{Type: blockTransform, LabelNames: []string{"resource", "name"}},
@@ -57,151 +59,112 @@ var pipelineSchema = &hcl.BodySchema{
 	},
 }
 
-// ParserHCL implements parse.Parser. It is stateless; both phases take the
-// sources they operate on.
+// ParserHCL implements parse.Parser. It is stateless; Plugins/Parse take
+// the entry file and a Loader to resolve import{} declarations with.
 type ParserHCL struct{}
 
 func NewParserHCL() *ParserHCL { return &ParserHCL{} }
 
-// topBlocks is every top-level block across all sources, bucketed by type.
+// topBlocks is every top-level block in one file, bucketed by type.
 // Resource blocks (produce/consume/transform) keep their block type.
 type topBlocks struct {
 	locals    []*hcl.Block
 	plugins   []*hcl.Block
+	imports   []*hcl.Block
 	resources []*hcl.Block
 	pipelines []*hcl.Block
 }
 
-func gather(sources []parse.Source) (*topBlocks, error) {
+// gatherOne parses one file's top-level blocks. Unlike the old workspace
+// model, this never merges across files — cross-file sharing goes through
+// import{} instead.
+func gatherOne(src parse.Source) (*topBlocks, error) {
 	parser := hclparse.NewParser()
 	out := new(topBlocks)
 
-	for _, src := range sources {
-		file, diags := parser.ParseHCL(src.Content, src.Name)
-		if diags.HasErrors() {
-			return nil, diags
-		}
+	file, diags := parser.ParseHCL(src.Content, src.Name)
+	if diags.HasErrors() {
+		return nil, diags
+	}
 
-		content, diags := file.Body.Content(topSchema)
-		if diags.HasErrors() {
-			return nil, diags
-		}
+	content, diags := file.Body.Content(topSchema)
+	if diags.HasErrors() {
+		return nil, diags
+	}
 
-		for _, block := range content.Blocks {
-			switch block.Type {
-			case blockLocals:
-				out.locals = append(out.locals, block)
-			case blockPlugin:
-				out.plugins = append(out.plugins, block)
-			case blockProduce, blockConsume, blockTransform:
-				out.resources = append(out.resources, block)
-			case blockPipeline:
-				out.pipelines = append(out.pipelines, block)
-			}
+	for _, block := range content.Blocks {
+		switch block.Type {
+		case blockLocals:
+			out.locals = append(out.locals, block)
+		case blockPlugin:
+			out.plugins = append(out.plugins, block)
+		case blockImport:
+			out.imports = append(out.imports, block)
+		case blockProduce, blockConsume, blockTransform:
+			out.resources = append(out.resources, block)
+		case blockPipeline:
+			out.pipelines = append(out.pipelines, block)
 		}
 	}
 
 	return out, nil
 }
 
-// Plugins is the cheap pre-pass: extract plugin {} declarations without
-// needing any plugins loaded.
-func (h *ParserHCL) Plugins(sources []parse.Source) ([]parse.Plugin, error) {
-	blocks, err := gather(sources)
-	if err != nil {
-		return nil, err
+// parsePluginSpec decodes one plugin{} block into a parse.Plugin.
+func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
+	content, diags := block.Body.Content(pluginSchema)
+	if diags.HasErrors() {
+		return parse.Plugin{}, diags
 	}
 
-	specs := make([]parse.Plugin, 0, len(blocks.plugins))
-	for _, block := range blocks.plugins {
-		content, diags := block.Body.Content(pluginSchema)
+	spec := parse.Plugin{Name: block.Labels[0]}
+	if attr, ok := content.Attributes["source"]; ok {
+		v, diags := attr.Expr.Value(nil)
 		if diags.HasErrors() {
-			return nil, diags
+			return parse.Plugin{}, diags
 		}
-
-		spec := parse.Plugin{Name: block.Labels[0]}
-		if attr, ok := content.Attributes["source"]; ok {
-			v, diags := attr.Expr.Value(nil)
-			if diags.HasErrors() {
-				return nil, diags
-			}
-			spec.Source = v.AsString()
-		}
-		if attr, ok := content.Attributes["tag"]; ok {
-			v, diags := attr.Expr.Value(nil)
-			if diags.HasErrors() {
-				return nil, diags
-			}
-			spec.Tag = v.AsString()
-		}
-
-		specs = append(specs, spec)
+		spec.Source = v.AsString()
 	}
-
-	return specs, nil
+	if attr, ok := content.Attributes["tag"]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() {
+			return parse.Plugin{}, diags
+		}
+		spec.Tag = v.AsString()
+	}
+	return spec, nil
 }
 
-// Parse is the full pass: resolve values, resources, and pipelines against
-// the loaded plugins and return format-agnostic pipeline descriptions.
-func (h *ParserHCL) Parse(sources []parse.Source, plugins []sdk.Plugin) (map[string]parse.Pipeline, error) {
-	blocks, err := gather(sources)
+// Plugins extracts every plugin{} declaration reachable from entry,
+// following import{} blocks transitively. It's the cheap pre-pass: no
+// plugins need to be loaded to run it.
+func (h *ParserHCL) Plugins(entry string, load parse.Loader) ([]parse.Plugin, error) {
+	var out []parse.Plugin
+	err := collectPlugins(parse.ResolveImportPath("", entry), load, map[string]bool{}, map[string]bool{}, &out)
 	if err != nil {
 		return nil, err
 	}
+	return out, nil
+}
 
+// Parse resolves entry — and everything it transitively imports — against
+// the given plugins, and returns every pipeline{} declared directly in
+// entry.
+func (h *ParserHCL) Parse(entry string, load parse.Loader, plugins []sdk.Plugin) (map[string]parse.Pipeline, error) {
+	index := indexResources(plugins)
+	result, err := resolveFile(parse.ResolveImportPath("", entry), load, index, map[string]bool{}, map[string]*fileResult{})
+	if err != nil {
+		return nil, err
+	}
+	return result.pipelines, nil
+}
+
+func bodiesOf(groups ...[]*hcl.Block) []hcl.Body {
 	bodies := make([]hcl.Body, 0)
-	for _, group := range [][]*hcl.Block{blocks.locals, blocks.resources, blocks.pipelines} {
+	for _, group := range groups {
 		for _, block := range group {
 			bodies = append(bodies, block.Body)
 		}
 	}
-	env := envVal(envNames(bodies, nil))
-
-	localsCtx, err := makeLocalsCtx(blocks.locals, env)
-	if err != nil {
-		return nil, err
-	}
-
-	index := indexResources(plugins)
-
-	bindings := map[string]map[string]parse.Resource{
-		blockProduce:   {},
-		blockConsume:   {},
-		blockTransform: {},
-	}
-	for _, block := range blocks.resources {
-		binding, err := makeBinding(block, index, localsCtx)
-		if err != nil {
-			return nil, err
-		}
-		if prev, dup := bindings[block.Type][binding.Ref]; dup {
-			return nil, fmt.Errorf("duplicate resource %s at %s (previously defined at %s)",
-				binding.Ref, binding.Block.Origin(), prev.Block.Origin())
-		}
-		bindings[block.Type][binding.Ref] = binding
-	}
-
-	refCtxs := make(map[string]*hcl.EvalContext, len(bindings))
-	for verb, set := range bindings {
-		ctx, err := makeRefCtx(verb, set, localsCtx)
-		if err != nil {
-			return nil, err
-		}
-		refCtxs[verb] = ctx
-	}
-
-	pipelines := make(map[string]parse.Pipeline, len(blocks.pipelines))
-	for _, block := range blocks.pipelines {
-		pipe, err := makePipeline(block, bindings, refCtxs, localsCtx, index)
-		if err != nil {
-			return nil, err
-		}
-		if prev, dup := pipelines[pipe.Name]; dup {
-			return nil, fmt.Errorf("duplicate pipeline %q at %s (previously defined at %s)",
-				pipe.Name, pipe.Origin, prev.Origin)
-		}
-		pipelines[pipe.Name] = pipe
-	}
-
-	return pipelines, nil
+	return bodies
 }

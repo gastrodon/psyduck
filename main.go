@@ -16,13 +16,22 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
+// entryPath resolves the pipeline file argument (relative to --chdir) that
+// run/init/list/show all take as their first positional argument.
+func entryPath(ctx *cli.Context) (string, error) {
+	if !ctx.Args().Present() {
+		return "", fmt.Errorf("pipeline file required")
+	}
+	return path.Join(ctx.String("chdir"), ctx.Args().First()), nil
+}
+
 func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	sources, err := parse.SourceFromDir(ctx.String("chdir"))
+	entry, err := entryPath(ctx)
 	if err != nil {
 		return err
 	}
 
-	specs, err := hcl.NewParserHCL().Plugins(sources)
+	specs, err := hcl.NewParserHCL().Plugins(entry, parse.OSLoader)
 	if err != nil {
 		return err
 	}
@@ -35,10 +44,12 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 	return plugins.NewStore(initPath).Build(specs)
 }
 
-// loadPipelines parses every .psy source in the workspace against the
-// loaded plugins + stdlib.
+// loadPipelines resolves entry and its transitive imports against the
+// loaded plugins + stdlib, and returns every pipeline{} declared directly
+// in entry (imported pipelines are data for entry to reuse, not part of
+// what runs).
 func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, error) {
-	sources, err := parse.SourceFromDir(ctx.String("chdir"))
+	entry, err := entryPath(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -50,35 +61,52 @@ func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, e
 	}
 	loaded = append(loaded, stdlib.Plugin())
 
-	pipelines, err := hcl.NewParserHCL().Parse(sources, loaded)
+	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.OSLoader, loaded)
 	if err != nil {
 		return nil, nil, err
 	}
 	return pipelines, loaded, nil
 }
 
+// run builds every pipeline{} declared directly in the target file and
+// runs them. Zero pipelines is an error. One runs directly. More than one
+// run concurrently, one goroutine each; run returns the first error seen
+// (if any) once all of them have finished.
 func run(ctx *cli.Context) error {
-	if !ctx.Args().Present() {
-		return fmt.Errorf("target required")
-	}
-
 	pipelines, loaded, err := loadPipelines(ctx)
 	if err != nil {
 		return err
 	}
 
-	target := ctx.Args().First()
-	pipe, ok := pipelines[target]
-	if !ok {
-		return fmt.Errorf("no pipeline %q", target)
+	if len(pipelines) == 0 {
+		return fmt.Errorf("%s: declares no pipeline", ctx.Args().First())
 	}
 
-	pipeline, err := core.BuildPipeline(pipe, loaded)
-	if err != nil {
-		return err
+	built := make([]*core.Pipeline, 0, len(pipelines))
+	for _, pipe := range pipelines {
+		b, err := core.BuildPipeline(pipe, loaded)
+		if err != nil {
+			return err
+		}
+		built = append(built, b)
 	}
 
-	return core.RunPipeline(pipeline)
+	if len(built) == 1 {
+		return core.RunPipeline(built[0])
+	}
+
+	errs := make(chan error, len(built))
+	for _, b := range built {
+		go func(b *core.Pipeline) { errs <- core.RunPipeline(b) }(b)
+	}
+
+	var failed error
+	for range built {
+		if err := <-errs; err != nil && failed == nil {
+			failed = err
+		}
+	}
+	return failed
 }
 
 func sortedKeys[V any](m map[string]V) []string {
@@ -137,7 +165,7 @@ func show(ctx *cli.Context) error {
 		return err
 	}
 
-	names := ctx.Args().Slice()
+	names := ctx.Args().Slice()[1:] // args[0] is the entry file
 	if len(names) == 0 {
 		names = sortedNames(pipelines)
 	}
@@ -187,15 +215,17 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:      "run",
-				Usage:     "run a pipeline job",
+				Usage:     "run every pipeline declared in a file",
 				Action:    run,
 				Args:      true,
-				ArgsUsage: "pipeline name",
+				ArgsUsage: "pipeline file",
 			},
 			{
-				Name:   "list",
-				Usage:  "list pipelines by name",
-				Action: list,
+				Name:      "list",
+				Usage:     "list pipelines declared in a file",
+				Action:    list,
+				Args:      true,
+				ArgsUsage: "pipeline file",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "stat",
@@ -208,13 +238,15 @@ func main() {
 				Usage:     "show pipeline resources and config",
 				Action:    show,
 				Args:      true,
-				ArgsUsage: "[pipeline name ...]",
+				ArgsUsage: "pipeline file [pipeline name ...]",
 			},
 			{
-				Name:   "init",
-				Usage:  "init a pipeline workspace",
-				Action: cmdinit,
-				Flags:  []cli.Flag{},
+				Name:      "init",
+				Usage:     "init a pipeline workspace for a file",
+				Action:    cmdinit,
+				Args:      true,
+				ArgsUsage: "pipeline file",
+				Flags:     []cli.Flag{},
 			},
 		},
 	}
