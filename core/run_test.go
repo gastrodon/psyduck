@@ -269,3 +269,40 @@ func Test_RunPipeline_error(test *testing.T) {
 		}
 	}
 }
+
+// RunPipeline must return promptly on ExitOnError even while the producer,
+// consumer, and transformer all keep trying to report further errors after
+// the first one — those goroutines would otherwise block forever sending on
+// an unread errs channel (regression for "RunPipeline orphans
+// error-forwarding goroutines on early return").
+func Test_RunPipeline_error_returnsPromptly(test *testing.T) {
+	pipeline := &Pipeline{
+		Producer: func(send chan<- []byte, errs chan<- error) {
+			for {
+				errs <- fmt.Errorf("producer error")
+			}
+		},
+		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			for {
+				errs <- fmt.Errorf("consumer error")
+			}
+		},
+		Transformer: func(in []byte) ([]byte, error) {
+			return nil, fmt.Errorf("transformer error")
+		},
+		ExitOnError: true,
+		logger:      pipelineLogger(),
+	}
+
+	result := make(chan error, 1)
+	go func() { result <- RunPipeline(pipeline) }()
+
+	select {
+	case err := <-result:
+		if err == nil {
+			test.Fatal("want error, got nil")
+		}
+	case <-time.After(5 * time.Second):
+		test.Fatal("RunPipeline did not return promptly on ExitOnError")
+	}
+}

@@ -102,23 +102,32 @@ func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer
 			go producers[i](gData[i], gErrs[i])
 		}
 
-	out:
-		for {
-			select {
-			case msg := <-tData:
-				if msg == nil {
-					logger.Trace("tData closed, breaking out")
-					break out
-				}
-
-				dataOut <- msg
-			case err := <-tErrs:
-				if err != nil {
-					logger.Error(err)
-					errs <- err
+		stopErrs := make(chan struct{})
+		errsDone := make(chan struct{})
+		go func() {
+			defer close(errsDone)
+			for {
+				select {
+				case err, ok := <-tErrs:
+					if !ok {
+						return
+					}
+					if err != nil {
+						logger.Error(err)
+						errs <- err
+					}
+				case <-stopErrs:
+					return
 				}
 			}
+		}()
+
+		for msg := range tData {
+			dataOut <- msg
 		}
+
+		close(stopErrs)
+		<-errsDone
 
 		logger.Trace("closing dataOut")
 		close(dataOut)
@@ -144,32 +153,34 @@ func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer
 			go consumers[i](split[i], gErrs[i], gDone[i])
 		}
 
-		handle := make(chan error)
-
+		stopErrs := make(chan struct{})
+		errsDone := make(chan struct{})
 		go func() {
-			for msg := range dataRecv {
-				for i := range split {
-					split[i] <- msg
-					logger.Tracef("fwd to split[%d]\n", i)
+			defer close(errsDone)
+			for {
+				select {
+				case err, ok := <-tErrs:
+					if !ok {
+						return
+					}
+					if err != nil {
+						errs <- err
+					}
+				case <-stopErrs:
+					return
 				}
 			}
-
-			close(handle)
 		}()
 
-		go func() {
-			for err := range tErrs {
-				if err != nil {
-					handle <- err
-				}
-			}
-		}()
-
-		for err := range handle {
-			if err != nil {
-				errs <- err
+		for msg := range dataRecv {
+			for i := range split {
+				split[i] <- msg
+				logger.Tracef("fwd to split[%d]\n", i)
 			}
 		}
+
+		close(stopErrs)
+		<-errsDone
 
 		for i := range split {
 			logger.Tracef("closing split[%d]\n", i)

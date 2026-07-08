@@ -313,7 +313,10 @@ func drainSeed(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContex
 		return nil, fmt.Errorf("produce-from %s: timeout waiting for remote producer", seed.Ref)
 	case err := <-errs:
 		return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
-	case msg := <-send:
+	case msg, ok := <-send:
+		if !ok {
+			return nil, fmt.Errorf("produce-from %s: seed producer closed without sending", seed.Ref)
+		}
 		return parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
 	}
 }

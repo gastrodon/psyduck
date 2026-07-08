@@ -119,6 +119,47 @@ func TestConsumer(t *testing.T) {
 	}
 }
 
+// stop-after must keep draining recv after the cutoff instead of leaving
+// the upstream fanout blocked sending with no reader (regression for the
+// "applyMetaConsumer stop-after deadlocks the pipeline" bug).
+func TestConsumer_stopAfterDrainsUpstream(t *testing.T) {
+	count := 0
+	consume := func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		for range recv {
+			count++
+		}
+		close(done)
+	}
+
+	recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
+	go Consumer(consume, 0, 0, 3)(recv, errs, done)
+
+	fed := make(chan struct{})
+	go func() {
+		defer close(fed)
+		for i := 0; i < 10; i++ {
+			recv <- []byte{byte(i)} // unbuffered send, no escape hatch
+		}
+		close(recv)
+	}()
+
+	select {
+	case <-fed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upstream sender blocked: stop-after did not drain recv")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("consumer never signalled done")
+	}
+
+	if count != 3 {
+		t.Fatalf("stop-after: want 3 consumed, got %d", count)
+	}
+}
+
 func TestGates(t *testing.T) {
 	count := func(fn sdk.Transformer, n int) int {
 		passed := 0

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/psyduck-etl/sdk"
 
@@ -96,6 +97,47 @@ func Test_stackTransform(t *testing.T) {
 	out, err = stackTransform([]sdk.Transformer{filter, spy})([]byte("_"))
 	if err != nil || out != nil || called {
 		t.Fatalf("filter: out=%q called=%v err=%v", out, called, err)
+	}
+}
+
+// joinProducers must not conflate a legitimate nil []byte message with the
+// joined channel closing (regression for "joinProducers conflates nil
+// message with closed channel").
+func Test_joinProducers_nilMessage(t *testing.T) {
+	withNil := func(send chan<- []byte, errs chan<- error) {
+		send <- []byte("a")
+		send <- nil
+		send <- []byte("b")
+		close(send)
+	}
+	plain := func(send chan<- []byte, errs chan<- error) {
+		send <- []byte("c")
+		close(send)
+	}
+
+	logger := pipelineLogger()
+	producer := joinProducers([]sdk.Producer{withNil, plain}, logger)
+
+	dataOut, errs := make(chan []byte), make(chan error)
+	go producer(dataOut, errs)
+
+	got := [][]byte{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for msg := range dataOut {
+			got = append(got, msg)
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("joinProducers never closed dataOut")
+	}
+
+	if len(got) != 4 {
+		t.Fatalf("want 4 messages (including the nil one), got %d: %v", len(got), got)
 	}
 }
 

@@ -74,12 +74,15 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 
 		wait, count := Limiter(perMinute, perSecond), 0
 		for msg := range recv {
+			if stopAfter > 0 && count >= stopAfter {
+				// cutoff reached; keep draining recv so the upstream fanout
+				// (e.g. joinConsumers' split) never blocks on a send with
+				// no reader.
+				continue
+			}
 			wait()
 			inner <- msg
 			count++
-			if stopAfter > 0 && count >= stopAfter {
-				break
-			}
 		}
 		close(inner)
 	}

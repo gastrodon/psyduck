@@ -738,3 +738,42 @@ func TestParseProduceFrom(t *testing.T) {
 		t.Fatalf("bad remote value: %q", opts.Value)
 	}
 }
+
+// A produce-from seed that closes its data channel without sending a
+// message must yield a clear error, not silently succeed with zero
+// producers (regression for "produce-from silently yields no producers
+// when seed closes without sending").
+func TestParseProduceFromSeedClosesWithoutSending(t *testing.T) {
+	meta := sdk.NewInProc("meta",
+		&sdk.Resource{
+			Name:  "seed",
+			Kinds: sdk.PRODUCER,
+			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+				return func(send chan<- []byte, errs chan<- error) {
+					close(send)
+				}, nil
+			},
+		},
+	)
+
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from = produce.seed.s
+		consume      = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test"), meta})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = result["main"].Producers(4)
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "seed producer closed without sending") {
+		t.Fatalf("want closed-without-sending error, got: %v", err)
+	}
+}

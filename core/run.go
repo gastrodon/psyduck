@@ -26,7 +26,9 @@ func RunPipeline(pipeline *Pipeline) error {
 		}
 	}()
 
+	dataDone := make(chan struct{})
 	go func() {
+		defer close(dataDone)
 		for msg := range dataProducer {
 			transformed, err := pipeline.Transformer(msg)
 			if err != nil {
@@ -45,12 +47,27 @@ func RunPipeline(pipeline *Pipeline) error {
 		close(errs)
 	}()
 
+	var retErr error
 	for err := range errs {
 		pipeline.logger.Error(err)
 		if pipeline.ExitOnError {
-			return err
+			retErr = err
+			break
 		}
 	}
 
+	if retErr != nil {
+		// The data goroutine (still transforming/consuming) and the
+		// error-forwarding goroutines above may still be running and
+		// blocked sending on errs. Drain it in the background so those
+		// sends unblock and the goroutines can exit instead of leaking.
+		go func() {
+			for range errs {
+			}
+		}()
+		return retErr
+	}
+
+	<-dataDone
 	return nil
 }
