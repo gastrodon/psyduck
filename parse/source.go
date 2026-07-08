@@ -27,6 +27,9 @@ type Source struct {
 type Loader func(path string) (Source, error)
 
 // SourceFromFile reads a single .psy file as a Source, keyed by its path.
+// Its signature matches Loader, so it can be passed anywhere a Loader is
+// expected — the real, filesystem-backed one, as opposed to a fixture-based
+// Loader a test might use instead.
 func SourceFromFile(path string) (Source, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
@@ -34,9 +37,6 @@ func SourceFromFile(path string) (Source, error) {
 	}
 	return Source{Name: path, Content: content}, nil
 }
-
-// OSLoader is the default Loader, backed by the local filesystem.
-func OSLoader(path string) (Source, error) { return SourceFromFile(path) }
 
 // ResolveImportPath resolves an import{} path attribute (importPath)
 // relative to the file that declared it (fromFile), and normalizes the

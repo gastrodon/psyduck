@@ -79,10 +79,15 @@ no external plugins — it's what writes the `.lock` file `run` reads.
 ### 3. Explore
 
 ```sh
-psyduck list hello/main.psy          # list pipelines declared in the file
-psyduck list hello/main.psy --stat   # + resource counts
-psyduck show hello/main.psy          # print resource config
+psyduck list hello/main.psy           # list pipelines declared in the file
+psyduck list --stat hello/main.psy    # + resource counts
+psyduck show hello/main.psy           # print resource config
 ```
+
+Flags go *before* the file argument, not after — `psyduck list hello/main.psy
+--stat` silently drops `--stat` instead of erroring (Go's flag parsing stops
+looking for flags at the first non-flag argument, and the file is that first
+argument). This is a real sharp edge, not just a style preference.
 
 ### Using an external plugin
 
@@ -117,6 +122,19 @@ locked, `run` fails with a clear error rather than loading something
 unexpected. `<name>.lock` is meant to be committed alongside `<name>.psy`;
 `.psyduck/` (the binaries themselves) is not.
 
+**`init` is always safe to re-run** — it always re-fetches, re-builds, and
+rewrites the lock from scratch, so it's also how you recover from a
+corrupted or partially-deleted `.psyduck/` store. Re-run it whenever:
+
+- you add, remove, or edit a `plugin {}` block (directly, or in a file you
+  `import`),
+- you change a plugin's `tag`, or
+- a plugin has no `tag` and you want to pick up whatever's new on its
+  default branch — `init` records the exact ref it resolved (a branch, a
+  tag, or a commit SHA) in the lock file's `ref` field, so you can always
+  tell what a given `.lock` was actually built from, even without `tag`
+  pinned.
+
 ## CLI
 
 ```
@@ -126,9 +144,9 @@ psyduck <command> <file>.psy [args]
 | Command | Purpose |
 |---|---|
 | `run <file>` | Build and run every pipeline declared directly in the file (concurrently, if there's more than one). |
-| `list <file> [--stat]` | List the file's pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
+| `list [--stat] <file>` | List the file's pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
 | `show <file> [name ...]` | Print resource references and evaluated config for each pipeline. |
-| `init <file>` | Fetch and compile every `plugin {}` reachable from the file (including through imports), and write `<file>.lock`. Required before `run`/`list`/`show` will work. |
+| `init <file>` | Fetch and compile every `plugin {}` reachable from the file (including through imports), content-address the built binaries into `.psyduck/`, and write `<file>.lock`. Required before `run`/`list`/`show` will work — see [above](#using-an-external-plugin). |
 
 Set `PSYDUCK_LOG_LEVEL` to `trace`/`debug`/`warn`/`error`/`fatal`/`panic` to
 change runtime log verbosity.

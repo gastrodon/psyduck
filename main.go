@@ -39,7 +39,7 @@ func cmdinit(ctx *cli.Context) error { // init is a different thing in go
 		return err
 	}
 
-	specs, err := hcl.NewParserHCL().Plugins(entry, parse.OSLoader)
+	specs, err := hcl.NewParserHCL().Plugins(entry, parse.SourceFromFile)
 	if err != nil {
 		return err
 	}
@@ -74,7 +74,7 @@ func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, e
 	}
 	loaded = append(loaded, stdlib.Plugin())
 
-	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.OSLoader, loaded)
+	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.SourceFromFile, loaded)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -16,13 +16,15 @@ type Plugin struct {
 // imports) are followed on demand via load. Parsing is two-phase because
 // plugin declarations live in the same sources being parsed:
 //
-//	// init: extract specs (following imports), build the store
-//	specs := parser.Plugins(entry, parse.OSLoader)
-//	store.Build(specs)
+//	// init: extract specs (following imports), build the store, lock it
+//	specs := parser.Plugins(entry, parse.SourceFromFile)
+//	locked, err := store.Build(specs)
+//	plugins.WriteLock(entry, &plugins.Lock{Plugins: locked})
 //
-//	// run: load from the store, then fully parse
-//	plugins := store.Load()
-//	pipelines, err := parser.Parse(entry, parse.OSLoader, plugins)
+//	// run: read the lock, load from the store, then fully parse
+//	lock, err := plugins.ReadLock(entry)
+//	loaded, err := store.Load(lock.Plugins)
+//	pipelines, err := parser.Parse(entry, parse.SourceFromFile, loaded)
 type Parser interface {
 	// Plugins extracts every plugin{} declaration reachable from entry,
 	// following import{} blocks transitively. It must not require loaded

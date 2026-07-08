@@ -89,7 +89,7 @@ func (s *Store) Build(specs []parse.Plugin) (map[string]LockedPlugin, error) {
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch %s: %w", spec.Name, err)
 		}
-		locked[spec.Name] = LockedPlugin{Source: spec.Source, Resolve: resolve, Hash: hash}
+		locked[spec.Name] = LockedPlugin{Source: spec.Source, Ref: resolve, Hash: hash}
 	}
 	return locked, nil
 }

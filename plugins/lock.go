@@ -13,16 +13,16 @@ import (
 // out (empty for local, non-git sources), and the hash of the exact .so
 // bytes that were built from it.
 //
-// Resolve is always the *actual* ref init resolved at build time — a
-// branch (refs/heads/<name>), a tag (refs/tags/<name>), or, if neither
-// applies, the commit's full SHA — never just an echo of whatever the
-// plugin{} block's optional `tag` attribute said. That's true whether or
-// not `tag` was set: an unset tag still checks out (and records) whatever
-// the default branch resolved to at init time.
+// Ref is always the *actual* ref init resolved at build time — a branch
+// (refs/heads/<name>), a tag (refs/tags/<name>), or, if neither applies,
+// the commit's full SHA — never just an echo of whatever the plugin{}
+// block's optional `tag` attribute said. That's true whether or not `tag`
+// was set: an unset tag still checks out (and records) whatever the
+// default branch resolved to at init time.
 type LockedPlugin struct {
-	Source  string `json:"source"`
-	Resolve string `json:"resolve,omitempty"`
-	Hash    string `json:"hash"`
+	Source string `json:"source"`
+	Ref    string `json:"ref,omitempty"`
+	Hash   string `json:"hash"`
 }
 
 // Lock is the full contents of a <file>.lock: every plugin (deduplicated
