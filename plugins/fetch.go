@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/gastrodon/psyduck/parse"
 )
@@ -73,38 +74,69 @@ func (f *fetcher) clone(spec parse.Plugin) (string, error) {
 	return cloneDir, nil
 }
 
+// resolveRef reports the most specific git reference HEAD actually
+// resolves to in cloneDir, after cloning and any requested checkout:
+// a branch (refs/heads/<name>) if HEAD is symbolic, else a tag
+// (refs/tags/<name>) if HEAD exactly matches one, else the commit's full
+// SHA. Called unconditionally for every remote plugin — even one with no
+// `tag` attribute still lands on some real commit, and that's what gets
+// recorded.
+func resolveRef(cloneDir string) (string, error) {
+	if out, err := exec.Command("git", "-C", cloneDir, "symbolic-ref", "-q", "HEAD").CombinedOutput(); err == nil {
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	if out, err := exec.Command("git", "-C", cloneDir, "describe", "--tags", "--exact-match", "HEAD").CombinedOutput(); err == nil {
+		return "refs/tags/" + strings.TrimSpace(string(out)), nil
+	}
+
+	out, err := exec.Command("git", "-C", cloneDir, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve HEAD in %s: %w\noutput: %s", cloneDir, err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // fetch resolves spec (building it first if it's source code) and
 // content-addresses the resulting binary into the store, returning its
-// hash. A local .so source is read and stored as-is, relative to the
-// current working directory same as any other file argument — the store
-// no longer needs it to be absolute since it only reads it once, here, to
+// hash and, for remote sources, the actual git ref that got checked out.
+// A local .so source is read and stored as-is, relative to the current
+// working directory same as any other file argument — the store no
+// longer needs it to be absolute since it only reads it once, here, to
 // copy its bytes in.
-func (f *fetcher) fetch(spec parse.Plugin) (string, error) {
+func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 	switch pluginKind(spec) {
 	case pluginLocal:
 		stat, err := os.Stat(spec.Source)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if stat.IsDir() {
 			built, err := f.build(spec.Source, spec)
 			if err != nil {
-				return "", err
+				return "", "", err
 			}
-			return f.store.storeBinary(built)
+			hash, err := f.store.storeBinary(built)
+			return hash, "", err
 		}
-		return f.store.storeBinary(spec.Source)
+		hash, err := f.store.storeBinary(spec.Source)
+		return hash, "", err
 	case pluginRemote:
 		cloneDir, err := f.clone(spec)
 		if err != nil {
-			return "", err
+			return "", "", err
+		}
+		resolve, err := resolveRef(cloneDir)
+		if err != nil {
+			return "", "", err
 		}
 		built, err := f.build(cloneDir, spec)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return f.store.storeBinary(built)
+		hash, err := f.store.storeBinary(built)
+		return hash, resolve, err
 	default:
-		return "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
+		return "", "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
 	}
 }

@@ -85,11 +85,11 @@ func (s *Store) Build(specs []parse.Plugin) (map[string]LockedPlugin, error) {
 
 	locked := make(map[string]LockedPlugin, len(specs))
 	for _, spec := range specs {
-		hash, err := f.fetch(spec)
+		hash, resolve, err := f.fetch(spec)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fetch %s: %w", spec.Name, err)
 		}
-		locked[spec.Name] = LockedPlugin{Source: spec.Source, Tag: spec.Tag, Hash: hash}
+		locked[spec.Name] = LockedPlugin{Source: spec.Source, Resolve: resolve, Hash: hash}
 	}
 	return locked, nil
 }
