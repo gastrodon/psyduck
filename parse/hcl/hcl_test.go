@@ -1,9 +1,12 @@
 package hcl
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/psyduck-etl/sdk"
 
@@ -74,7 +77,7 @@ func drainAll(t *testing.T, b parse.ResourceFunc) []parse.Resource {
 	t.Helper()
 	out := []parse.Resource{}
 	for {
-		chunk, err := b(4)
+		chunk, err := b(t.Context(), 4)
 		if err != nil {
 			t.Fatalf("drain: %s", err)
 		}
@@ -171,7 +174,7 @@ func TestParse(t *testing.T) {
 		exit-on-error = true
 	}
 	`)
-	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +236,7 @@ func TestParseAmbiguousResource(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, plugins)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "alpha.constant, beta.constant") {
 		t.Fatalf("want ambiguity error listing candidates, got: %v", err)
 	}
@@ -247,7 +250,7 @@ func TestParseAmbiguousResource(t *testing.T) {
 		consume = [alpha.trash.t]
 	}
 	`)
-	_, err = NewParserHCL().Parse(entry, load, plugins)
+	_, err = NewParserHCL().Parse(t.Context(), entry, load, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +268,7 @@ func TestParseDuplicates(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, plugins)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "duplicate resource") {
 		t.Fatalf("want duplicate resource error, got: %v", err)
 	}
@@ -282,7 +285,7 @@ func TestParseDuplicates(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err = NewParserHCL().Parse(entry, load, plugins)
+	_, err = NewParserHCL().Parse(t.Context(), entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "duplicate pipeline") {
 		t.Fatalf("want duplicate pipeline error, got: %v", err)
 	}
@@ -300,7 +303,7 @@ func TestParseProducerExclusivity(t *testing.T) {
 		consume      = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, plugins)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("want exclusivity error, got: %v", err)
 	}
@@ -311,7 +314,7 @@ func TestParseProducerExclusivity(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err = NewParserHCL().Parse(entry, load, plugins)
+	_, err = NewParserHCL().Parse(t.Context(), entry, load, plugins)
 	if err == nil || !strings.Contains(err.Error(), "produce or produce-from is required") {
 		t.Fatalf("want missing producer error, got: %v", err)
 	}
@@ -331,7 +334,7 @@ func TestParseImportWholeFile(t *testing.T) {
 		}
 		`,
 	}
-	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	pipelines, err := NewParserHCL().Parse(t.Context(), "b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +378,7 @@ func TestParseImportReusesWholePipeline(t *testing.T) {
 		}
 		`,
 	}
-	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	pipelines, err := NewParserHCL().Parse(t.Context(), "b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +410,7 @@ func TestParseImportPluginQualified(t *testing.T) {
 		}
 		`,
 	}
-	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, plugins)
+	pipelines, err := NewParserHCL().Parse(t.Context(), "b.psy", fs.load, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +424,7 @@ func TestParseImportCycle(t *testing.T) {
 		"a.psy": `import { b = "b.psy" }`,
 		"b.psy": `import { a = "a.psy" }`,
 	}
-	_, err := NewParserHCL().Parse("a.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	_, err := NewParserHCL().Parse(t.Context(), "a.psy", fs.load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "cycle") {
 		t.Fatalf("want import cycle error, got: %v", err)
 	}
@@ -461,7 +464,7 @@ func TestParseImportDiamond(t *testing.T) {
 	// b.psy and c.psy both import d.psy; d.psy should resolve once (not
 	// error as a spurious duplicate or cycle), and be reachable through
 	// both paths.
-	pipelines, err := NewParserHCL().Parse("a.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	pipelines, err := NewParserHCL().Parse(t.Context(), "a.psy", fs.load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatalf("diamond import should resolve cleanly, got: %v", err)
 	}
@@ -475,7 +478,7 @@ func TestParseDuplicateLocal(t *testing.T) {
 	locals { foo = "first" }
 	locals { foo = "second" }
 	`)
-	_, err := NewParserHCL().Parse(entry, load, nil)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, nil)
 	if err == nil || !strings.Contains(err.Error(), `duplicate local "foo"`) {
 		t.Fatalf("want duplicate local error, got: %v", err)
 	}
@@ -497,7 +500,7 @@ func TestParseLocalsNotSharedAcrossImports(t *testing.T) {
 		}
 		`,
 	}
-	pipelines, err := NewParserHCL().Parse("b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	pipelines, err := NewParserHCL().Parse(t.Context(), "b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -520,7 +523,7 @@ func TestParseUnknownQualifiedPlugin(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), `unknown plugin "unknown"`) {
 		t.Fatalf("want unknown plugin error, got: %v", err)
 	}
@@ -536,7 +539,7 @@ func TestParseUnknownResourceRef(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "Unknown variable") {
 		t.Fatalf("want unknown variable error, got: %v", err)
 	}
@@ -567,7 +570,7 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{valuePlugin, testPlugin("test")})
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{valuePlugin, testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "collides with reserved namespace") {
 		t.Fatalf("want namespace collision error, got: %v", err)
 	}
@@ -583,7 +586,7 @@ func TestParseUnsetEnv(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,7 +609,7 @@ func TestParseUnsetEnv(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err = NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	_, err = NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "Unknown variable") {
 		t.Fatalf("want unknown variable error, got: %v", err)
 	}
@@ -622,7 +625,7 @@ func TestParseUnknownAttribute(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "Unsupported argument") {
 		t.Fatalf("want unsupported argument error, got: %v", err)
 	}
@@ -638,7 +641,7 @@ func TestParseEagerConfigError(t *testing.T) {
 		consume = [trash.t]
 	}
 	`)
-	_, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test")})
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "invalid value for value") {
 		t.Fatalf("want eager conversion error, got: %v", err)
 	}
@@ -668,7 +671,7 @@ func TestParseProduceFromEnv(t *testing.T) {
 		consume      = [trash.t]
 	}
 	`)
-	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,7 +713,7 @@ func TestParseProduceFrom(t *testing.T) {
 		consume      = [trash.t]
 	}
 	`)
-	result, err := NewParserHCL().Parse(entry, load, []sdk.Plugin{testPlugin("test"), meta})
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), meta})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -736,5 +739,66 @@ func TestParseProduceFrom(t *testing.T) {
 	}
 	if opts.Value != "from-remote" {
 		t.Fatalf("bad remote value: %q", opts.Value)
+	}
+}
+
+// seedPlugin builds a produce-from seed plugin around the given producer.
+func seedPlugin(p sdk.Producer) sdk.Plugin {
+	return sdk.NewInProc("meta",
+		&sdk.Resource{
+			Name:            "seed",
+			Kinds:           sdk.PRODUCER,
+			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) { return p, nil },
+		},
+	)
+}
+
+const seedEntry = `
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from = produce.seed.s
+		consume      = [trash.t]
+	}
+	`
+
+// Regression for #8: a seed that closes without sending used to read as an
+// empty remote config, surfacing much later as "pipeline has no producers".
+func TestParseProduceFromClosedSeed(t *testing.T) {
+	seed := seedPlugin(func(send chan<- []byte, errs chan<- error) {
+		close(send)
+		close(errs)
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = result["main"].Producers(t.Context(), 4)
+	if err == nil || !strings.Contains(err.Error(), "closed without sending") {
+		t.Fatalf("want closed-without-sending error, got %v", err)
+	}
+}
+
+// Draining a produce-from stream is bounded by the caller's ctx, not only
+// by the builtin timeout.
+func TestParseProduceFromCancel(t *testing.T) {
+	seed := seedPlugin(func(send chan<- []byte, errs chan<- error) {
+		select {} // never sends
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	_, err = result["main"].Producers(ctx, 4)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want deadline error, got %v", err)
 	}
 }

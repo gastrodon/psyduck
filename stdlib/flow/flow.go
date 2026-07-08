@@ -64,6 +64,12 @@ func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer 
 
 // Consumer wraps c with rate limiting and a stop-after cutoff. With all limits
 // unset it returns c unchanged.
+//
+// At the cutoff the wrapper stops receiving and closes the inner stream; c
+// flushes and closes done. The wrapper deliberately does not drain recv —
+// done is the host's signal to stop sending (core's sink honors it), and
+// silently discarding messages would hide the cutoff from the host and keep
+// upstream producing into the void.
 func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer {
 	if perMinute <= 0 && perSecond <= 0 && stopAfter <= 0 {
 		return c

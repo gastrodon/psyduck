@@ -4,6 +4,8 @@
 package hcl
 
 import (
+	"context"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
@@ -149,8 +151,12 @@ func (h *ParserHCL) Plugins(entry string, load parse.Loader) ([]parse.Plugin, er
 
 // Parse resolves entry — and everything it transitively imports — against
 // the given plugins, and returns every pipeline{} declared directly in
-// entry.
-func (h *ParserHCL) Parse(entry string, load parse.Loader, plugins []sdk.Plugin) (map[string]parse.Pipeline, error) {
+// entry. Resolution is pure evaluation today, so ctx is only checked on
+// entry; produce-from seeds run later under the ctx their drain receives.
+func (h *ParserHCL) Parse(ctx context.Context, entry string, load parse.Loader, plugins []sdk.Plugin) (map[string]parse.Pipeline, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	index := indexResources(plugins)
 	result, err := resolveFile(parse.ResolveImportPath("", entry), load, index, map[string]bool{}, map[string]*fileResult{})
 	if err != nil {

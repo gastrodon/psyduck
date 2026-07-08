@@ -1,9 +1,9 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"sync"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
@@ -12,9 +12,12 @@ import (
 	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
+// Pipeline is a runnable pipeline: producers and consumers stay separate
+// slices — RunPipeline owns merging and fan-out — and transformers are
+// pre-stacked into one function.
 type Pipeline struct {
-	Producer    sdk.Producer
-	Consumer    sdk.Consumer
+	Producers   []sdk.Producer
+	Consumers   []sdk.Consumer
 	Transformer sdk.Transformer
 	logger      *logrus.Logger
 	StopAfter   int
@@ -45,153 +48,6 @@ func pipelineLogger() *logrus.Logger {
 	return l
 }
 
-func mchan[T any](c int) []chan T {
-	g := make([]chan T, c)
-	for i := range g {
-		g[i] = make(chan T)
-	}
-	return g
-}
-
-func join[T any](group []chan T, ent *logrus.Entry) chan T {
-	joined := make(chan T)
-	closer := make(chan struct{})
-
-	go func(size int) {
-		closed, cLock := 0, new(sync.Mutex)
-		for closed < size {
-			<-closer
-			cLock.Lock()
-			closed++
-			cLock.Unlock()
-		}
-
-		ent.Trace("closing all of the groups")
-		close(joined)
-	}(len(group))
-
-	for i := range group {
-		go func(ishadow int, closer chan<- struct{}) { // goroutine forwarder for every c in group
-			for msg := range group[ishadow] {
-				joined <- msg
-			}
-
-			ent.Tracef("forwarder %d exhausted", ishadow)
-			closer <- struct{}{}
-		}(i, closer)
-	}
-
-	return joined
-}
-
-/*
-Join a collection of producers into a single in the order received
-*/
-func joinProducers(producers []sdk.Producer, logger *logrus.Logger) sdk.Producer {
-	if len(producers) == 1 {
-		return producers[0]
-	}
-
-	gData := mchan[[]byte](len(producers))
-	gErrs := mchan[error](len(producers))
-
-	tData := join(gData, logger.WithField("joined", "data"))
-	tErrs := join(gErrs, logger.WithField("joined", "errs"))
-	return func(dataOut chan<- []byte, errs chan<- error) {
-		for i := 0; i < len(producers); i++ {
-			go producers[i](gData[i], gErrs[i])
-		}
-
-	out:
-		for {
-			select {
-			case msg := <-tData:
-				if msg == nil {
-					logger.Trace("tData closed, breaking out")
-					break out
-				}
-
-				dataOut <- msg
-			case err := <-tErrs:
-				if err != nil {
-					logger.Error(err)
-					errs <- err
-				}
-			}
-		}
-
-		logger.Trace("closing dataOut")
-		close(dataOut)
-	}
-}
-
-/*
-Join a collection of consumers into a single that passes data to consumers in order
-*/
-func joinConsumers(consumers []sdk.Consumer, logger *logrus.Logger) sdk.Consumer {
-	if len(consumers) == 1 {
-		return consumers[0]
-	}
-
-	gErrs := mchan[error](len(consumers))
-	gDone := mchan[struct{}](len(consumers))
-	split := mchan[[]byte](len(consumers))
-
-	tErrs := join(gErrs, logger.WithField("joined", "errs"))
-	tDone := join(gDone, logger.WithField("joined", "done"))
-	return func(dataRecv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-		for i := range split {
-			go consumers[i](split[i], gErrs[i], gDone[i])
-		}
-
-		handle := make(chan error)
-
-		go func() {
-			for msg := range dataRecv {
-				for i := range split {
-					split[i] <- msg
-					logger.Tracef("fwd to split[%d]\n", i)
-				}
-			}
-
-			close(handle)
-		}()
-
-		go func() {
-			for err := range tErrs {
-				if err != nil {
-					handle <- err
-				}
-			}
-		}()
-
-		for err := range handle {
-			if err != nil {
-				errs <- err
-			}
-		}
-
-		for i := range split {
-			logger.Tracef("closing split[%d]\n", i)
-			close(split[i])
-		}
-
-		closed, cLock := 0, new(sync.Mutex)
-		for range tDone {
-			cLock.Lock()
-			closed++
-			if closed == len(consumers) {
-				break
-			}
-
-			cLock.Unlock()
-		}
-
-		logger.Trace("closing provided done")
-		close(done)
-	}
-}
-
 /*
 Join a collection of transformers into a single that applies them in order
 */
@@ -220,10 +76,11 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 const bindChunk = 8
 
 // drain exhausts a Bindings stream, binding each against its owning plugin
-// and handing the configured instance to collect.
-func drain(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin, collect func(parse.Resource, sdk.Instance)) error {
+// and handing the configured instance to collect. Draining can do real work
+// (produce-from runs its seed) so it is bounded by ctx.
+func drain(ctx context.Context, bindings parse.ResourceFunc, plugins map[string]sdk.Plugin, collect func(parse.Resource, sdk.Instance)) error {
 	for {
-		chunk, err := bindings(bindChunk)
+		chunk, err := bindings(ctx, bindChunk)
 		if err != nil {
 			return err
 		}
@@ -253,7 +110,7 @@ BuildPipeline turns a parsed pipeline description into a runnable Pipeline.
 Each binding is resolved against its owning plugin, wrapped with host-owned
 BlockMeta behavior, and joined with its siblings.
 */
-func BuildPipeline(src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) {
+func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) {
 	logger := pipelineLogger()
 
 	lookup := make(map[string]sdk.Plugin, len(plugins))
@@ -262,7 +119,7 @@ func BuildPipeline(src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) 
 	}
 
 	producers := make([]sdk.Producer, 0)
-	if err := drain(src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
+	if err := drain(ctx, src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		producers = append(producers, flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter))
 	}); err != nil {
 		return nil, err
@@ -272,7 +129,7 @@ func BuildPipeline(src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) 
 	}
 
 	consumers := make([]sdk.Consumer, 0)
-	if err := drain(src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
+	if err := drain(ctx, src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		consumers = append(consumers, flow.Consumer(instance.Consume, b.Meta.PerMinute, 0, b.Meta.StopAfter))
 	}); err != nil {
 		return nil, err
@@ -282,15 +139,15 @@ func BuildPipeline(src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) 
 	}
 
 	transformers := make([]sdk.Transformer, 0)
-	if err := drain(src.Transformers, lookup, func(b parse.Resource, instance sdk.Instance) {
+	if err := drain(ctx, src.Transformers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		transformers = append(transformers, instance.Transform)
 	}); err != nil {
 		return nil, err
 	}
 
 	return &Pipeline{
-		Producer:    joinProducers(producers, logger),
-		Consumer:    joinConsumers(consumers, logger),
+		Producers:   producers,
+		Consumers:   consumers,
 		Transformer: stackTransform(transformers),
 		logger:      logger,
 		StopAfter:   src.StopAfter,

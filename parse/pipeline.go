@@ -1,6 +1,10 @@
 package parse
 
-import "github.com/psyduck-etl/sdk"
+import (
+	"context"
+
+	"github.com/psyduck-etl/sdk"
+)
 
 // Resource is a fully-parsed, not-yet-instantiated pipeline resource. It
 // carries no callable plugin code — just enough to find the owning plugin
@@ -16,15 +20,17 @@ type Resource struct {
 	Meta     sdk.BlockMeta          // pre-decoded host-owned attributes
 }
 
-// ResourceFunc yields ResourceFunc in chunks of up to max until exhausted.
-// A nil slice with nil error signals exhaustion.
-type ResourceFunc func(max int) ([]Resource, error)
+// ResourceFunc yields Resources in chunks of up to max until exhausted.
+// A nil slice with nil error signals exhaustion. Draining may do real work
+// (produce-from binds and runs its seed producer), so it takes the caller's
+// context and must respect its cancellation and deadline.
+type ResourceFunc func(ctx context.Context, max int) ([]Resource, error)
 
 // LiteralResourceFunc wraps a fixed slice into a ResourceFunc that yields it in
 // chunks and then exhausts.
 func LiteralResourceFunc(resources ...Resource) ResourceFunc {
 	pos := 0
-	return func(max int) ([]Resource, error) {
+	return func(_ context.Context, max int) ([]Resource, error) {
 		if max < 1 || pos >= len(resources) {
 			return nil, nil
 		}

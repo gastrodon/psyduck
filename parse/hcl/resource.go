@@ -1,6 +1,7 @@
 package hcl
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -265,6 +266,8 @@ func makePipeline(
 // Dynamic producers (produce-from)
 // ---------------------------------------------------------------------------
 
+// remoteTimeout bounds drainSeed when the caller's context carries no
+// deadline of its own; a caller-supplied deadline always wins.
 const remoteTimeout = 10 * time.Second
 
 // remoteBindings hides a dynamic producer behind the ordinary Bindings
@@ -276,21 +279,22 @@ const remoteTimeout = 10 * time.Second
 // collectProducer behavior. A future revision can keep draining messages.
 func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) parse.ResourceFunc {
 	var yield parse.ResourceFunc
-	return func(max int) ([]parse.Resource, error) {
+	return func(ctx context.Context, max int) ([]parse.Resource, error) {
 		if yield == nil {
-			bindings, err := drainSeed(seed, ix, localsCtx)
+			bindings, err := drainSeed(ctx, seed, ix, localsCtx)
 			if err != nil {
 				return nil, err
 			}
 			yield = parse.LiteralResourceFunc(bindings...)
 		}
-		return yield(max)
+		return yield(ctx, max)
 	}
 }
 
 // drainSeed binds and runs the seed producer, takes its first message, and
-// parses it as HCL produce blocks. Guarded by remoteTimeout.
-func drainSeed(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) ([]parse.Resource, error) {
+// parses it as HCL produce blocks. Bounded by ctx's deadline, falling back
+// to remoteTimeout when ctx has none.
+func drainSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) ([]parse.Resource, error) {
 	plugin, ok := ix.plugins[seed.PluginID]
 	if !ok {
 		return nil, fmt.Errorf("produce-from %s: plugin %q not loaded", seed.Ref, seed.PluginID)
@@ -302,19 +306,33 @@ func drainSeed(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContex
 	}
 	defer instance.Close()
 
+	if _, has := ctx.Deadline(); !has {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
+		defer cancel()
+	}
+
 	send, errs := make(chan []byte), make(chan error)
 	go instance.Produce(send, errs)
 
-	timeout := time.NewTimer(remoteTimeout)
-	defer timeout.Stop()
-
-	select {
-	case <-timeout.C:
-		return nil, fmt.Errorf("produce-from %s: timeout waiting for remote producer", seed.Ref)
-	case err := <-errs:
-		return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
-	case msg := <-send:
-		return parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("produce-from %s: waiting for remote producer: %w", seed.Ref, ctx.Err())
+		case err, ok := <-errs:
+			if !ok {
+				errs = nil // closed; stop selecting on it
+				continue
+			}
+			if err != nil {
+				return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
+			}
+		case msg, ok := <-send:
+			if !ok {
+				return nil, fmt.Errorf("produce-from %s: seed producer closed without sending", seed.Ref)
+			}
+			return parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
+		}
 	}
 }
 

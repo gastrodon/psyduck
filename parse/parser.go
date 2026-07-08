@@ -1,6 +1,10 @@
 package parse
 
-import "github.com/psyduck-etl/sdk"
+import (
+	"context"
+
+	"github.com/psyduck-etl/sdk"
+)
 
 // Plugin identifies a plugin declared in configuration, before it has
 // been fetched or loaded.
@@ -38,5 +42,9 @@ type Parser interface {
 	// own; they're data for entry's pipelines to reuse). All
 	// parser-specific state (eval contexts, AST nodes) stays behind the
 	// Pipelines and the sdk.ConfigBlocks inside them.
-	Parse(entry string, load Loader, plugins []sdk.Plugin) (map[string]Pipeline, error)
+	//
+	// ctx bounds parse-time work only. Deferred work carried by the
+	// returned Pipelines (a produce-from seed runs when its ResourceFunc
+	// is drained) is bounded by the ctx handed to that drain instead.
+	Parse(ctx context.Context, entry string, load Loader, plugins []sdk.Plugin) (map[string]Pipeline, error)
 }
