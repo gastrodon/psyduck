@@ -17,14 +17,14 @@ type Plugin struct {
 // plugin declarations live in the same sources being parsed:
 //
 //	// init: extract specs (following imports), build the store, lock it
-//	specs := parser.Plugins(entry, parse.SourceFromFile)
+//	specs := parser.Plugins(entry, parse.FileLoader)
 //	locked, err := store.Build(specs)
 //	plugins.WriteLock(entry, &plugins.Lock{Plugins: locked})
 //
 //	// run: read the lock, load from the store, then fully parse
 //	lock, err := plugins.ReadLock(entry)
 //	loaded, err := store.Load(lock.Plugins)
-//	pipelines, err := parser.Parse(entry, parse.SourceFromFile, loaded)
+//	pipelines, err := parser.Parse(entry, parse.FileLoader, loaded)
 type Parser interface {
 	// Plugins extracts every plugin{} declaration reachable from entry,
 	// following import{} blocks transitively. It must not require loaded

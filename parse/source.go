@@ -10,9 +10,9 @@ import (
 // errors back to its origin. It intentionally does not commit to being a
 // file: a producer that generates config dynamically yields the same type.
 //
-// When Source comes from a real file (via SourceFromFile / a Loader),
-// Name is a filesystem path and import{} attributes inside its Content
-// resolve relative to filepath.Dir(Name).
+// When Source comes from a real file (via FileLoader / a Loader), Name is
+// a filesystem path and import{} attributes inside its Content resolve
+// relative to filepath.Dir(Name).
 type Source struct {
 	Name    string // a filesystem path, or a synthetic label ("remote://abc123", "stdin", ...)
 	Content []byte
@@ -23,14 +23,15 @@ type Source struct {
 // file to be read upfront. Keeping this as an injected function (instead
 // of parse/hcl reading files directly) preserves Source's format-agnostic
 // design and keeps import resolution unit-testable against in-memory
-// fixtures.
+// fixtures. Implementations are named <Kind>Loader — FileLoader is the
+// real, filesystem-backed one; a test can supply its own (e.g. backed by
+// an in-memory map) wherever a Loader is expected.
 type Loader func(path string) (Source, error)
 
-// SourceFromFile reads a single .psy file as a Source, keyed by its path.
-// Its signature matches Loader, so it can be passed anywhere a Loader is
-// expected — the real, filesystem-backed one, as opposed to a fixture-based
-// Loader a test might use instead.
-func SourceFromFile(path string) (Source, error) {
+// FileLoader is the Loader that reads from the local filesystem: it reads
+// path as a single .psy file and returns it as a Source keyed by that
+// path.
+func FileLoader(path string) (Source, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return Source{}, fmt.Errorf("failed reading %s: %w", path, err)

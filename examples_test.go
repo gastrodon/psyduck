@@ -118,7 +118,7 @@ func runExample(t *testing.T, name string, fix fixture) {
 	}
 	entry := filepath.Join("examples", file)
 
-	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.SourceFromFile, plugins)
+	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.FileLoader, plugins)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
