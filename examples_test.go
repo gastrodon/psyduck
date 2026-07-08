@@ -23,9 +23,11 @@ const (
 )
 
 // fixture holds the test data for one example pipeline. The .psy sources
-// live under examples/*.psy — one workspace, one file per example plus
-// shared.psy for the consumers reused across them.
+// live under examples/*.psy — each file is its own entry point; cross-file
+// reuse (e.g. shared.psy's consumers) goes through explicit import{} blocks
+// rather than directory-wide sharing.
 type fixture struct {
+	file   string // path under examples/; defaults to "<pipeline name>.psy"
 	tier   tier
 	input  string // written to a temp file and injected as PSYDUCK_IN; empty = no input
 	expect string // expected output, trailing newlines stripped; empty = not checked
@@ -81,13 +83,11 @@ var examples = map[string]fixture{
 	},
 	"http-request": {tier: tierBuild},
 	"http-listen":  {tier: tierBuild},
-	"config-gen":   {tier: tierParse},
-	"scrape":       {tier: tierParse},
+	"config-gen":   {file: "meta-socket.psy", tier: tierParse},
+	"scrape":       {file: "meta-socket.psy", tier: tierParse},
 }
 
 // TestExamples runs each pipeline registered in the examples map as a subtest.
-// Every subtest parses the whole examples/ workspace (so shared.psy and the
-// per-example .psy files link up), then builds/runs only the target pipeline.
 func TestExamples(t *testing.T) {
 	for name, fix := range examples {
 		fix := fix
@@ -112,17 +112,19 @@ func runExample(t *testing.T, name string, fix fixture) {
 		t.Setenv("PSYDUCK_IN", inPath)
 	}
 
-	sources, err := parse.SourceFromDir("examples")
-	if err != nil {
-		t.Fatalf("read examples/: %v", err)
+	file := fix.file
+	if file == "" {
+		file = name + ".psy"
 	}
-	pipelines, err := hcl.NewParserHCL().Parse(sources, plugins)
+	entry := filepath.Join("examples", file)
+
+	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.FileLoader, plugins)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
 	pipe, ok := pipelines[name]
 	if !ok {
-		t.Fatalf("pipeline %q not defined in examples/", name)
+		t.Fatalf("pipeline %q not defined in %s", name, entry)
 	}
 
 	if fix.tier == tierParse {
@@ -164,8 +166,10 @@ pipeline "check" {
   consume   = [consume.trash.sink]
 }`
 	plugins := []sdk.Plugin{stdlib.Plugin()}
-	pipelines, err := hcl.NewParserHCL().Parse(
-		[]parse.Source{{Name: "assert.psy", Content: []byte(src)}}, plugins)
+	load := func(path string) (parse.Source, error) {
+		return parse.Source{Name: path, Content: []byte(src)}, nil
+	}
+	pipelines, err := hcl.NewParserHCL().Parse("assert.psy", load, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,9 @@
 # http-listen receives request bodies as messages. Build-only: the server only
 # binds when the pipeline runs.
+import {
+  shared = "shared.psy"
+}
+
 produce "http-listen" "hook" {
   address = ":0"
   path    = "/ingest"
@@ -10,5 +14,5 @@ produce "http-listen" "hook" {
 
 pipeline "http-listen" {
   produce = [produce.http-listen.hook]
-  consume = [consume.trash.sink]
+  consume = [imports.shared.consume.trash.sink]
 }

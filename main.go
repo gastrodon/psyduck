@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
@@ -16,69 +17,130 @@ import (
 	"github.com/gastrodon/psyduck/stdlib"
 )
 
-func cmdinit(ctx *cli.Context) error { // init is a different thing in go
-	sources, err := parse.SourceFromDir(ctx.String("chdir"))
-	if err != nil {
-		return err
+// entryPath validates and returns the pipeline file argument that
+// run/init/list/show all take as their first positional argument. There's
+// no separate --chdir anymore — the file's own path is the only root
+// anything needs (imports resolve relative to it, and so does its store).
+func entryPath(ctx *cli.Context) (string, error) {
+	if !ctx.Args().Present() {
+		return "", fmt.Errorf("pipeline file required")
 	}
-
-	specs, err := hcl.NewParserHCL().Plugins(sources)
-	if err != nil {
-		return err
+	if err := rejectStrayFlags(ctx.Args().Tail()); err != nil {
+		return "", err
 	}
-
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	if err := os.MkdirAll(initPath, os.ModeDir|os.ModePerm); err != nil {
-		return err
-	}
-
-	return plugins.NewStore(initPath).Build(specs)
+	return ctx.Args().First(), nil
 }
 
-// loadPipelines parses every .psy source in the workspace against the
-// loaded plugins + stdlib.
+// rejectStrayFlags errors on any argument that looks like a flag. Go's
+// flag parsing stops recognizing flags at the first non-flag argument —
+// since the file is always that first argument here, a flag typed after
+// it (e.g. `psyduck list hello/main.psy --stat`) never reaches the flag
+// parser at all; it just lands, unrecognized, among the positional
+// arguments (ctx.Args().Tail()). Without this check that would silently
+// do nothing instead of erroring — or, for `show`, silently be treated as
+// a pipeline name to filter by.
+func rejectStrayFlags(args []string) error {
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			return fmt.Errorf("unrecognized flag %q (flags must come before the file argument)", a)
+		}
+	}
+	return nil
+}
+
+// storeFor returns the content-addressed plugin store for entry: a
+// .psyduck/ directory next to the file, alongside its .lock.
+func storeFor(entry string) *plugins.Store {
+	return plugins.NewStore(filepath.Join(filepath.Dir(entry), ".psyduck"))
+}
+
+func cmdinit(ctx *cli.Context) error { // init is a different thing in go
+	entry, err := entryPath(ctx)
+	if err != nil {
+		return err
+	}
+
+	specs, err := hcl.NewParserHCL().Plugins(entry, parse.FileLoader)
+	if err != nil {
+		return err
+	}
+
+	locked, err := storeFor(entry).Build(specs)
+	if err != nil {
+		return err
+	}
+
+	return plugins.WriteLock(entry, &plugins.Lock{Plugins: locked})
+}
+
+// loadPipelines resolves entry and its transitive imports against the
+// plugins its lock file declares (see plugins.ReadLock — every file that's
+// run must have been init'd first, this isn't optional) plus stdlib, and
+// returns every pipeline{} declared directly in entry (imported pipelines
+// are data for entry to reuse, not part of what runs).
 func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, error) {
-	sources, err := parse.SourceFromDir(ctx.String("chdir"))
+	entry, err := entryPath(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	initPath := path.Join(ctx.String("chdir"), ".psyduck")
-	loaded, err := plugins.NewStore(initPath).Load()
+	lock, err := plugins.ReadLock(entry)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	loaded, err := storeFor(entry).Load(lock.Plugins)
 	if err != nil {
 		return nil, nil, err
 	}
 	loaded = append(loaded, stdlib.Plugin())
 
-	pipelines, err := hcl.NewParserHCL().Parse(sources, loaded)
+	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.FileLoader, loaded)
 	if err != nil {
 		return nil, nil, err
 	}
 	return pipelines, loaded, nil
 }
 
+// run builds every pipeline{} declared directly in the target file and
+// runs them. Zero pipelines is an error. One runs directly. More than one
+// run concurrently, one goroutine each; run returns the first error seen
+// (if any) once all of them have finished.
 func run(ctx *cli.Context) error {
-	if !ctx.Args().Present() {
-		return fmt.Errorf("target required")
-	}
-
 	pipelines, loaded, err := loadPipelines(ctx)
 	if err != nil {
 		return err
 	}
 
-	target := ctx.Args().First()
-	pipe, ok := pipelines[target]
-	if !ok {
-		return fmt.Errorf("no pipeline %q", target)
+	if len(pipelines) == 0 {
+		return fmt.Errorf("%s: declares no pipeline", ctx.Args().First())
 	}
 
-	pipeline, err := core.BuildPipeline(pipe, loaded)
-	if err != nil {
-		return err
+	built := make([]*core.Pipeline, 0, len(pipelines))
+	for _, pipe := range pipelines {
+		b, err := core.BuildPipeline(pipe, loaded)
+		if err != nil {
+			return err
+		}
+		built = append(built, b)
 	}
 
-	return core.RunPipeline(pipeline)
+	if len(built) == 1 {
+		return core.RunPipeline(built[0])
+	}
+
+	errs := make(chan error, len(built))
+	for _, b := range built {
+		go func(b *core.Pipeline) { errs <- core.RunPipeline(b) }(b)
+	}
+
+	var failed error
+	for range built {
+		if err := <-errs; err != nil && failed == nil {
+			failed = err
+		}
+	}
+	return failed
 }
 
 func sortedKeys[V any](m map[string]V) []string {
@@ -137,7 +199,7 @@ func show(ctx *cli.Context) error {
 		return err
 	}
 
-	names := ctx.Args().Slice()
+	names := ctx.Args().Slice()[1:] // args[0] is the entry file
 	if len(names) == 0 {
 		names = sortedNames(pipelines)
 	}
@@ -176,26 +238,20 @@ func main() {
 	app := cli.App{
 		Name:  "psyduck",
 		Usage: "run and manage etl pipelines",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:      "chdir",
-				Usage:     "directory to execute from",
-				Value:     ".",
-				TakesFile: true,
-			},
-		},
 		Commands: []*cli.Command{
 			{
 				Name:      "run",
-				Usage:     "run a pipeline job",
+				Usage:     "run every pipeline declared in a file",
 				Action:    run,
 				Args:      true,
-				ArgsUsage: "pipeline name",
+				ArgsUsage: "pipeline file",
 			},
 			{
-				Name:   "list",
-				Usage:  "list pipelines by name",
-				Action: list,
+				Name:      "list",
+				Usage:     "list pipelines declared in a file",
+				Action:    list,
+				Args:      true,
+				ArgsUsage: "pipeline file",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "stat",
@@ -208,13 +264,15 @@ func main() {
 				Usage:     "show pipeline resources and config",
 				Action:    show,
 				Args:      true,
-				ArgsUsage: "[pipeline name ...]",
+				ArgsUsage: "pipeline file [pipeline name ...]",
 			},
 			{
-				Name:   "init",
-				Usage:  "init a pipeline workspace",
-				Action: cmdinit,
-				Flags:  []cli.Flag{},
+				Name:      "init",
+				Usage:     "init a pipeline workspace for a file",
+				Action:    cmdinit,
+				Args:      true,
+				ArgsUsage: "pipeline file",
+				Flags:     []cli.Flag{},
 			},
 		},
 	}

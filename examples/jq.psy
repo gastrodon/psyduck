@@ -1,4 +1,8 @@
 # filter drops messages whose predicate is false/null; jq reshapes what remains.
+import {
+  shared = "shared.psy"
+}
+
 produce "generate" "jq" {
   values = [
     "{\"v\":1,\"keep\":true}",
@@ -17,5 +21,5 @@ transform "jq" "v" {
 pipeline "jq" {
   produce   = [produce.generate.jq]
   transform = [transform.filter.jq, transform.jq.v]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

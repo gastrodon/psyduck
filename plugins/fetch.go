@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/gastrodon/psyduck/parse"
 )
@@ -32,8 +33,9 @@ func pluginKind(spec parse.Plugin) int {
 }
 
 // fetcher is an ephemeral helper created by Store.Build. It holds the
-// temporary clone directory alongside the store so it can delegate all
-// persistent-path questions back to the store.
+// temporary clone/build directory; every binary it produces is handed to
+// the store to be content-addressed before fetch returns — the store
+// itself is never told a plugin's name, only its bytes.
 type fetcher struct {
 	store  *Store
 	tmpDir string
@@ -47,13 +49,16 @@ func (f *fetcher) cleanup() {
 	os.RemoveAll(f.tmpDir)
 }
 
+// build compiles codePath into a temporary .so. It never writes directly
+// into the store — the store only knows binaries by content hash, which
+// isn't known until after the build produces bytes to hash.
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
-	soPath := f.store.soPath(spec.Name)
-	cmd := exec.Command("go", "build", "-C", codePath, "-o", soPath, "-buildmode", "plugin")
+	tmpOut := filepath.Join(f.tmpDir, spec.Name+".so")
+	cmd := exec.Command("go", "build", "-C", codePath, "-o", tmpOut, "-buildmode", "plugin")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
-	return soPath, nil
+	return tmpOut, nil
 }
 
 func (f *fetcher) clone(spec parse.Plugin) (string, error) {
@@ -69,28 +74,69 @@ func (f *fetcher) clone(spec parse.Plugin) (string, error) {
 	return cloneDir, nil
 }
 
-func (f *fetcher) fetch(spec parse.Plugin) (string, error) {
+// resolveRef reports the most specific git reference HEAD actually
+// resolves to in cloneDir, after cloning and any requested checkout:
+// a branch (refs/heads/<name>) if HEAD is symbolic, else a tag
+// (refs/tags/<name>) if HEAD exactly matches one, else the commit's full
+// SHA. Called unconditionally for every remote plugin — even one with no
+// `tag` attribute still lands on some real commit, and that's what gets
+// recorded.
+func resolveRef(cloneDir string) (string, error) {
+	if out, err := exec.Command("git", "-C", cloneDir, "symbolic-ref", "-q", "HEAD").CombinedOutput(); err == nil {
+		return strings.TrimSpace(string(out)), nil
+	}
+
+	if out, err := exec.Command("git", "-C", cloneDir, "describe", "--tags", "--exact-match", "HEAD").CombinedOutput(); err == nil {
+		return "refs/tags/" + strings.TrimSpace(string(out)), nil
+	}
+
+	out, err := exec.Command("git", "-C", cloneDir, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve HEAD in %s: %w\noutput: %s", cloneDir, err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// fetch resolves spec (building it first if it's source code) and
+// content-addresses the resulting binary into the store, returning its
+// hash and, for remote sources, the actual git ref that got checked out.
+// A local .so source is read and stored as-is, relative to the current
+// working directory same as any other file argument — the store no
+// longer needs it to be absolute since it only reads it once, here, to
+// copy its bytes in.
+func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 	switch pluginKind(spec) {
 	case pluginLocal:
 		stat, err := os.Stat(spec.Source)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if stat.IsDir() {
-			return f.build(spec.Source, spec)
+			built, err := f.build(spec.Source, spec)
+			if err != nil {
+				return "", "", err
+			}
+			hash, err := f.store.storeBinary(built)
+			return hash, "", err
 		}
-		soPath := spec.Source
-		if !filepath.IsAbs(soPath) {
-			soPath = filepath.Join(f.store.pluginsDir(), soPath)
-		}
-		return filepath.Abs(soPath)
+		hash, err := f.store.storeBinary(spec.Source)
+		return hash, "", err
 	case pluginRemote:
 		cloneDir, err := f.clone(spec)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		return f.build(cloneDir, spec)
+		resolve, err := resolveRef(cloneDir)
+		if err != nil {
+			return "", "", err
+		}
+		built, err := f.build(cloneDir, spec)
+		if err != nil {
+			return "", "", err
+		}
+		hash, err := f.store.storeBinary(built)
+		return hash, resolve, err
 	default:
-		return "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
+		return "", "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
 	}
 }

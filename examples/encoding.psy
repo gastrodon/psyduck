@@ -1,4 +1,8 @@
 # recode is the universal codec converter: decode one format, encode another.
+import {
+  shared = "shared.psy"
+}
+
 produce "generate" "encoding" {
   values = ["hello", "world"]
 }
@@ -11,5 +15,5 @@ transform "recode" "b64" {
 pipeline "encoding" {
   produce   = [produce.generate.encoding]
   transform = [transform.recode.b64]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

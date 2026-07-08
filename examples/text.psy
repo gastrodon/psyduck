@@ -1,5 +1,9 @@
 # Text transformers work in the string domain (decode defaults to utf-8) and
 # stack like any other stage.
+import {
+  shared = "shared.psy"
+}
+
 produce "generate" "text" {
   values = ["  Hi There  "]
 }
@@ -16,5 +20,5 @@ transform "upper" "text" {}
 pipeline "text" {
   produce   = [produce.generate.text]
   transform = [transform.trim.t, transform.replace.r, transform.upper.text]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

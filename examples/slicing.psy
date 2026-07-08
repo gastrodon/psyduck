@@ -1,4 +1,8 @@
 # chunk splits continuous data into fixed windows, emitted as a JSON array.
+import {
+  shared = "shared.psy"
+}
+
 produce "generate" "slicing" {
   values = ["abcdef"]
 }
@@ -10,5 +14,5 @@ transform "chunk" "c" {
 pipeline "slicing" {
   produce   = [produce.generate.slicing]
   transform = [transform.chunk.c]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

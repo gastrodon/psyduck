@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	nsLocal = "local"
-	nsEnv   = "env"
+	nsLocal   = "local"
+	nsEnv     = "env"
+	nsImports = "imports"
 )
 
 // envNames statically collects the env.* attribute names queried by any
@@ -92,8 +93,10 @@ func extendEnv(ctx *hcl.EvalContext, names map[string]bool) *hcl.EvalContext {
 }
 
 // makeLocalsCtx merges all locals {} blocks across sources (duplicate keys
-// error) and returns the eval context exposing local.* and env.*.
-func makeLocalsCtx(blocks []*hcl.Block, env cty.Value) (*hcl.EvalContext, error) {
+// error) and returns the eval context exposing local.*, env.*, and
+// imports.* (the resolved import{} closure for this file, built by the
+// caller — see buildImportsValue in import.go).
+func makeLocalsCtx(blocks []*hcl.Block, env cty.Value, imports cty.Value) (*hcl.EvalContext, error) {
 	envCtx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: env}}
 
 	values := make(map[string]cty.Value)
@@ -118,18 +121,23 @@ func makeLocalsCtx(blocks []*hcl.Block, env cty.Value) (*hcl.EvalContext, error)
 
 	return &hcl.EvalContext{
 		Variables: map[string]cty.Value{
-			nsLocal: objOrEmpty(values),
-			nsEnv:   env,
+			nsLocal:   objOrEmpty(values),
+			nsEnv:     env,
+			nsImports: imports,
 		},
 	}, nil
 }
 
 // refTree builds nested cty objects from dotted ref paths, so that the HCL
 // expression `produce.constant.input` (or short-form `constant.input`)
-// evaluates to the flat ref string "produce.constant.input".
-type refTree map[string]any // string leaf | refTree branch
+// evaluates to the flat ref string "produce.constant.input". A leaf may be
+// a plain string (auto-wrapped as cty.StringVal — the common case, a
+// resource ref) or an already-built cty.Value (used for imports.* leaves
+// that carry lists or scalars, e.g. imports.alias.pipeline.name.produce or
+// .stop-after).
+type refTree map[string]any // string | cty.Value | refTree
 
-func (t refTree) insert(path []string, leaf string) error {
+func (t refTree) insert(path []string, leaf any) error {
 	head := path[0]
 	if len(path) == 1 {
 		if _, exists := t[head]; exists {
@@ -153,13 +161,16 @@ func (t refTree) insert(path []string, leaf string) error {
 }
 
 // vars flattens the tree into a variables map at the current level.
-// String leaves become cty.StringVal; branches recurse and become objects.
+// String leaves become cty.StringVal, cty.Value leaves are used as-is,
+// and branches recurse and become objects.
 func (t refTree) vars() map[string]cty.Value {
 	out := make(map[string]cty.Value, len(t))
 	for key, child := range t {
 		switch c := child.(type) {
 		case string:
 			out[key] = cty.StringVal(c)
+		case cty.Value:
+			out[key] = c
 		case refTree:
 			out[key] = c.value()
 		}

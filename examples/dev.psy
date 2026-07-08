@@ -1,4 +1,8 @@
 # count replaces the message with a running tally every n messages.
+import {
+  shared = "shared.psy"
+}
+
 produce "sequence" "dev" {
   stop-after = 3
 }
@@ -10,5 +14,5 @@ transform "count" "dev" {
 pipeline "dev" {
   produce   = [produce.sequence.dev]
   transform = [transform.count.dev]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

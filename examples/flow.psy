@@ -1,4 +1,8 @@
 # sequence emits an integer stream; head passes only the first n.
+import {
+  shared = "shared.psy"
+}
+
 produce "sequence" "flow" {
   stop-after = 10
 }
@@ -10,5 +14,5 @@ transform "head" "flow" {
 pipeline "flow" {
   produce   = [produce.sequence.flow]
   transform = [transform.head.flow]
-  consume   = [consume.file.out]
+  consume   = [imports.shared.consume.file.out]
 }

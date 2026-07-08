@@ -7,7 +7,7 @@ extended with Go plugins that are cloned and compiled on demand.
 - **Configure it**: producers → transformers → consumers, wired declaratively.
 - **Extend it**: any `sdk.Plugin` can be published as a Git repo and referenced
   from a pipeline with a `plugin {}` block.
-- **Run it**: `psyduck run <pipeline-name>`.
+- **Run it**: `psyduck run <file>.psy`.
 
 ## Install
 
@@ -26,9 +26,10 @@ against the same psyduck commit.
 
 ## Getting started
 
-A pipeline workspace is a directory of `.psy` files. All files in the directory
-parse together: resources declared in one file can be referenced from any
-other. Each pipeline is run by name.
+Each `.psy` file is its own unit of configuration — resources and locals
+declared in one file are only visible in that file. To reuse something from
+another file, `import` it explicitly (see [`docs/hcl.md`](docs/hcl.md)).
+Every command that operates on a pipeline takes the file directly.
 
 ### 1. Write a pipeline
 
@@ -59,24 +60,36 @@ pipeline "hello" {
 ```
 
 This uses only stdlib resources (`sequence`, `render`, `file`) — no plugin
-fetch step is needed.
+fetch step is needed, but every file still needs an `init` before it can run
+(see below).
 
-### 2. Run it
+### 2. Init, then run it
 
 ```sh
-psyduck --chdir hello run hello
+psyduck init hello/main.psy    # writes hello/main.lock
+psyduck run hello/main.psy
 # hello #1
 # hello #2
 # hello #3
 ```
 
+`init` is required before `run` for every file, even one like this that uses
+no external plugins — it's what writes the `.lock` file `run` reads.
+
 ### 3. Explore
 
 ```sh
-psyduck --chdir hello list          # list pipelines by name
-psyduck --chdir hello list --stat   # + resource counts
-psyduck --chdir hello show hello    # print resource config
+psyduck list hello/main.psy           # list pipelines declared in the file
+psyduck list --stat hello/main.psy    # + resource counts
+psyduck show hello/main.psy           # print resource config
 ```
+
+Flags go *before* the file argument, not after — `psyduck list hello/main.psy
+--stat` errors with `unrecognized flag "--stat"` rather than running. Go's
+flag parsing stops looking for flags at the first non-flag argument, so
+anything flag-shaped typed after the file never reaches the flag parser at
+all; psyduck checks for that explicitly and rejects it instead of silently
+ignoring it.
 
 ### Using an external plugin
 
@@ -94,33 +107,51 @@ produce "amqp-queue" "in" {
 }
 ```
 
-Then run once to clone + compile the plugin into `.psyduck/plugins/`:
+Then init the file — this clones + compiles the plugin, content-addresses the
+built binary into `.psyduck/plugins/` (next to the file, keyed by a hash of
+its own bytes), and writes the result to `path/to/<name>.lock`:
 
 ```sh
-psyduck --chdir . init
-psyduck --chdir . run <pipeline-name>
+psyduck init path/to/pipeline.psy
+psyduck run path/to/pipeline.psy
 ```
 
-`init` reads plugin declarations in a cheap pre-pass, so it works before any
-plugin is available. Its output — the manifest at `.psyduck/plugin.json` and
-the `.so` binaries — is loaded automatically on the next `run`.
+`init` reads plugin declarations (following any `import{}`s) in a cheap
+pre-pass, so it works before any plugin is available. `run` reads the lock
+file it wrote, re-verifying each plugin binary's hash before loading it —
+if the store is missing a binary, or its content no longer matches what was
+locked, `run` fails with a clear error rather than loading something
+unexpected. `<name>.lock` is meant to be committed alongside `<name>.psy`;
+`.psyduck/` (the binaries themselves) is not.
+
+**`init` is always safe to re-run** — it always re-fetches, re-builds, and
+rewrites the lock from scratch, so it's also how you recover from a
+corrupted or partially-deleted `.psyduck/` store. Re-run it whenever:
+
+- you add, remove, or edit a `plugin {}` block (directly, or in a file you
+  `import`),
+- you change a plugin's `tag`, or
+- a plugin has no `tag` and you want to pick up whatever's new on its
+  default branch — `init` records the exact ref it resolved (a branch, a
+  tag, or a commit SHA) in the lock file's `ref` field, so you can always
+  tell what a given `.lock` was actually built from, even without `tag`
+  pinned.
 
 ## CLI
 
 ```
-psyduck [--chdir DIR] <command> [args]
+psyduck <command> <file>.psy [args]
 ```
 
 | Command | Purpose |
 |---|---|
-| `run <name>` | Build and run a pipeline. |
-| `list [--stat]` | List pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
-| `show [name ...]` | Print resource references and evaluated config for each pipeline. |
-| `init` | Fetch and compile every `plugin {}` declared in the workspace. |
+| `run <file>` | Build and run every pipeline declared directly in the file (concurrently, if there's more than one). |
+| `list [--stat] <file>` | List the file's pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
+| `show <file> [name ...]` | Print resource references and evaluated config for each pipeline. |
+| `init <file>` | Fetch and compile every `plugin {}` reachable from the file (including through imports), content-address the built binaries into `.psyduck/`, and write `<file>.lock`. Required before `run`/`list`/`show` will work — see [above](#using-an-external-plugin). |
 
-`--chdir` selects the workspace directory (default `.`). Set
-`PSYDUCK_LOG_LEVEL` to `trace`/`debug`/`warn`/`error`/`fatal`/`panic` to change
-runtime log verbosity.
+Set `PSYDUCK_LOG_LEVEL` to `trace`/`debug`/`warn`/`error`/`fatal`/`panic` to
+change runtime log verbosity.
 
 ## Docs
 
@@ -133,18 +164,17 @@ runtime log verbosity.
 - [`docs/plugins.md`](docs/plugins.md) — writing plugins in Go: the
   `sdk.Plugin` interface, `Spec` fields, `psy` struct tags, and how psyduck
   loads binaries.
-- [`examples/`](examples/) — one workspace of `.psy` fixtures exercised by the
-  test suite. `shared.psy` holds the consumers reused across examples; each
-  `examples/<name>.psy` defines one pipeline demonstrating a specific stdlib
-  feature.
+- [`examples/`](examples/) — `.psy` fixtures exercised by the test suite, one
+  file per example. `shared.psy` holds consumers reused across the others;
+  files that want them declare their own `import { shared = "shared.psy" }`.
 
 ## Layout
 
 | Package | Purpose |
 |---|---|
 | `github.com/psyduck-etl/sdk` | Format-agnostic plugin SDK (`Plugin`, `Resource`, `Spec`, `Instance`). |
-| `parse` | `Parser`, `Pipeline`, `Resource`, `Source` — format-agnostic pipeline descriptions. |
-| `parse/hcl` | HCL/.psy implementation of `parse.Parser`. |
-| `plugins` | `Store` — clones, builds, and loads external plugins into `.psyduck/`. |
+| `parse` | `Parser`, `Pipeline`, `Resource`, `Source`, `Loader` — format-agnostic pipeline descriptions and file resolution. |
+| `parse/hcl` | HCL/.psy implementation of `parse.Parser`, including `import{}` resolution. |
+| `plugins` | `Store` — clones, builds, and content-addresses external plugins into `.psyduck/`; `Lock`/`ReadLock`/`WriteLock` for the per-file `.lock` format. |
 | `stdlib` | The built-in plugin. Always loaded; no `plugin {}` block needed. |
 | `core` | `BuildPipeline`, `RunPipeline` — turns a parsed pipeline into a running one. |
