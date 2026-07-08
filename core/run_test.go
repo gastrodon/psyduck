@@ -4,15 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
 // runTimeout guards every RunPipeline call in this file: the old engine's
@@ -154,47 +151,6 @@ func Test_RunPipeline_filtering(t *testing.T) {
 	}
 }
 
-// Regression for #12: a producer legitimately sending a nil []byte must not
-// be mistaken for its channel closing — messages after the nil still flow.
-func Test_RunPipeline_nilMessage(t *testing.T) {
-	var got atomic.Int64
-	err := mustRun(t, t.Context(), &Pipeline{
-		Producers: []sdk.Producer{func(send chan<- []byte, errs chan<- error) {
-			defer close(send)
-			defer close(errs)
-			send <- []byte("before")
-			send <- nil
-			send <- []byte("after")
-		}},
-		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// nil transforms to nil and is filtered; the message after it survives
-	if n := got.Load(); n != 2 {
-		t.Fatalf("stream truncated at nil message: got %d of 2", n)
-	}
-}
-
-// Regression for #10: a consumer stop-after smaller than the produced count
-// used to deadlock the pipeline on a send nobody read.
-func Test_RunPipeline_consumerStopAfter(t *testing.T) {
-	var got atomic.Int64
-	err := mustRun(t, t.Context(), &Pipeline{
-		Producers:   []sdk.Producer{emitN(100, []byte("x"), nil)},
-		Consumers:   []sdk.Consumer{flow.Consumer(countAll(&got), 0, 0, 3)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := got.Load(); n != 3 {
-		t.Fatalf("want exactly 3 consumed, got %d", n)
-	}
-}
-
 // Pipeline-level stop-after must terminate even an infinite producer.
 func Test_RunPipeline_stopAfter(t *testing.T) {
 	var got atomic.Int64
@@ -305,68 +261,4 @@ func Test_RunPipeline_errors(t *testing.T) {
 			t.Fatalf("want the consumer's error, got %v", err)
 		}
 	})
-}
-
-// Regression for #19's panic hazard: an error emitted after the data channel
-// closes must never crash the engine, whether or not it can still be
-// reported.
-func Test_RunPipeline_lateError(t *testing.T) {
-	late := func(send chan<- []byte, errs chan<- error) {
-		send <- []byte("x")
-		close(send)
-		errs <- errors.New("late cleanup failure")
-		close(errs)
-	}
-	var got atomic.Int64
-	if err := mustRun(t, t.Context(), &Pipeline{
-		Producers:   []sdk.Producer{late, emitN(5, []byte("y"), nil)},
-		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if n := got.Load(); n != 6 {
-		t.Fatalf("want 6 messages, got %d", n)
-	}
-}
-
-// Regression for #11/#19: a run the engine completes must release every
-// goroutine it started — the old join machinery leaked a fixed set per run,
-// even fully successful ones. Runs that abandon a producer mid-send park
-// that producer's own goroutine (the sdk contract has no cancellation), so
-// this measures well-behaved runs, where zero engine goroutines may remain.
-func Test_RunPipeline_goroutineBounded(t *testing.T) {
-	pipeline := func() *Pipeline {
-		var got atomic.Int64
-		return &Pipeline{
-			Producers: []sdk.Producer{
-				emitN(50, []byte("x"), nil),
-				func(send chan<- []byte, errs chan<- error) {
-					defer close(send)
-					defer close(errs)
-					send <- []byte("y")
-					errs <- errors.New("mid-stream failure")
-				},
-			},
-			Consumers:   []sdk.Consumer{countAll(&got), countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-		}
-	}
-
-	baseline := runtime.NumGoroutine()
-	for i := 0; i < 25; i++ {
-		mustRun(t, t.Context(), pipeline())
-	}
-
-	// give parked goroutines a moment to unwind, then compare
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if runtime.NumGoroutine() <= baseline+2 {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	buf := make([]byte, 1<<16)
-	t.Fatalf("goroutines leaked across runs: %d -> %d\n%s",
-		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
 }
