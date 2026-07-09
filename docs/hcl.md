@@ -89,6 +89,8 @@ pipeline "hello" {
 | `transform` | list of refs | transformers, applied in order |
 | `stop-after` | int | pipeline-level stop count |
 | `exit-on-error` | bool | stop the pipeline on the first error |
+| `parallel-producers` | int | cap on concurrently-running producers (0 = all at once, the default) |
+| `produce-from-timeout` | int | seconds to wait for the `produce-from` seed's first producers (0 = wait indefinitely, default 10) |
 
 Exactly one of `produce` / `produce-from` describes the producer set.
 Pipeline names must be unique within the file.
@@ -176,14 +178,31 @@ pipeline "dynamic" {
 }
 ```
 
-At build time the *seed* producer is run once and its first message (10s
-timeout) is parsed as HCL `produce {}` blocks — same syntax, same `env.*`
-resolution, same strict attribute checking. The resulting producers then
-run as if they had been declared literally.
+The *seed* producer is started at build time. Each message it emits is
+parsed as HCL `produce {}` blocks — same syntax, same `env.*` resolution,
+same strict attribute checking — and the resulting producers run as if they
+had been declared literally, ordered by message arrival. The seed keeps
+running alongside the pipeline: every further message yields a fresh batch
+of producers, so a long-lived seed (a queue listener, a socket) can keep
+feeding the pipeline new work for as long as it runs.
+
+Build blocks until the seed's first producers arrive, bounded by
+`produce-from-timeout` (in seconds; default 10, `0` waits indefinitely).
+Messages that declare no producers don't satisfy that wait, and a seed that
+closes without ever declaring a producer is an error.
+
+Once the seed closes or errors, the pipeline finishes when the producers
+already delivered are exhausted (with `exit-on-error` set, a seed error
+stops the run instead).
 
 The seed can be any producer, so the config may come from anywhere a
 producer can read: a file, a socket, an HTTP response — anything the stdlib
 or a plugin exposes.
+
+Combine with `parallel-producers` to bound how many producers run at once:
+producers run in waves of at most that many, each wave drawn (in arrival
+order) from everything delivered so far, and the next wave starts once the
+current one is exhausted.
 
 ## Imports
 
