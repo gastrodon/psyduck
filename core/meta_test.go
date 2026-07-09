@@ -14,7 +14,7 @@ import (
 )
 
 // Tests for the meta producer (meta.go): the single sdk.Producer that
-// BuildPipeline emits for produce-from and parallel-producers pipelines.
+// BuildPipeline emits for produce-from and produce-from-parallel pipelines.
 // House rules from regression_test.go apply: a hang IS a failure
 // (panicSafeRun bounds every run), and a finished run must leave no
 // goroutine behind.
@@ -143,11 +143,11 @@ func blockingStream(released *atomic.Int64, first []parse.Resource) parse.Resour
 	}
 }
 
-// A parallel-producers pipeline must run its producers in sequential groups
-// of at most the configured size. Six gated producers under a cap of 2 must
-// overlap exactly two at a time, wave after wave, and every message must
-// still reach the consumer.
-func Test_BuildPipeline_ParallelProducers(t *testing.T) {
+// A produce-from-parallel pipeline must run its producers in sequential
+// groups of at most the configured size. Six gated producers under a cap of
+// 2 must overlap exactly two at a time, wave after wave, and every message
+// must still reach the consumer.
+func Test_BuildPipeline_ProduceFromParallel(t *testing.T) {
 	const total, parallel = 6, 2
 
 	g := newGate()
@@ -160,11 +160,11 @@ func Test_BuildPipeline_ParallelProducers(t *testing.T) {
 	}
 
 	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
-		Name:              "parallel",
-		Producers:         parse.LiteralResourceFunc(producers...),
-		Consumers:         parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-		Transformers:      parse.LiteralResourceFunc(),
-		ParallelProducers: parallel,
+		Name:                "parallel",
+		Producers:           parse.LiteralResourceFunc(producers...),
+		Consumers:           parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers:        parse.LiteralResourceFunc(),
+		ProduceFromParallel: parallel,
 	}, plugins)
 	if err != nil {
 		t.Fatal(err)

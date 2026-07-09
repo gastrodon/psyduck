@@ -53,20 +53,20 @@ func LiteralResourceFunc(resources ...Resource) ResourceFunc {
 // Parser; Spec.RemoteSeed tells core the stream is live and may keep
 // yielding new producers for as long as the seed keeps sending.
 //
-// ParallelProducers caps how many producers run concurrently at any moment.
-// Zero (the default) runs everything as soon as it is known. A positive
-// value runs producers in groups of at most that size; the next group
-// starts only once the current group is exhausted.
+// ProduceFromParallel caps how many producers run concurrently at any
+// moment. Zero (the default) runs everything as soon as it is known. A
+// positive value runs producers in groups of at most that size; the next
+// group starts only once the current group is exhausted.
 type Pipeline struct {
-	Name              string
-	Origin            sdk.SourceRange
-	Producers         ResourceFunc
-	Consumers         ResourceFunc
-	Transformers      ResourceFunc
-	StopAfter         int
-	ExitOnError       bool
-	ParallelProducers int
-	Spec              PipelineSpec
+	Name                string
+	Origin              sdk.SourceRange
+	Producers           ResourceFunc
+	Consumers           ResourceFunc
+	Transformers        ResourceFunc
+	StopAfter           int
+	ExitOnError         bool
+	ProduceFromParallel int
+	Spec                PipelineSpec
 }
 
 // PipelineSpec is display-only metadata describing the pipeline's declared

@@ -275,20 +275,20 @@ func makePipeline(
 		pipe.ExitOnError = converted.True()
 	}
 
-	if attr, ok := content.Attributes["parallel-producers"]; ok {
+	if attr, ok := content.Attributes["produce-from-parallel"]; ok {
 		v, diags := attr.Expr.Value(localsCtx)
 		if diags.HasErrors() {
 			return parse.Pipeline{}, diags
 		}
 		converted, err := convert.Convert(v, cty.Number)
 		if err != nil {
-			return parse.Pipeline{}, fmt.Errorf("pipeline %q: parallel-producers: %w", name, err)
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-parallel: %w", name, err)
 		}
 		n, _ := converted.AsBigFloat().Int64()
 		if n < 0 {
-			return parse.Pipeline{}, fmt.Errorf("pipeline %q: parallel-producers: must be non-negative", name)
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-parallel: must be non-negative", name)
 		}
-		pipe.ParallelProducers = int(n)
+		pipe.ProduceFromParallel = int(n)
 	}
 
 	return pipe, nil
