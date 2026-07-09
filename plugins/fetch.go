@@ -61,8 +61,7 @@ func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	if raceEnabled {
 		args = append(args, "-race")
 	}
-	cmd := exec.Command("go", args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
 	return tmpOut, nil
