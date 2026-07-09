@@ -1,11 +1,11 @@
 # Benchmark results & optimization triage
 
 Generated from the `bench/` suite (`golang.org/x/perf/cmd/benchstat` over
-10 repeats via `scripts/bench.sh baseline`), profiled with `go test
--cpuprofile`/`-memprofile` and `go tool pprof` (`scripts/profile.sh`,
-`scripts/flamegraph.sh`). Machine: 4-core Intel Xeon @ 2.80GHz container.
-Raw data lives in `results/baseline.txt` / `results/baseline.benchstat.txt`
-(gitignored -- regenerate with `scripts/bench.sh baseline`).
+10 repeats via `scripts/bench.sh baseline`), profiled with plain
+`go test -cpuprofile`/`-memprofile` and `go tool pprof`. Machine: 4-core
+Intel Xeon @ 2.80GHz container. Raw data lives in `results/baseline.txt` /
+`results/baseline.benchstat.txt` (gitignored -- regenerate with
+`scripts/bench.sh baseline`).
 
 This is a **triage of propositions**, not applied fixes -- nothing in
 `stdlib`/`core` was changed. Every number below is measured, not estimated;
@@ -400,10 +400,17 @@ race instead of a compile error.
 
 ```sh
 bench/scripts/bench.sh baseline 10 200ms .          # full suite, benchstat summary
-bench/scripts/profile.sh jq       'BenchmarkByJQ_vs_Compiled|BenchmarkPick|BenchmarkDedupe|BenchmarkUniq|BenchmarkJqTransformer|BenchmarkFilterTransformer|BenchmarkAssertTransformer' 1500ms
-bench/scripts/profile.sh codec    'BenchmarkDecode|BenchmarkEncode|BenchmarkDecodeEncodeRoundTrip' 1500ms
-bench/scripts/profile.sh pipeline 'BenchmarkPipelineFanout|BenchmarkPipelineTransformStack' 1500ms
-bench/scripts/flamegraph.sh jq        # results/jq.flamegraph.png, results/jq.callgraph.png
+
+# profiles for each family below, via plain go test + go tool pprof:
+go test -run='^$' -bench='BenchmarkByJQ_vs_Compiled|BenchmarkPick|BenchmarkDedupe|BenchmarkUniq|BenchmarkJqTransformer|BenchmarkFilterTransformer|BenchmarkAssertTransformer' \
+  -benchtime=1500ms -benchmem -cpuprofile=jq.cpu.prof -memprofile=jq.mem.prof ./bench/...
+go test -run='^$' -bench='BenchmarkDecode|BenchmarkEncode|BenchmarkDecodeEncodeRoundTrip' \
+  -benchtime=1500ms -benchmem -cpuprofile=codec.cpu.prof -memprofile=codec.mem.prof ./bench/...
+go test -run='^$' -bench='BenchmarkPipelineFanout|BenchmarkPipelineTransformStack' \
+  -benchtime=1500ms -benchmem -cpuprofile=pipeline.cpu.prof -memprofile=pipeline.mem.prof ./bench/...
+
+go tool pprof -top -cum jq.cpu.prof            # text reports quoted throughout this file
+go tool pprof -http=: jq.cpu.prof              # interactive call graph + flame graph
 ```
 
-See `README.md` for what each script does and how to reproduce/extend this.
+See `README.md` for how to reproduce/extend this.

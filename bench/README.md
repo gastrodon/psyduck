@@ -62,42 +62,25 @@ Output lands in `bench/results/<label>.txt` (raw) and
 
 ### Profiling
 
-`go test -cpuprofile`/`-memprofile` are themselves standard-library features
-(part of `go test`, not a separate tool):
+`go test -cpuprofile`/`-memprofile` and `go tool pprof` are themselves
+standard-library/standard-toolchain features -- no wrapper script needed:
 
 ```sh
-scripts/profile.sh <label> <bench-regex> [benchtime]
-# e.g.
-scripts/profile.sh jq 'BenchmarkByJQ_vs_Compiled|BenchmarkPick|BenchmarkDedupe' 2s
+go test -run='^$' -bench='BenchmarkByJQ_vs_Compiled|BenchmarkPick|BenchmarkDedupe' \
+  -benchtime=2s -benchmem -cpuprofile=cpu.prof -memprofile=mem.prof ./bench/...
+
+go tool pprof -top -nodecount=30 cpu.prof          # flat CPU time, text
+go tool pprof -top -cum -nodecount=30 cpu.prof     # cumulative CPU time, text
+go tool pprof -top -sample_index=alloc_space mem.prof   # top allocators by bytes
 ```
 
-writes, under `results/<label>.*`:
-- `.cpu.prof` / `.mem.prof` -- raw pprof profiles
-- `.cpu-top.txt` / `.cpu-top-cum.txt` -- flat/cumulative CPU text reports (claude-readable directly)
-- `.mem-top.txt` -- top allocators by bytes
-- `.cpu-graph.svg` -- **the call graph** (`go tool pprof -svg`): boxes are
-  functions, edges are calls, both sized/colored by sample weight -- the
-  "box -> box" graph `go tool pprof`/`-http`/`-web` draws via graphviz
-  (`apt install graphviz` for `dot`, if not already present)
-
-### Flame graph
-
-`go tool pprof` has no CLI flag that renders a flame graph directly (only
-the classic call graph above); the flame graph view only exists inside
-`go tool pprof -http`'s browser UI (client-side d3-flame-graph, no static
-export). `scripts/flamegraph.sh` drives a headless Chromium against that UI
-and screenshots it instead of reimplementing the layout algorithm:
-
-```sh
-scripts/flamegraph.sh <label>     # needs results/<label>.cpu.prof from profile.sh first
-```
-
-writes `results/<label>.flamegraph.png` and `results/<label>.callgraph.png`
-(a PNG of the same call graph as the SVG above, handy if graphviz isn't
-installed). Needs Node + the `playwright` package + a Chromium binary --
-this container has both preinstalled; see the `NODE_PATH`/
-`PLAYWRIGHT_BROWSERS_PATH` exports at the top of the script if running
-elsewhere.
+For the call graph and flame graph, `go tool pprof -http=:0 cpu.prof` opens
+pprof's own web UI in a browser -- the "box -> box" call graph is the
+default view, and the flame graph is one click away (`VIEW` menu). That web
+UI is the standard/canonical way to look at these; it needs no extra
+tooling beyond the Go toolchain itself (a `-svg`/`-png` export of the call
+graph alone is also available and only needs graphviz's `dot` on `PATH`,
+if a static image is preferred over the interactive UI).
 
 ## Design notes
 
