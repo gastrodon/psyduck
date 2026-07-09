@@ -67,7 +67,24 @@ func testPlugin(name string) sdk.Plugin {
 			Name:  "echo",
 			Kinds: sdk.TRANSFORMER,
 			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
-				return func(in []byte) ([]byte, error) { return in, nil }, nil
+				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+					defer close(out)
+					for {
+						select {
+						case msg, ok := <-in:
+							if !ok {
+								return
+							}
+							select {
+							case out <- msg:
+							case <-ctx.Done():
+								return
+							}
+						case <-ctx.Done():
+							return
+						}
+					}
+				}, nil
 			},
 		},
 	)

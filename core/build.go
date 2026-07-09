@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
@@ -49,26 +50,37 @@ func pipelineLogger() *logrus.Logger {
 }
 
 /*
-Join a collection of transformers into a single that applies them in order
-*/
-func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
-	if len(transformers) == 0 {
-		return func(data []byte) ([]byte, error) { return data, nil }
-	}
+composeTransformers joins a collection of transformers into a single one
+that chains them: the first transformer's out feeds the second's in, and so
+on, with every stage sharing one errs channel. Composition happens once at
+build time, so RunPipeline spawns the resulting chain once per run instead
+of recomposing per message.
 
-	if len(transformers) == 1 {
+Zero transformers composes to nil, which RunPipeline treats as "no
+transform stage" and bypasses entirely.
+*/
+func composeTransformers(transformers []sdk.Transformer) sdk.Transformer {
+	switch len(transformers) {
+	case 0:
+		return nil
+	case 1:
 		return transformers[0]
 	}
 
-	tail := len(transformers) - 1
-
-	return func(data []byte) ([]byte, error) {
-		transformed, err := stackTransform(transformers[:tail])(data)
-		if err != nil || transformed == nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		var wg sync.WaitGroup
+		stage := in
+		for _, t := range transformers[:len(transformers)-1] {
+			next := make(chan []byte)
+			wg.Add(1)
+			go func(t sdk.Transformer, in <-chan []byte, out chan<- []byte) {
+				defer wg.Done()
+				t(ctx, in, out, errs)
+			}(t, stage, next)
+			stage = next
 		}
-
-		return transformers[tail](transformed)
+		transformers[len(transformers)-1](ctx, stage, out, errs)
+		wg.Wait()
 	}
 }
 
@@ -148,7 +160,7 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	return &Pipeline{
 		Producers:   producers,
 		Consumers:   consumers,
-		Transformer: stackTransform(transformers),
+		Transformer: composeTransformers(transformers),
 		logger:      logger,
 		StopAfter:   src.StopAfter,
 		ExitOnError: src.ExitOnError,

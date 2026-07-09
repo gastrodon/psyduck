@@ -47,37 +47,39 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 		}
 	}
 
-	transform := pipeline.Transformer
-	if transform == nil {
-		transform = func(msg []byte) ([]byte, error) { return msg, nil }
-	}
-
 	consumers := startSink(ctx, pipeline.Consumers, report)
 
 	delivered := 0
-	for msg, err := range produce(ctx, pipeline.Producers) {
-		if err != nil {
-			report(fmt.Errorf("producer supplied error: %w", err))
-			continue
-		}
+	if pipeline.Transformer == nil {
+		for msg, err := range produce(ctx, pipeline.Producers) {
+			if err != nil {
+				report(fmt.Errorf("producer supplied error: %w", err))
+				continue
+			}
 
-		transformed, err := transform(msg)
-		if err != nil {
-			report(fmt.Errorf("transformer supplied error: %w", err))
-			continue
-		}
-		if transformed == nil {
-			continue // filtered out
-		}
+			if !consumers.send(ctx, msg) {
+				break // every consumer finished, or ctx ended
+			}
 
-		if !consumers.send(ctx, transformed) {
-			break // every consumer finished, or ctx ended
+			delivered++
+			if pipeline.StopAfter > 0 && delivered >= pipeline.StopAfter {
+				break
+			}
 		}
+	} else {
+		stage := startTransform(ctx, pipeline.Transformer, pipeline.Producers, report)
+		for msg := range stage.out {
+			if !consumers.send(ctx, msg) {
+				break // every consumer finished, or ctx ended
+			}
 
-		delivered++
-		if pipeline.StopAfter > 0 && delivered >= pipeline.StopAfter {
-			break
+			delivered++
+			if pipeline.StopAfter > 0 && delivered >= pipeline.StopAfter {
+				break
+			}
 		}
+		stage.cancel()
+		stage.wg.Wait()
 	}
 
 	consumers.close()

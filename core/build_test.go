@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/psyduck-etl/sdk"
 
@@ -50,7 +51,24 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 			Name:  "suffix",
 			Kinds: sdk.TRANSFORMER,
 			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
-				return func(in []byte) ([]byte, error) { return append(in, suffix...), nil }, nil
+				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+					defer close(out)
+					for {
+						select {
+						case msg, ok := <-in:
+							if !ok {
+								return
+							}
+							select {
+							case out <- append(msg, suffix...):
+							case <-ctx.Done():
+								return
+							}
+						case <-ctx.Done():
+							return
+						}
+					}
+				}, nil
 			},
 		},
 	)
@@ -67,36 +85,118 @@ func testResource(pluginID, resource string, kind sdk.Kind, meta sdk.BlockMeta) 
 	}
 }
 
-func Test_stackTransform(t *testing.T) {
+// runComposed feeds inputs through tx synchronously and collects whatever it
+// emits on out and errs, closing in and waiting for out to close. A hang is a
+// test failure, not a timeout to tolerate.
+func runComposed(t *testing.T, tx sdk.Transformer, inputs ...[]byte) ([][]byte, []error) {
+	t.Helper()
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, len(inputs)+1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		tx(context.Background(), in, out, errs)
+	}()
+	go func() {
+		defer close(in)
+		for _, msg := range inputs {
+			in <- msg
+		}
+	}()
+
+	var got [][]byte
+	for msg := range out {
+		got = append(got, msg)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("composed transformer did not finish: hung after closing out")
+	}
+	close(errs)
+	var errsGot []error
+	for e := range errs {
+		errsGot = append(errsGot, e)
+	}
+	return got, errsGot
+}
+
+func Test_composeTransformers(t *testing.T) {
 	appendc := func(c byte) sdk.Transformer {
-		return func(in []byte) ([]byte, error) { return append(in, c), nil }
+		return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+			defer close(out)
+			for {
+				select {
+				case msg, ok := <-in:
+					if !ok {
+						return
+					}
+					select {
+					case out <- append(msg, c):
+					case <-ctx.Done():
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
 	}
 
-	// empty stack is identity
-	out, err := stackTransform(nil)([]byte("x"))
-	if err != nil || string(out) != "x" {
-		t.Fatalf("empty stack: %q, %v", out, err)
+	// empty stack composes to nil, the "no transform stage" bypass signal
+	if composeTransformers(nil) != nil {
+		t.Fatal("empty stack: want nil")
+	}
+
+	// single transformer passes through unwrapped
+	got, _ := runComposed(t, composeTransformers([]sdk.Transformer{appendc('a')}), []byte("_"))
+	if len(got) != 1 || string(got[0]) != "_a" {
+		t.Fatalf("single: %v", got)
 	}
 
 	// applied in declaration order
-	out, err = stackTransform([]sdk.Transformer{appendc('a'), appendc('b'), appendc('c')})([]byte("_"))
-	if err != nil || string(out) != "_abc" {
-		t.Fatalf("order: %q, %v", out, err)
+	got, _ = runComposed(t, composeTransformers([]sdk.Transformer{appendc('a'), appendc('b'), appendc('c')}), []byte("_"))
+	if len(got) != 1 || string(got[0]) != "_abc" {
+		t.Fatalf("order: %v", got)
 	}
 
-	// error propagates and halts the stack
-	boom := func([]byte) ([]byte, error) { return nil, fmt.Errorf("boom") }
-	if _, err := stackTransform([]sdk.Transformer{appendc('a'), boom, appendc('c')})([]byte("_")); err == nil || err.Error() != "boom" {
-		t.Fatalf("want boom, got %v", err)
+	// a stage's error is reported and that message drops, but the chain keeps running
+	boom := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for range in {
+			select {
+			case errs <- fmt.Errorf("boom"):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+	got, errsGot := runComposed(t, composeTransformers([]sdk.Transformer{appendc('a'), boom, appendc('c')}), []byte("_"))
+	if len(got) != 0 {
+		t.Fatalf("boom: want no output, got %v", got)
+	}
+	if len(errsGot) != 1 || errsGot[0].Error() != "boom" {
+		t.Fatalf("boom: want [boom], got %v", errsGot)
 	}
 
-	// nil (filtered) short-circuits later transformers
-	filter := func([]byte) ([]byte, error) { return nil, nil }
+	// a filtering stage (emits nothing) short-circuits later transformers
+	filter := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for range in {
+		}
+	}
 	called := false
-	spy := func(in []byte) ([]byte, error) { called = true; return in, nil }
-	out, err = stackTransform([]sdk.Transformer{filter, spy})([]byte("_"))
-	if err != nil || out != nil || called {
-		t.Fatalf("filter: out=%q called=%v err=%v", out, called, err)
+	spy := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for range in {
+			called = true
+		}
+	}
+	got, _ = runComposed(t, composeTransformers([]sdk.Transformer{filter, spy}), []byte("_"))
+	if len(got) != 0 || called {
+		t.Fatalf("filter: out=%v called=%v", got, called)
 	}
 }
 

@@ -26,14 +26,14 @@ func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("jq: parse expression %q: %w", config.Expression, err)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		v, err := runJQ(query, in)
 		if err != nil {
 			return nil, err
 		}
 
 		return marshalJQ(v)
-	}, nil
+	}), nil
 }
 
 // runJQ compiles and executes a jq expression against JSON-decoded input.

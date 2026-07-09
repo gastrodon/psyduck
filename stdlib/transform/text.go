@@ -44,7 +44,7 @@ func stringTransformer(decode string, onError data.OnError, op func(string) (dat
 		onError = data.Raise
 	}
 	fail := func(err error) ([]byte, error) { return nil, onError(err) }
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		s, err := textString(in, decode)
 		if err != nil {
 			return fail(err)
@@ -57,7 +57,7 @@ func stringTransformer(decode string, onError data.OnError, op func(string) (dat
 			return nil, nil
 		}
 		return out.Bytes(), nil
-	}
+	})
 }
 
 type splitConfig struct {
@@ -107,7 +107,7 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
 			return nil, onError(err)
@@ -121,7 +121,7 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 			parts[i] = e.String()
 		}
 		return []byte(strings.Join(parts, config.Delimiter)), nil
-	}, nil
+	}), nil
 }
 
 type replaceConfig struct {
@@ -283,7 +283,7 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("hash: unknown algorithm %q", config.Algorithm)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		h := newHash()
 		h.Write(in)
 		sum := h.Sum(nil)
@@ -295,5 +295,5 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		default:
 			return nil, fmt.Errorf("hash: unknown output %q", config.Output)
 		}
-	}, nil
+	}), nil
 }

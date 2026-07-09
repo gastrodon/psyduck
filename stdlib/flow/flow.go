@@ -8,7 +8,6 @@ package flow
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
@@ -122,69 +121,100 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 
 // ── transformer gates (shared by the stdlib flow transformers) ──────────────
 
+// mapTransform adapts a per-message function into a channel-based
+// sdk.Transformer: it reads in one message at a time, applies f, and writes
+// any non-nil result to out (a nil result filters the message out),
+// closing out when in closes or ctx ends. Every stdlib transformer built
+// from mapTransform is therefore single-threaded internally, same as the
+// engine's old per-message call — no locking is needed even when f closes
+// over mutable state.
+func mapTransform(f func(in []byte) ([]byte, error)) sdk.Transformer {
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case data, ok := <-in:
+				if !ok {
+					return
+				}
+				transformed, err := f(data)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if transformed == nil {
+					continue
+				}
+				select {
+				case out <- transformed:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
 // Wait sleeps a fixed duration before passing each message through.
 func Wait(ms int) sdk.Transformer {
 	d := time.Duration(ms) * time.Millisecond
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		time.Sleep(d)
 		return in, nil
-	}
+	})
 }
 
 // Throttle rate-limits the stream to perSecond messages, blocking as needed.
 func Throttle(perSecond int) sdk.Transformer {
 	wait := Limiter(0, perSecond)
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		wait()
 		return in, nil
-	}
+	})
 }
 
 // Head passes the first count messages through and drops the rest.
 func Head(count int) sdk.Transformer {
-	var mu sync.Mutex
 	seen := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
+	return mapTransform(func(in []byte) ([]byte, error) {
 		if seen >= count {
 			return nil, nil
 		}
 		seen++
 		return in, nil
-	}
+	})
 }
 
 // Tail drops the first skip messages and passes the rest through.
 func Tail(skip int) sdk.Transformer {
-	var mu sync.Mutex
 	seen := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
+	return mapTransform(func(in []byte) ([]byte, error) {
 		if seen < skip {
 			seen++
 			return nil, nil
 		}
 		return in, nil
-	}
+	})
 }
 
 // Sample keeps one message in every rate (rate <= 1 keeps everything).
 func Sample(rate int) sdk.Transformer {
 	if rate <= 1 {
-		return func(in []byte) ([]byte, error) { return in, nil }
+		return mapTransform(func(in []byte) ([]byte, error) { return in, nil })
 	}
-	var mu sync.Mutex
 	n := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
+	return mapTransform(func(in []byte) ([]byte, error) {
 		keep := n%rate == 0
 		n++
 		if keep {
 			return in, nil
 		}
 		return nil, nil
-	}
+	})
 }

@@ -119,7 +119,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{producer},
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	elapsed := time.Since(start)
@@ -148,7 +148,7 @@ func Test_ConsumerStopAfter_NoDeadlock(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{emitN(100, []byte("x"), nil)},
 		Consumers:   []sdk.Consumer{flow.Consumer(countAll(&got), 0, 0, 3)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   producers,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 				},
 			},
 			Consumers:   []sdk.Consumer{countAll(&got), countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 		}
 	}
 
@@ -278,7 +278,7 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 	if err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{blockForever},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 		StopAfter:   3,
 	}); err != nil {
 		t.Fatal(err)
@@ -323,7 +323,7 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{producer},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
@@ -347,7 +347,7 @@ func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 	if err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{misbehaving},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 		StopAfter:   3,
 	}); err != nil {
 		t.Fatal(err)
@@ -356,5 +356,34 @@ func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 		t.Fatalf("want 3 delivered, got %d", n)
 	}
 	// Note: this test intentionally leaks the misbehaving producer's
+	// goroutine — that's the documented cost of violating the contract.
+}
+
+// Same class as Test_ContractViolatingProducer_EngineStillReturns, but for
+// the transformer stage the channel-contract rewrite introduced: a
+// transformer that ignores ctx and blocks on a bare receive/send loop leaks
+// its own goroutine when abandoned, but RunPipeline itself must still
+// return — startTransform's fire-and-forget launch (see
+// core/transformstage.go) exists specifically so this can't hang the engine.
+func Test_ContractViolatingTransformer_EngineStillReturns(t *testing.T) {
+	misbehaving := func(_ context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		for msg := range in {
+			out <- msg // bare send: parks forever once abandoned
+		}
+	}
+
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   []sdk.Producer{emitForever([]byte("x"))},
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: misbehaving,
+		StopAfter:   3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 3 {
+		t.Fatalf("want 3 delivered, got %d", n)
+	}
+	// Note: this test intentionally leaks the misbehaving transformer's
 	// goroutine — that's the documented cost of violating the contract.
 }
