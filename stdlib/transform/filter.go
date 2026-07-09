@@ -24,7 +24,7 @@ func Filter(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("filter: parse expression %q: %w", config.Expression, err)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		v, err := runJQ(query, in)
 		if err != nil {
 			return nil, err
@@ -40,5 +40,5 @@ func Filter(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 
 		return in, nil // pass through original message
-	}, nil
+	}), nil
 }

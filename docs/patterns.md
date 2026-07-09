@@ -242,7 +242,10 @@ Three ways to group messages, for three different needs:
 | `batch`  | N *messages* into one JSON array | Bulk-writing to an API or queue. |
 
 `chunk` and `every` are codec-aware (they walk your `decode`). `batch` is
-message-scoped: it counts inputs, regardless of their shape.
+message-scoped: it counts inputs, regardless of their shape. A trailing
+partial group — fewer than `size` messages left when the stream ends — is
+still flushed as its own (shorter) array, so no trailing messages are
+silently lost.
 
 ## Flow control layering
 

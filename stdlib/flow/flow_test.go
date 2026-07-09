@@ -186,19 +186,46 @@ func TestConsumerCancelsInnerOnRecvClose(t *testing.T) {
 	<-done
 }
 
-func TestGates(t *testing.T) {
-	count := func(fn sdk.Transformer, n int) int {
-		passed := 0
-		for i := 0; i < n; i++ {
-			out, err := fn([]byte("x"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if out != nil {
-				passed++
-			}
+// runTransformer feeds inputs through tx synchronously and collects
+// whatever it emits, closing in and waiting for out to close. A hang is a
+// test failure, not a timeout to tolerate.
+func runTransformer(t *testing.T, tx sdk.Transformer, inputs [][]byte) [][]byte {
+	t.Helper()
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, len(inputs))
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		tx(t.Context(), in, out, errs)
+	}()
+	go func() {
+		defer close(in)
+		for _, msg := range inputs {
+			in <- msg
 		}
-		return passed
+	}()
+
+	var got [][]byte
+	for msg := range out {
+		got = append(got, msg)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not finish: hung after closing out")
+	}
+	return got
+}
+
+func TestGates(t *testing.T) {
+	count := func(tx sdk.Transformer, n int) int {
+		inputs := make([][]byte, n)
+		for i := range inputs {
+			inputs[i] = []byte("x")
+		}
+		return len(runTransformer(t, tx, inputs))
 	}
 
 	if got := count(Head(2), 5); got != 2 {

@@ -1,8 +1,10 @@
 package transform
 
 import (
+	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/psyduck-etl/sdk"
 )
@@ -35,16 +37,95 @@ func build(t *testing.T, provider func(sdk.Parser) (sdk.Transformer, error), val
 	return fn
 }
 
+// runOne feeds a single message through fn — a fresh in/out/errs channel set
+// per call, so stateful transformers (dedupe, batch, count...) keep their
+// closure state across successive calls the same way successive messages on
+// one long-running channel would. It reports whatever fn emits for that one
+// message (there is at most one, since every stdlib transformer under test
+// here is 1-to-(0 or 1)) and whatever error it reports, without halting the
+// test on either.
+func runOne(t *testing.T, fn sdk.Transformer, in string) (string, error, bool) {
+	t.Helper()
+	inCh := make(chan []byte)
+	outCh := make(chan []byte)
+	errs := make(chan error, 1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(context.Background(), inCh, outCh, errs)
+	}()
+	go func() {
+		defer close(inCh)
+		inCh <- []byte(in)
+	}()
+
+	var out []byte
+	ok := false
+	for msg := range outCh {
+		out, ok = msg, true
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not finish: hung after closing out")
+	}
+
+	var err error
+	select {
+	case err = <-errs:
+	default:
+	}
+
+	if !ok {
+		return "", err, false
+	}
+	return string(out), err, true
+}
+
 func run(t *testing.T, fn sdk.Transformer, in string) (string, bool) {
 	t.Helper()
-	out, err := fn([]byte(in))
+	out, err, ok := runOne(t, fn, in)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if out == nil {
-		return "", false
+	return out, ok
+}
+
+// runAll feeds every input through a single invocation of fn — one shared
+// in/out channel lifetime — and collects everything emitted until out
+// closes. Unlike runOne, this is required for transformers (like Batch) that
+// keep their buffered state as locals of the returned closure itself rather
+// than in the provider's outer scope: those are only meant to be called once
+// per stream, with in staying open across every message.
+func runAll(t *testing.T, fn sdk.Transformer, ins ...string) []string {
+	t.Helper()
+	inCh := make(chan []byte)
+	outCh := make(chan []byte)
+	errs := make(chan error, len(ins)+1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(context.Background(), inCh, outCh, errs)
+	}()
+	go func() {
+		defer close(inCh)
+		for _, in := range ins {
+			inCh <- []byte(in)
+		}
+	}()
+
+	var got []string
+	for msg := range outCh {
+		got = append(got, string(msg))
 	}
-	return string(out), true
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not finish: hung after closing out")
+	}
+	return got
 }
 
 func TestRecode(t *testing.T) {
@@ -173,19 +254,21 @@ func TestText(t *testing.T) {
 }
 
 func TestTextGarbageOnError(t *testing.T) {
+	garbage := string([]byte{0xff, 0xfe})
+
 	// invalid utf-8 with on-error=raise surfaces the error
 	fn, err := Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "raise"}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fn([]byte{0xff, 0xfe}); err == nil {
+	if _, err, _ := runOne(t, fn, garbage); err == nil {
 		t.Error("expected utf-8 error on garbage with on-error=raise")
 	}
 
 	// on-error=drop swallows it
 	fn, _ = Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "drop"}))
-	out, err := fn([]byte{0xff, 0xfe})
-	if err != nil || out != nil {
+	out, err, ok := runOne(t, fn, garbage)
+	if err != nil || ok {
 		t.Errorf("on-error=drop should swallow: out=%q err=%v", out, err)
 	}
 }
@@ -213,14 +296,12 @@ func TestKeyed(t *testing.T) {
 		t.Error("changed value should pass")
 	}
 
-	// batch groups into arrays of size
+	// batch groups into arrays of size — one channel lifetime for both
+	// messages, since Batch's buffer lives in the returned closure itself
+	// and is only meant to be called once per stream.
 	fn = build(t, Batch, map[string]any{"size": 2})
-	if _, ok := run(t, fn, `1`); ok {
-		t.Error("first of batch should buffer")
-	}
-	out, ok := run(t, fn, `2`)
-	if !ok || out != "[1,2]" {
-		t.Errorf("batch flush = %q ok=%v", out, ok)
+	if got := runAll(t, fn, `1`, `2`); len(got) != 1 || got[0] != "[1,2]" {
+		t.Errorf("batch flush = %v", got)
 	}
 }
 
@@ -261,10 +342,10 @@ func TestFlow(t *testing.T) {
 
 func TestAssertCount(t *testing.T) {
 	fn, _ := Assert(psyParser(map[string]any{"expression": ".ok", "message": "not ok"}))
-	if _, err := fn([]byte(`{"ok":true}`)); err != nil {
+	if _, err, _ := runOne(t, fn, `{"ok":true}`); err != nil {
 		t.Errorf("assert true errored: %v", err)
 	}
-	if _, err := fn([]byte(`{"ok":false}`)); err == nil {
+	if _, err, _ := runOne(t, fn, `{"ok":false}`); err == nil {
 		t.Error("assert false should error")
 	}
 

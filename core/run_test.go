@@ -90,6 +90,43 @@ func staticSource(ps ...sdk.Producer) ProducerSource {
 	}
 }
 
+// testMapTransform adapts a per-message function into the channel-based
+// sdk.Transformer contract: a (nil, nil) result filters the message out, an
+// error is reported on errs (skipping that message) without halting the
+// stream, mirroring stdlib's own mapTransform helper.
+func testMapTransform(f func(msg []byte) ([]byte, error)) sdk.Transformer {
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				transformed, err := f(msg)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if transformed == nil {
+					continue
+				}
+				select {
+				case out <- transformed:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
 func Test_RunPipeline(t *testing.T) {
 	cases := []struct {
 		name                 string
@@ -118,12 +155,12 @@ func Test_RunPipeline(t *testing.T) {
 				consumers[i] = countAll(&got[i])
 			}
 
-			transform := func(msg []byte) ([]byte, error) { return msg, nil }
+			transform := testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil })
 			if tc.delay {
-				transform = func(msg []byte) ([]byte, error) {
+				transform = testMapTransform(func(msg []byte) ([]byte, error) {
 					time.Sleep(time.Millisecond)
 					return msg, nil
-				}
+				})
 			}
 
 			err := mustRun(t, t.Context(), &Pipeline{
@@ -163,12 +200,12 @@ func Test_RunPipeline_filtering(t *testing.T) {
 		}),
 		Parallel:  1,
 		Consumers: []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) {
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) {
 			if msg[0]%2 == 0 {
 				return nil, nil // filtered
 			}
 			return msg, nil
-		},
+		}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +228,7 @@ func Test_RunPipeline_cancel(t *testing.T) {
 		Producers:   staticSource(emitForever([]byte("x"))),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
@@ -216,7 +253,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(erroring("producer")),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) {
@@ -233,7 +270,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(erroring("producer")),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 		})
 		if err != nil {
 			t.Fatalf("errors are logged, not returned, without exit-on-error: %v", err)
@@ -249,7 +286,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(emitN(10, []byte("x"), nil)),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return nil, boom },
+			Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return nil, boom }),
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "transformer supplied error") {
@@ -269,7 +306,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(emitN(10, []byte("x"), nil)),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{consume},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "consumer supplied error") {

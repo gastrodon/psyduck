@@ -25,8 +25,8 @@ func Inspect(parse sdk.Parser) (sdk.Transformer, error) {
 		out = os.Stderr
 	}
 
-	return func(data []byte) ([]byte, error) {
-		fmt.Fprintf(out, "%s%s\n", config.Prefix, data)
-		return data, nil
-	}, nil
+	return mapTransform(func(in []byte) ([]byte, error) {
+		fmt.Fprintf(out, "%s%s\n", config.Prefix, in)
+		return in, nil
+	}), nil
 }

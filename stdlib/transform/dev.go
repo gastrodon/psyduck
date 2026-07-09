@@ -3,7 +3,6 @@ package transform
 import (
 	"fmt"
 	"strconv"
-	"sync"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/psyduck-etl/sdk/data"
@@ -31,7 +30,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 		msg = "assertion failed"
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
 			return nil, err
@@ -44,7 +43,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 			return nil, fmt.Errorf("%s: %s", msg, config.Expression)
 		}
 		return in, nil
-	}, nil
+	}), nil
 }
 
 func falsey(v data.Value) bool {
@@ -77,16 +76,13 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 		every = 1
 	}
 
-	var mu sync.Mutex
 	n := 0
 
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
+	return mapTransform(func(in []byte) ([]byte, error) {
 		n++
 		if n%every != 0 {
 			return in, nil
 		}
 		return []byte(config.Prefix + strconv.Itoa(n)), nil
-	}, nil
+	}), nil
 }

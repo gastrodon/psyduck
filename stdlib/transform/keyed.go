@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/psyduck-etl/sdk"
@@ -73,7 +74,7 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 	seen := make(map[string]struct{}, window)
 	ring := make([]string, 0, window)
 
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		key, ok, err := k.key(in)
 		if err != nil {
 			return nil, err
@@ -91,7 +92,7 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 		seen[key] = struct{}{}
 		ring = append(ring, key)
 		return in, nil
-	}, nil
+	}), nil
 }
 
 // ── uniq ───────────────────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 	var last string
 	var have bool
 
-	return func(in []byte) ([]byte, error) {
+	return mapTransform(func(in []byte) ([]byte, error) {
 		key, ok, err := k.key(in)
 		if err != nil {
 			return nil, err
@@ -130,7 +131,7 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		last, have = key, true
 		return in, nil
-	}, nil
+	}), nil
 }
 
 // ── batch ──────────────────────────────────────────────────────────────────
@@ -139,10 +140,9 @@ type batchConfig struct {
 	Size int `psy:"size"`
 }
 
-// Batch collects `size` messages and emits them as a single JSON array. The
-// final partial batch is flushed when the stream ends — but transformers have
-// no end-of-stream hook, so a short trailing batch is emitted only once size is
-// reached. Use size to bound memory.
+// Batch collects `size` messages and emits them as a single JSON array. A
+// final partial batch — shorter than size — is flushed when the stream ends,
+// so no trailing messages are lost. Use size to bound memory.
 func Batch(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(batchConfig)
 	if err := parse(config); err != nil {
@@ -153,19 +153,51 @@ func Batch(parse sdk.Parser) (sdk.Transformer, error) {
 		size = 1
 	}
 
-	buf := make(data.List, 0, size)
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		buf := make(data.List, 0, size)
 
-	return func(in []byte) ([]byte, error) {
-		v, err := data.Decode(in, "json")
-		if err != nil {
-			v = data.Bytes(in)
+		emit := func() bool {
+			b, err := data.Encode(buf, "json")
+			buf = make(data.List, 0, size)
+			if err != nil {
+				select {
+				case errs <- err:
+				case <-ctx.Done():
+					return false
+				}
+				return true
+			}
+			select {
+			case out <- b:
+			case <-ctx.Done():
+				return false
+			}
+			return true
 		}
-		buf = append(buf, v)
-		if len(buf) < size {
-			return nil, nil
+
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					if len(buf) > 0 {
+						emit()
+					}
+					return
+				}
+				v, err := data.Decode(msg, "json")
+				if err != nil {
+					v = data.Bytes(msg)
+				}
+				buf = append(buf, v)
+				if len(buf) >= size {
+					if !emit() {
+						return
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		b, err := data.Encode(buf, "json")
-		buf = make(data.List, 0, size)
-		return b, err
 	}, nil
 }
