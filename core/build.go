@@ -109,6 +109,16 @@ BuildPipeline turns a parsed pipeline description into a runnable Pipeline.
 
 Each binding is resolved against its owning plugin, wrapped with host-owned
 BlockMeta behavior, and joined with its siblings.
+
+Producers come in two shapes. A literal pipeline drains its producer
+stream eagerly, exactly like consumers and transformers. A pipeline with a
+produce-from seed (or a parallel-producers cap) instead gets a single meta
+producer: the first chunk of the stream is still drained and bound here —
+so a dead seed, an unknown plugin, or a broken config errors at build time
+— but everything after rides the stream lazily, letting the seed keep
+delivering new producers for as long as the pipeline runs (see
+metaProducer in meta.go). Bind errors past the first chunk consequently
+surface at run time, through the pipeline's error reporting.
 */
 func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) {
 	logger := pipelineLogger()
@@ -119,7 +129,24 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	}
 
 	producers := make([]sdk.Producer, 0)
-	if err := drain(ctx, src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
+	if src.Spec.RemoteSeed != nil || src.ParallelProducers > 0 {
+		peek, err := src.Producers(ctx, bindChunk)
+		if err != nil {
+			return nil, err
+		}
+		if len(peek) == 0 {
+			return nil, fmt.Errorf("%s: pipeline %q has no producers", src.Origin, src.Name)
+		}
+		bootstrap := make([]sdk.Producer, 0, len(peek))
+		for _, b := range peek {
+			p, err := bindProducer(b, lookup)
+			if err != nil {
+				return nil, err
+			}
+			bootstrap = append(bootstrap, p)
+		}
+		producers = append(producers, metaProducer(bootstrap, src.Producers, lookup, src.ParallelProducers, logger))
+	} else if err := drain(ctx, src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		producers = append(producers, flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter))
 	}); err != nil {
 		return nil, err

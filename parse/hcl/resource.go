@@ -228,7 +228,23 @@ func makePipeline(
 		if !ok {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: unknown produce-from reference %q", name, v.AsString())
 		}
-		pipe.Producers = remoteBindings(seed, ix, localsCtx)
+		timeout := remoteFirstMessageTimeout
+		if attr, ok := content.Attributes["produce-from-timeout"]; ok {
+			tv, diags := attr.Expr.Value(localsCtx)
+			if diags.HasErrors() {
+				return parse.Pipeline{}, diags
+			}
+			converted, err := convert.Convert(tv, cty.Number)
+			if err != nil {
+				return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-timeout: %w", name, err)
+			}
+			secs, _ := converted.AsBigFloat().Int64()
+			if secs < 0 {
+				return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-timeout: must be non-negative", name)
+			}
+			timeout = time.Duration(secs) * time.Second
+		}
+		pipe.Producers = remoteBindings(seed, ix, localsCtx, timeout)
 		pipe.Spec.RemoteSeed = &seed
 	default:
 		return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: produce or produce-from is required", name, origin)
@@ -259,6 +275,22 @@ func makePipeline(
 		pipe.ExitOnError = converted.True()
 	}
 
+	if attr, ok := content.Attributes["parallel-producers"]; ok {
+		v, diags := attr.Expr.Value(localsCtx)
+		if diags.HasErrors() {
+			return parse.Pipeline{}, diags
+		}
+		converted, err := convert.Convert(v, cty.Number)
+		if err != nil {
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: parallel-producers: %w", name, err)
+		}
+		n, _ := converted.AsBigFloat().Int64()
+		if n < 0 {
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: parallel-producers: must be non-negative", name)
+		}
+		pipe.ParallelProducers = int(n)
+	}
+
 	return pipe, nil
 }
 
@@ -266,72 +298,220 @@ func makePipeline(
 // Dynamic producers (produce-from)
 // ---------------------------------------------------------------------------
 
-// remoteTimeout bounds drainSeed when the caller's context carries no
-// deadline of its own; a caller-supplied deadline always wins.
-const remoteTimeout = 10 * time.Second
+// remoteFirstMessageTimeout guards how long we wait for a seed producer to
+// emit its first message. After the first message arrives the seed is
+// considered alive and may stay quiet between messages for arbitrarily
+// long — a socket-listener seed, for example. This is the default used
+// when a pipeline doesn't set produce-from-timeout; the attribute (in
+// seconds, 0 meaning wait indefinitely) overrides it per-pipeline.
+const remoteFirstMessageTimeout = 10 * time.Second
+
+// seedResult is one delivery from the seed producer: a parsed message's
+// bindings (possibly empty), or an error terminating the stream.
+type seedResult struct {
+	bindings []parse.Resource
+	err      error
+}
 
 // remoteBindings hides a dynamic producer behind the ordinary Bindings
-// stream: on first drain it binds and runs the seed producer, takes its
-// first message, parses it as HCL produce blocks, and yields the resulting
-// bindings. Core cannot tell these apart from literal producers.
+// stream: the first drain binds and runs the seed producer, and every
+// message the seed sends is parsed as HCL produce blocks and yielded as
+// bindings. Core cannot tell these apart from literal producers, except
+// that a call may block for as long as the seed stays quiet — waiting is
+// bounded by the call's ctx, so callers that cannot wait must bring a
+// deadline.
 //
-// TODO stream: today only the first message is consumed, matching the old
-// collectProducer behavior. A future revision can keep draining messages.
-func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) parse.ResourceFunc {
-	var yield parse.ResourceFunc
-	return func(ctx context.Context, max int) ([]parse.Resource, error) {
-		if yield == nil {
-			bindings, err := drainSeed(ctx, seed, ix, localsCtx)
-			if err != nil {
-				return nil, err
-			}
-			yield = parse.LiteralResourceFunc(bindings...)
+// The seed keeps running until it closes its send channel (natural
+// exhaustion), fails, or the stream is torn down. The seed's lifetime is
+// anchored to the ctx of the call that starts it (BuildPipeline's, in
+// practice); any terminal return — exhaustion, error, a dead per-call ctx,
+// or an explicit max < 1 release — stops the seed and joins its goroutine
+// before returning, so no path leaves it running unobserved.
+func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext, timeout time.Duration) parse.ResourceFunc {
+	var (
+		results chan seedResult
+		stop    context.CancelFunc
+		buf     []parse.Resource
+		done    bool
+		gotAny  bool // at least one message arrived; see closed-without-sending below
+	)
+
+	// finish tears the stream down: cancel the seed's ctx and join runSeed
+	// by draining results until it closes. Idempotent; a no-op if the seed
+	// never started.
+	finish := func() {
+		done = true
+		if stop == nil {
+			return
 		}
-		return yield(ctx, max)
+		stop()
+		for range results {
+		}
+		stop = nil
+	}
+
+	return func(ctx context.Context, max int) ([]parse.Resource, error) {
+		if max < 1 {
+			finish()
+			buf = nil
+			return nil, nil
+		}
+		if done {
+			if n := min(max, len(buf)); n > 0 {
+				chunk := buf[:n]
+				buf = buf[n:]
+				return chunk, nil
+			}
+			return nil, nil
+		}
+		if err := ctx.Err(); err != nil {
+			finish()
+			return nil, fmt.Errorf("produce-from %s: waiting for remote producer: %w", seed.Ref, err)
+		}
+
+		if stop == nil {
+			// first drain: the seed runs under its own ctx derived from this
+			// call's, living across calls until finish or that ctx ends
+			var seedCtx context.Context
+			seedCtx, stop = context.WithCancel(ctx)
+			results = make(chan seedResult)
+			go runSeed(seedCtx, seed, ix, localsCtx, timeout, results)
+		}
+
+		for len(buf) == 0 {
+			select {
+			case <-ctx.Done():
+				finish()
+				return nil, fmt.Errorf("produce-from %s: waiting for remote producer: %w", seed.Ref, ctx.Err())
+			case r, ok := <-results:
+				if !ok {
+					// Regression guard for #8: a seed that closes without
+					// ever sending is an error, not an empty config.
+					if !gotAny {
+						finish()
+						return nil, fmt.Errorf("produce-from %s: seed producer closed without sending", seed.Ref)
+					}
+					finish()
+					return nil, nil
+				}
+				if r.err != nil {
+					finish()
+					return nil, r.err
+				}
+				gotAny = true
+				buf = append(buf, r.bindings...)
+			}
+		}
+
+		n := min(max, len(buf))
+		chunk := buf[:n]
+		buf = buf[n:]
+		return chunk, nil
 	}
 }
 
-// drainSeed binds and runs the seed producer, takes its first message, and
-// parses it as HCL produce blocks. Bounded by ctx's deadline, falling back
-// to remoteTimeout when ctx has none.
-func drainSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext) ([]parse.Resource, error) {
+// runSeed binds and runs the seed producer, parses every message it sends
+// into produce bindings, and delivers them on out. It exits on ctx, on the
+// first error, or when the seed closes its send channel — errors the seed
+// emits between closing send and returning are still delivered, matching
+// the engine's guarantee in core. Closes out on exit so the caller
+// observes EOS. timeout guards the wait for the first message that
+// actually declares producers — messages declaring none are skipped and
+// leave the guard armed; 0 disables the guard. As everywhere else, a seed
+// that ignores ctx can leak its own goroutine — but never runSeed itself,
+// whose every send and receive also selects on ctx.
+func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext, timeout time.Duration, out chan<- seedResult) {
+	defer close(out)
+
+	deliver := func(r seedResult) bool {
+		select {
+		case out <- r:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+
 	plugin, ok := ix.plugins[seed.PluginID]
 	if !ok {
-		return nil, fmt.Errorf("produce-from %s: plugin %q not loaded", seed.Ref, seed.PluginID)
+		deliver(seedResult{err: fmt.Errorf("produce-from %s: plugin %q not loaded", seed.Ref, seed.PluginID)})
+		return
 	}
 
 	instance, err := plugin.Bind(sdk.PRODUCER, seed.Resource.Name, seed.Block)
 	if err != nil {
-		return nil, fmt.Errorf("produce-from %s: failed to bind: %w", seed.Ref, err)
+		deliver(seedResult{err: fmt.Errorf("produce-from %s: failed to bind: %w", seed.Ref, err)})
+		return
 	}
 	defer instance.Close()
 
-	if _, has := ctx.Deadline(); !has {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, remoteTimeout)
-		defer cancel()
-	}
-
 	send, errs := make(chan []byte), make(chan error)
-	go instance.Produce(ctx, send, errs)
+	returned := make(chan struct{}) // closed when the seed function returns
+	go func() {
+		defer close(returned)
+		instance.Produce(ctx, send, errs)
+	}()
+
+	var deadline <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		deadline = timer.C
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			return nil, fmt.Errorf("produce-from %s: waiting for remote producer: %w", seed.Ref, ctx.Err())
+			return
+		case <-deadline:
+			deliver(seedResult{err: fmt.Errorf("produce-from %s: timeout waiting for remote producer", seed.Ref)})
+			return
 		case err, ok := <-errs:
 			if !ok {
 				errs = nil // closed; stop selecting on it
 				continue
 			}
 			if err != nil {
-				return nil, fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)
+				deliver(seedResult{err: fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)})
+				return
 			}
 		case msg, ok := <-send:
 			if !ok {
-				return nil, fmt.Errorf("produce-from %s: seed producer closed without sending", seed.Ref)
+				// The seed finished. Errors sent after the data close are
+				// still owed delivery: wait for the seed function to return
+				// (after which no sender can exist) and drain errs.
+				select {
+				case <-returned:
+				case <-ctx.Done():
+					return
+				}
+				for {
+					select {
+					case err, ok := <-errs:
+						if !ok {
+							return
+						}
+						if err != nil {
+							deliver(seedResult{err: fmt.Errorf("produce-from %s: remote producer error: %w", seed.Ref, err)})
+							return
+						}
+					default:
+						return
+					}
+				}
 			}
-			return parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
+			bindings, err := parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
+			if err != nil {
+				deliver(seedResult{err: err})
+				return
+			}
+			if len(bindings) == 0 {
+				continue // nothing declared; the first-message guard stays armed
+			}
+			deadline = nil // the seed has yielded producers; it is alive
+			if !deliver(seedResult{bindings: bindings}) {
+				return
+			}
 		}
 	}
 }

@@ -58,6 +58,8 @@ var pipelineSchema = &hcl.BodySchema{
 		{Name: "transform"},
 		{Name: "stop-after"},
 		{Name: "exit-on-error"},
+		{Name: "parallel-producers"},
+		{Name: "produce-from-timeout"},
 	},
 }
 

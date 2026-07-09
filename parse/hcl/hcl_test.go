@@ -784,7 +784,7 @@ func TestParseProduceFromClosedSeed(t *testing.T) {
 
 // Draining a produce-from stream is bounded by the caller's ctx, not only
 // by the builtin timeout. The seed honors ctx like a well-behaved plugin
-// should — it's drainSeed's own ctx.Done() handling under test here, not
+// should — it's the stream's own ctx.Done() handling under test here, not
 // resilience against a non-cooperating plugin (that's core's job, see
 // core/regression_test.go).
 func TestParseProduceFromCancel(t *testing.T) {
@@ -803,5 +803,207 @@ func TestParseProduceFromCancel(t *testing.T) {
 	_, err = result["main"].Producers(ctx, 4)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("want deadline error, got %v", err)
+	}
+}
+
+func TestParseProduceFromStream(t *testing.T) {
+	// a seed that emits multiple messages, each defining new produce
+	// blocks. Every message should surface on the Producers stream.
+	values := []string{"one", "two", "three"}
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		for _, v := range values {
+			send <- fmt.Appendf(nil, `produce "constant" "remote" { value = %q }`, v)
+		}
+		close(send)
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	if len(producers) != len(values) {
+		t.Fatalf("want %d streamed remote producers, got %d", len(values), len(producers))
+	}
+	for i, b := range producers {
+		opts := new(constantOpts)
+		if err := b.Block.Decode(opts); err != nil {
+			t.Fatalf("producer %d decode: %s", i, err)
+		}
+		if opts.Value != values[i] {
+			t.Fatalf("producer %d value: got %q, want %q", i, opts.Value, values[i])
+		}
+	}
+}
+
+// Messages that declare no producers are skipped, not treated as the
+// stream's first delivery — the bindings from a later message still arrive.
+func TestParseProduceFromEmptyMessage(t *testing.T) {
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		send <- []byte(`# nothing declared`)
+		send <- []byte(`produce "constant" "remote" { value = "real" }`)
+		close(send)
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	if len(producers) != 1 {
+		t.Fatalf("want 1 remote producer, got %d", len(producers))
+	}
+}
+
+// Calling the stream with max < 1 releases it: the seed producer is
+// stopped and later drains observe exhaustion.
+func TestParseProduceFromRelease(t *testing.T) {
+	stopped := make(chan struct{})
+	seed := seedPlugin(func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		select {
+		case send <- []byte(`produce "constant" "remote" { value = "x" }`):
+		case <-ctx.Done():
+			close(stopped)
+			return
+		}
+		<-ctx.Done()
+		close(stopped)
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream := result["main"].Producers
+	chunk, err := stream(t.Context(), 4)
+	if err != nil || len(chunk) != 1 {
+		t.Fatalf("first drain: got %d resources, err %v", len(chunk), err)
+	}
+
+	if _, err := stream(t.Context(), 0); err != nil {
+		t.Fatalf("release: %s", err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("seed producer not stopped by release")
+	}
+
+	chunk, err = stream(t.Context(), 4)
+	if err != nil || chunk != nil {
+		t.Fatalf("drain after release: got %v, err %v; want exhaustion", chunk, err)
+	}
+}
+
+func TestParseParallelProducers(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce            = [produce.constant.p]
+		consume            = [trash.t]
+		parallel-producers = 3
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result["main"].ParallelProducers; got != 3 {
+		t.Fatalf("ParallelProducers: got %d, want 3", got)
+	}
+}
+
+func TestParseParallelProducersNegative(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce            = [produce.constant.p]
+		consume            = [trash.t]
+		parallel-producers = -1
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "parallel-producers") {
+		t.Fatalf("want parallel-producers error, got: %v", err)
+	}
+}
+
+func TestParseProduceFromTimeout(t *testing.T) {
+	// a seed that never sends should trip the configured
+	// produce-from-timeout, rather than the 10-second default.
+	seed := seedPlugin(func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		<-ctx.Done() // never sends
+	})
+
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from         = produce.seed.s
+		consume              = [trash.t]
+		produce-from-timeout = 1
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = result["main"].Producers(t.Context(), 4)
+	if err == nil || !strings.Contains(err.Error(), "timeout waiting for remote producer") {
+		t.Fatalf("want timeout error, got: %v", err)
+	}
+}
+
+func TestParseProduceFromTimeoutZero(t *testing.T) {
+	// produce-from-timeout = 0 disables the first-message timeout entirely.
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		time.Sleep(1200 * time.Millisecond)
+		send <- []byte(`produce "constant" "remote" { value = "late" }`)
+		close(send)
+	})
+
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from         = produce.seed.s
+		consume              = [trash.t]
+		produce-from-timeout = 0
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	if len(producers) != 1 {
+		t.Fatalf("want 1 remote producer, got %d", len(producers))
+	}
+}
+
+func TestParseProduceFromTimeoutNegative(t *testing.T) {
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from         = produce.seed.s
+		consume              = [trash.t]
+		produce-from-timeout = -1
+	}
+	`)
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) { close(send) })
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err == nil || !strings.Contains(err.Error(), "produce-from-timeout") {
+		t.Fatalf("want produce-from-timeout error, got: %v", err)
 	}
 }
