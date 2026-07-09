@@ -25,6 +25,7 @@ func Constant(parse sdk.Parser) (sdk.Producer, error) {
 		for i := 0; config.StopAfter == 0 || i < config.StopAfter; i++ {
 			select {
 			case send <- value:
+				continue
 			case <-ctx.Done():
 				return
 			}

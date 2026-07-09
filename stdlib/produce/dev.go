@@ -118,6 +118,7 @@ func Ticker(parse sdk.Parser) (sdk.Producer, error) {
 			}
 			select {
 			case <-tick.C:
+				continue
 			case <-ctx.Done():
 				return
 			}

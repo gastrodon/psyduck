@@ -115,6 +115,7 @@ func listenPacket(location string, d transport.Delimit) sdk.Producer {
 			copy(msg, buf[:n])
 			select {
 			case send <- msg:
+				continue
 			case <-ctx.Done():
 				return
 			}

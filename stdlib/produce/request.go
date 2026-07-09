@@ -48,6 +48,7 @@ func Request(parse sdk.Parser) (sdk.Producer, error) {
 			if interval > 0 {
 				select {
 				case <-time.After(interval):
+					continue
 				case <-ctx.Done():
 					return
 				}

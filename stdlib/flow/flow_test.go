@@ -97,6 +97,7 @@ func TestConsumer(t *testing.T) {
 			for i := 0; i < feed; i++ {
 				select {
 				case recv <- []byte{byte(i)}:
+					continue
 				case <-stop:
 					return
 				}

@@ -51,7 +51,9 @@ func mustStop(t *testing.T, p func(context.Context, chan<- []byte, chan<- error)
 	for {
 		select {
 		case <-send:
+			continue
 		case <-errs:
+			continue
 		case <-done:
 			return
 		case <-deadline:

@@ -266,6 +266,7 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 		for {
 			select {
 			case send <- []byte("x"):
+				continue
 			case <-ctx.Done():
 				return
 			}

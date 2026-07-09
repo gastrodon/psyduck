@@ -43,6 +43,7 @@ func constantProducer(parse sdk.Parser) (sdk.Producer, error) {
 		for i := 0; config.Count == 0 || i < config.Count; i++ {
 			select {
 			case send <- value:
+				continue
 			case <-ctx.Done():
 				return
 			}

@@ -76,6 +76,7 @@ func (s *sink) send(ctx context.Context, msg []byte) bool {
 		}
 		select {
 		case s.ins[i] <- msg:
+			continue
 		case <-s.dones[i]:
 			s.finished[i] = true
 			s.live--
@@ -107,6 +108,7 @@ func (s *sink) flush(ctx context.Context) {
 		}
 		select {
 		case <-s.dones[i]:
+			continue
 		case <-ctx.Done():
 			return
 		}
