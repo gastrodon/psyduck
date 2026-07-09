@@ -112,7 +112,7 @@ BlockMeta behavior, and joined with its siblings.
 
 Producers come in two shapes. A literal pipeline drains its producer
 stream eagerly, exactly like consumers and transformers. A pipeline with a
-produce-from seed (or a parallel-producers cap) instead gets a single meta
+produce-from seed (or a produce-from-parallel cap) instead gets a single meta
 producer: the first chunk of the stream is still drained and bound here —
 so a dead seed, an unknown plugin, or a broken config errors at build time
 — but everything after rides the stream lazily, letting the seed keep
@@ -129,7 +129,7 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	}
 
 	producers := make([]sdk.Producer, 0)
-	if src.Spec.RemoteSeed != nil || src.ParallelProducers > 0 {
+	if src.Spec.RemoteSeed != nil || src.ProduceFromParallel > 0 {
 		peek, err := src.Producers(ctx, bindChunk)
 		if err != nil {
 			return nil, err
@@ -145,7 +145,7 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 			}
 			bootstrap = append(bootstrap, p)
 		}
-		producers = append(producers, metaProducer(bootstrap, src.Producers, lookup, src.ParallelProducers, logger))
+		producers = append(producers, metaProducer(bootstrap, src.Producers, lookup, src.ProduceFromParallel, logger))
 	} else if err := drain(ctx, src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		producers = append(producers, flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter))
 	}); err != nil {

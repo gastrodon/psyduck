@@ -89,7 +89,7 @@ pipeline "hello" {
 | `transform` | list of refs | transformers, applied in order |
 | `stop-after` | int | pipeline-level stop count |
 | `exit-on-error` | bool | stop the pipeline on the first error |
-| `parallel-producers` | int | cap on concurrently-running producers (0 = all at once, the default) |
+| `produce-from-parallel` | int | cap on concurrently-running producers (0 = all at once, the default) |
 | `produce-from-timeout` | int | seconds to wait for the `produce-from` seed's first producers (0 = wait indefinitely, default 10) |
 
 Exactly one of `produce` / `produce-from` describes the producer set.
@@ -199,7 +199,7 @@ The seed can be any producer, so the config may come from anywhere a
 producer can read: a file, a socket, an HTTP response — anything the stdlib
 or a plugin exposes.
 
-Combine with `parallel-producers` to bound how many producers run at once:
+Combine with `produce-from-parallel` to bound how many producers run at once:
 producers run in waves of at most that many, each wave drawn (in arrival
 order) from everything delivered so far, and the next wave starts once the
 current one is exhausted.

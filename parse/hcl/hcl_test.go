@@ -901,38 +901,38 @@ func TestParseProduceFromRelease(t *testing.T) {
 	}
 }
 
-func TestParseParallelProducers(t *testing.T) {
+func TestParseProduceFromParallel(t *testing.T) {
 	entry, load := src(`
 	produce "constant" "p" { value = "x" }
 	consume "trash" "t" {}
 	pipeline "main" {
-		produce            = [produce.constant.p]
-		consume            = [trash.t]
-		parallel-producers = 3
+		produce              = [produce.constant.p]
+		consume              = [trash.t]
+		produce-from-parallel = 3
 	}
 	`)
 	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := result["main"].ParallelProducers; got != 3 {
-		t.Fatalf("ParallelProducers: got %d, want 3", got)
+	if got := result["main"].ProduceFromParallel; got != 3 {
+		t.Fatalf("ProduceFromParallel: got %d, want 3", got)
 	}
 }
 
-func TestParseParallelProducersNegative(t *testing.T) {
+func TestParseProduceFromParallelNegative(t *testing.T) {
 	entry, load := src(`
 	produce "constant" "p" { value = "x" }
 	consume "trash" "t" {}
 	pipeline "main" {
-		produce            = [produce.constant.p]
-		consume            = [trash.t]
-		parallel-producers = -1
+		produce              = [produce.constant.p]
+		consume              = [trash.t]
+		produce-from-parallel = -1
 	}
 	`)
 	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
-	if err == nil || !strings.Contains(err.Error(), "parallel-producers") {
-		t.Fatalf("want parallel-producers error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "produce-from-parallel") {
+		t.Fatalf("want produce-from-parallel error, got: %v", err)
 	}
 }
 
