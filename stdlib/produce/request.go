@@ -1,6 +1,7 @@
 package produce
 
 import (
+	"context"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
@@ -25,20 +26,31 @@ func Request(parse sdk.Parser) (sdk.Producer, error) {
 	}
 	interval := time.Duration(config.IntervalMs) * time.Millisecond
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
 		client := h.Client()
 		for {
-			data, err := h.Do(client, body)
+			data, err := h.Do(ctx, client, body)
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				errs <- err
 				return
 			}
-			send <- data
+			select {
+			case send <- data:
+			case <-ctx.Done():
+				return
+			}
 			if interval > 0 {
-				time.Sleep(interval)
+				select {
+				case <-time.After(interval):
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
 	}, nil

@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func TestLimiter(t *testing.T) {
 
 func TestProducer(t *testing.T) {
 	emit := func(n int) sdk.Producer {
-		return func(send chan<- []byte, errs chan<- error) {
+		return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 			for i := 0; i < n; i++ {
 				send <- []byte{byte(i)}
 			}
@@ -40,7 +41,7 @@ func TestProducer(t *testing.T) {
 	}
 	recvAll := func(p sdk.Producer) [][]byte {
 		send, errs := make(chan []byte), make(chan error)
-		go p(send, errs)
+		go p(t.Context(), send, errs)
 		got := [][]byte{}
 		for msg := range send {
 			got = append(got, msg)
@@ -80,7 +81,7 @@ func TestProducer(t *testing.T) {
 func TestConsumer(t *testing.T) {
 	run := func(perMinute, stopAfter, feed int) int {
 		count := 0
-		consume := func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		consume := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 			for range recv {
 				count++
 			}
@@ -88,7 +89,7 @@ func TestConsumer(t *testing.T) {
 		}
 
 		recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
-		go Consumer(consume, perMinute, 0, stopAfter)(recv, errs, done)
+		go Consumer(consume, perMinute, 0, stopAfter)(t.Context(), recv, errs, done)
 
 		stop := make(chan struct{})
 		go func() {

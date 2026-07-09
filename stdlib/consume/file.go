@@ -1,12 +1,29 @@
 package consume
 
 import (
+	"context"
 	"fmt"
+	"io"
 
 	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib/transport"
 )
+
+// closeOnDone closes c the moment ctx ends, unless the returned stop fires
+// first. It exists to unblock a synchronous, otherwise uncancellable Write()
+// on a writer/connection when the consumer's ctx is cancelled.
+func closeOnDone(ctx context.Context, c io.Closer) (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			c.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
 
 type fileConfig struct {
 	Location     string  `psy:"location"`
@@ -42,7 +59,7 @@ func File(parse sdk.Parser) (sdk.Consumer, error) {
 		return nil, err
 	}
 
-	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
 
@@ -53,13 +70,19 @@ func File(parse sdk.Parser) (sdk.Consumer, error) {
 		}
 		defer wc.Close()
 
+		stop := closeOnDone(ctx, wc)
+		defer stop()
+
 		joiner := d.Joiner(wc)
 		for msg := range recv {
 			if err := joiner.Write(msg); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				errs <- err
 			}
 		}
-		if err := joiner.Close(); err != nil {
+		if err := joiner.Close(); err != nil && ctx.Err() == nil {
 			errs <- err
 		}
 	}, nil

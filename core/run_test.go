@@ -32,7 +32,7 @@ func mustRun(t *testing.T, ctx context.Context, p *Pipeline) error {
 // emitN produces count copies of payload, counting sends, closing both
 // channels on the way out like the stdlib producers do.
 func emitN(count int, payload []byte, sent *atomic.Int64) sdk.Producer {
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 		for i := 0; i < count; i++ {
@@ -45,9 +45,12 @@ func emitN(count int, payload []byte, sent *atomic.Int64) sdk.Producer {
 }
 
 // emitForever produces payload until nothing receives anymore. It closes
-// neither channel — it never finishes on its own.
+// neither channel and deliberately ignores ctx — it never finishes on its
+// own, unlike a well-behaved plugin. Tests use it to prove RunPipeline
+// itself bounds StopAfter/cancellation rather than relying on plugin
+// cooperation with the sdk's context contract.
 func emitForever(payload []byte) sdk.Producer {
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 		for {
 			send <- payload
 		}
@@ -56,7 +59,7 @@ func emitForever(payload []byte) sdk.Producer {
 
 // countAll consumes everything, counting receipts.
 func countAll(got *atomic.Int64) sdk.Consumer {
-	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
 		for range recv {
@@ -128,7 +131,7 @@ func Test_RunPipeline(t *testing.T) {
 func Test_RunPipeline_filtering(t *testing.T) {
 	var got atomic.Int64
 	err := mustRun(t, t.Context(), &Pipeline{
-		Producers: []sdk.Producer{func(send chan<- []byte, errs chan<- error) {
+		Producers: []sdk.Producer{func(_ context.Context, send chan<- []byte, errs chan<- error) {
 			defer close(send)
 			defer close(errs)
 			for i := 0; i < 100; i++ {
@@ -190,7 +193,7 @@ func Test_RunPipeline_cancel(t *testing.T) {
 func Test_RunPipeline_errors(t *testing.T) {
 	boom := errors.New("boom")
 	erroring := func(side string) sdk.Producer {
-		return func(send chan<- []byte, errs chan<- error) {
+		return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 			defer close(send)
 			defer close(errs)
 			send <- []byte("one")
@@ -244,7 +247,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 	})
 
 	t.Run("consumer error, exit-on-error", func(t *testing.T) {
-		consume := func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		consume := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 			defer close(done)
 			defer close(errs)
 			for range recv {

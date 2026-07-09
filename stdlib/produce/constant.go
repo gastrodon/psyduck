@@ -1,6 +1,8 @@
 package produce
 
 import (
+	"context"
+
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -16,12 +18,16 @@ func Constant(parse sdk.Parser) (sdk.Producer, error) {
 	}
 
 	value := []byte(config.Value)
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
 		for i := 0; config.StopAfter == 0 || i < config.StopAfter; i++ {
-			send <- value
+			select {
+			case send <- value:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}, nil
 }

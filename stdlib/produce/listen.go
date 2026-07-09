@@ -1,6 +1,7 @@
 package produce
 
 import (
+	"context"
 	"net"
 	"strings"
 	"sync"
@@ -46,7 +47,7 @@ func Listen(parse sdk.Parser) (sdk.Producer, error) {
 }
 
 func listenStream(location string, create bool, d transport.Delimit) sdk.Producer {
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
@@ -56,6 +57,12 @@ func listenStream(location string, create bool, d transport.Delimit) sdk.Produce
 			return
 		}
 		defer ln.Close()
+
+		// unblocks Accept() on cancellation; stops accepting new
+		// connections but leaves already-accepted ones to finish via
+		// their own closeOnDone below.
+		stop := closeOnDone(ctx, ln)
+		defer stop()
 
 		var wg sync.WaitGroup
 		for {
@@ -67,9 +74,15 @@ func listenStream(location string, create bool, d transport.Delimit) sdk.Produce
 			go func(c net.Conn) {
 				defer wg.Done()
 				defer c.Close()
+				connStop := closeOnDone(ctx, c)
+				defer connStop()
 				_ = d.Split(c, func(b []byte) error {
-					send <- b
-					return nil
+					select {
+					case send <- b:
+						return nil
+					case <-ctx.Done():
+						return ctx.Err()
+					}
 				})
 			}(conn)
 		}
@@ -78,7 +91,7 @@ func listenStream(location string, create bool, d transport.Delimit) sdk.Produce
 }
 
 func listenPacket(location string, d transport.Delimit) sdk.Producer {
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
@@ -89,6 +102,9 @@ func listenPacket(location string, d transport.Delimit) sdk.Producer {
 		}
 		defer pc.Close()
 
+		stop := closeOnDone(ctx, pc)
+		defer stop()
+
 		buf := make([]byte, 64*1024)
 		for {
 			n, _, err := pc.ReadFrom(buf)
@@ -97,7 +113,11 @@ func listenPacket(location string, d transport.Delimit) sdk.Producer {
 			}
 			msg := make([]byte, n)
 			copy(msg, buf[:n])
-			send <- msg
+			select {
+			case send <- msg:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }

@@ -46,7 +46,7 @@ func testPlugin(name string) sdk.Plugin {
 				if err := p(opts); err != nil {
 					return nil, err
 				}
-				return func(send chan<- []byte, errs chan<- error) {
+				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					send <- []byte(opts.Value)
 					close(send)
 				}, nil
@@ -56,7 +56,7 @@ func testPlugin(name string) sdk.Plugin {
 			Name:  "trash",
 			Kinds: sdk.CONSUMER,
 			ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
-				return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+				return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 					for range recv {
 					}
 					close(done)
@@ -558,7 +558,7 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 				if err := p(opts); err != nil {
 					return nil, err
 				}
-				return func(send chan<- []byte, errs chan<- error) { close(send) }, nil
+				return func(_ context.Context, send chan<- []byte, errs chan<- error) { close(send) }, nil
 			},
 		},
 	)
@@ -655,7 +655,7 @@ func TestParseProduceFromEnv(t *testing.T) {
 			Name:  "seed",
 			Kinds: sdk.PRODUCER,
 			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
-				return func(send chan<- []byte, errs chan<- error) {
+				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					send <- []byte(`produce "constant" "remote" { value = env.PSYDUCK_REMOTE_ONLY }`)
 					close(send)
 				}, nil
@@ -693,7 +693,7 @@ func TestParseProduceFrom(t *testing.T) {
 			Name:  "seed",
 			Kinds: sdk.PRODUCER,
 			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
-				return func(send chan<- []byte, errs chan<- error) {
+				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					send <- []byte(`
 					produce "constant" "remote" {
 						value = "from-remote"
@@ -765,7 +765,7 @@ const seedEntry = `
 // Regression for #8: a seed that closes without sending used to read as an
 // empty remote config, surfacing much later as "pipeline has no producers".
 func TestParseProduceFromClosedSeed(t *testing.T) {
-	seed := seedPlugin(func(send chan<- []byte, errs chan<- error) {
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) {
 		close(send)
 		close(errs)
 	})
@@ -783,10 +783,13 @@ func TestParseProduceFromClosedSeed(t *testing.T) {
 }
 
 // Draining a produce-from stream is bounded by the caller's ctx, not only
-// by the builtin timeout.
+// by the builtin timeout. The seed honors ctx like a well-behaved plugin
+// should — it's drainSeed's own ctx.Done() handling under test here, not
+// resilience against a non-cooperating plugin (that's core's job, see
+// core/regression_test.go).
 func TestParseProduceFromCancel(t *testing.T) {
-	seed := seedPlugin(func(send chan<- []byte, errs chan<- error) {
-		select {} // never sends
+	seed := seedPlugin(func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		<-ctx.Done() // never sends
 	})
 
 	entry, load := src(seedEntry)

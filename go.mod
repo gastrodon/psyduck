@@ -7,7 +7,7 @@ toolchain go1.24.13
 require (
 	github.com/hashicorp/hcl/v2 v2.20.1
 	github.com/itchyny/gojq v0.12.19
-	github.com/psyduck-etl/sdk v0.5.0
+	github.com/psyduck-etl/sdk v0.5.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.7.0
 	github.com/urfave/cli/v2 v2.27.1

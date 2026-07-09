@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"runtime"
 	"strings"
@@ -44,6 +45,12 @@ import (
 // #8 (produce-from seed closing without sending) is a parse-layer bug, not
 // a core-engine one; its regression test lives in
 // parse/hcl/hcl_test.go:TestParseProduceFromClosedSeed.
+//
+// sdk v0.5.1 added ctx as Producer/Consumer's first parameter, giving
+// well-behaved plugins a way to exit on cancellation instead of parking.
+// The producers below accept and deliberately ignore it — these tests exist
+// to prove the engine itself never panics or deadlocks even when a plugin
+// doesn't cooperate, not to exercise cancellation.
 
 // panicSafeRun runs RunPipeline in its own goroutine, converting any panic
 // into a clean test failure instead of crashing the whole test binary, and
@@ -90,7 +97,10 @@ func panicSafeRun(t *testing.T, p *Pipeline) error {
 func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 	const lateDelay = 100 * time.Millisecond
 
-	producer := func(send chan<- []byte, errs chan<- error) {
+	// ctx is ignored on purpose: err2 must still be attempted after
+	// RunPipeline has cancelled and returned, which is exactly what a
+	// ctx-respecting producer would avoid.
+	producer := func(_ context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 		send <- []byte("x")
@@ -98,7 +108,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 		time.Sleep(lateDelay)
 		errs <- errors.New("err2 (arrives after RunPipeline already returned)")
 	}
-	consumer := func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	consumer := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
 		for range recv {
@@ -159,21 +169,21 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 	var got atomic.Int64
 	second := make(chan struct{})
 	producers := []sdk.Producer{
-		func(send chan<- []byte, errs chan<- error) {
+		func(_ context.Context, send chan<- []byte, errs chan<- error) {
 			defer close(send)
 			defer close(errs)
 			send <- []byte("before")
 			send <- nil
 			send <- []byte("after")
 		},
-		func(send chan<- []byte, errs chan<- error) {
+		func(_ context.Context, send chan<- []byte, errs chan<- error) {
 			defer close(send)
 			defer close(errs)
 			<-second // stays open past the first producer's nil message
 			send <- []byte("second-producer-message")
 		},
 	}
-	consumer := func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	consumer := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
 		for range recv {
@@ -205,16 +215,16 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 // even fully successful ones, and every failed ExitOnError run leaked its
 // error-forwarding goroutines permanently (see
 // Test_LateErrorAfterExitOnError_NoPanic above for why that could also
-// panic). Runs that abandon a producer mid-send still park that producer's
-// own goroutine — the sdk contract has no cancellation hook for it — so
-// this measures well-behaved runs, where zero engine goroutines may remain.
+// panic). The erroring producer below finishes on its own every time (it
+// never blocks on ctx), so this specifically isolates the engine's own
+// bookkeeping from plugin cancellation behavior.
 func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 	pipeline := func() *Pipeline {
 		var got atomic.Int64
 		return &Pipeline{
 			Producers: []sdk.Producer{
 				emitN(50, []byte("x"), nil),
-				func(send chan<- []byte, errs chan<- error) {
+				func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					defer close(send)
 					defer close(errs)
 					send <- []byte("y")
@@ -240,5 +250,47 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 	}
 	buf := make([]byte, 1<<16)
 	t.Fatalf("goroutines leaked across runs: %d -> %d\n%s",
+		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
+}
+
+// Capability test, not a regression: sdk v0.5.1 added ctx to Producer and
+// Consumer specifically so a plugin abandoned mid-send has a way to exit
+// instead of parking forever — the one leak PR #20's rewrite documented as
+// unavoidable ("the sdk contract has no context"). A producer that actually
+// selects on ctx.Done() alongside its send, cut off mid-stream by
+// StopAfter, must leave no goroutine behind at all.
+func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
+	blockForever := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
+		defer close(errs)
+		for {
+			select {
+			case send <- []byte("x"):
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	baseline := runtime.NumGoroutine()
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   []sdk.Producer{blockForever},
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		StopAfter:   3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= baseline {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	buf := make([]byte, 1<<16)
+	t.Fatalf("ctx-aware producer still leaked a goroutine on abandon: %d -> %d\n%s",
 		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
 }

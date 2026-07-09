@@ -24,7 +24,7 @@ func TestSocketMetaRoundTrip(t *testing.T) {
 	}
 	send := make(chan []byte)
 	lerrs := make(chan error, 1)
-	go lp(send, lerrs)
+	go lp(t.Context(), send, lerrs)
 	drainErrs(lerrs)
 
 	waitForSocket(t, sockPath)
@@ -36,7 +36,7 @@ func TestSocketMetaRoundTrip(t *testing.T) {
 	recv := make(chan []byte)
 	cerrs := make(chan error, 1)
 	cdone := make(chan struct{})
-	go cw(recv, cerrs, cdone)
+	go cw(t.Context(), recv, cerrs, cdone)
 	drainErrs(cerrs)
 
 	want := []string{

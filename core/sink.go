@@ -35,7 +35,7 @@ func startSink(ctx context.Context, consumers []sdk.Consumer, report func(error)
 	for i, consume := range consumers {
 		in, errs, done := make(chan []byte), make(chan error), make(chan struct{})
 		s.ins[i], s.dones[i] = in, done
-		go consume(in, errs, done)
+		go consume(ctx, in, errs, done)
 
 		s.errsWG.Add(1)
 		go func() {

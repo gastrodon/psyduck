@@ -1,6 +1,7 @@
 package consume
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/psyduck-etl/sdk"
@@ -28,13 +29,13 @@ func Request(parse sdk.Parser) (sdk.Consumer, error) {
 		h.Method = "POST"
 	}
 
-	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
 
 		client := h.Client()
 		for msg := range recv {
-			if _, err := h.Do(client, msg); err != nil {
+			if _, err := h.Do(ctx, client, msg); err != nil && ctx.Err() == nil {
 				errs <- err
 			}
 		}

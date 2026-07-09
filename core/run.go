@@ -16,10 +16,11 @@ accepting (see sink). Errors from any side are logged; with ExitOnError set
 the first one also cancels the pipeline and is returned. Cancelling ctx
 stops the run promptly and returns ctx's error.
 
-Every goroutine the engine starts is released before RunPipeline returns.
-Plugin goroutines themselves cannot be interrupted mid-send — the sdk
-contract has no context — so an abandoned producer may park permanently on
-its last send; that is bounded, one per plugin, and harmless.
+Every goroutine the engine starts — its own and every plugin's — is
+released before RunPipeline returns: producers and consumers receive the
+pipeline's ctx and are contractually required to select on ctx.Done()
+alongside their sends, so an abandoned plugin is expected to exit on
+cancellation rather than parking on its last send.
 */
 func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 	ctx, cancel := context.WithCancel(outer)

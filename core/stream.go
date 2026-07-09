@@ -29,20 +29,17 @@ func emit(ctx context.Context, out chan<- result, r result) bool {
 
 // produce merges producers into a single stream of (message, error) pairs.
 //
-// Each producer runs in its own goroutine against fresh channels, and two
-// forwarders bridge it into the merged stream: closing the data channel is
-// the producer's completion signal, while errors flow for as long as any
-// data path is live. Plugins are not required to close their errs channel,
-// so error forwarders don't wait on one — once all data channels close they
-// sweep pending errors and exit. The stream ends when every producer has
-// completed, when ctx ends, or when the caller breaks out of the loop — in
-// every case all forwarders are released, not orphaned.
-//
-// The one goroutine produce cannot reclaim is the producer's own: sdk
-// plugins take no context, so a producer abandoned mid-send parks on its
-// last write to a channel nothing reads. That is bounded (one goroutine
-// per producer), panic-free, and fixable only by adding context to the sdk
-// contract.
+// Each producer runs in its own goroutine against fresh channels and the
+// pipeline's ctx, so an abandoned producer is expected to notice
+// cancellation and exit — the sdk contract requires plugins to select on
+// ctx.Done() alongside their sends. Two forwarders bridge each producer into
+// the merged stream: closing the data channel is the producer's completion
+// signal, while errors flow for as long as any data path is live. Plugins
+// are not required to close their errs channel, so error forwarders don't
+// wait on one — once all data channels close they sweep pending errors and
+// exit. The stream ends when every producer has completed, when ctx ends,
+// or when the caller breaks out of the loop — in every case all forwarders
+// are released, not orphaned.
 func produce(ctx context.Context, producers []sdk.Producer) iter.Seq2[[]byte, error] {
 	return func(yield func([]byte, error) bool) {
 		ctx, cancel := context.WithCancel(ctx)
@@ -54,7 +51,7 @@ func produce(ctx context.Context, producers []sdk.Producer) iter.Seq2[[]byte, er
 
 		for _, p := range producers {
 			data, errs := make(chan []byte), make(chan error)
-			go p(data, errs)
+			go p(ctx, data, errs)
 
 			dataWG.Add(1)
 			go func() {

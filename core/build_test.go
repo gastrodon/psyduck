@@ -26,7 +26,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 			Name:  "emit",
 			Kinds: sdk.PRODUCER,
 			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
-				return func(send chan<- []byte, errs chan<- error) {
+				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					for i := 0; i < count; i++ {
 						send <- payload
 					}
@@ -38,7 +38,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 			Name:  "count",
 			Kinds: sdk.CONSUMER,
 			ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
-				return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+				return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 					for range recv {
 						*consumed++
 					}

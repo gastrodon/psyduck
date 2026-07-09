@@ -313,7 +313,7 @@ func drainSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, loca
 	}
 
 	send, errs := make(chan []byte), make(chan error)
-	go instance.Produce(send, errs)
+	go instance.Produce(ctx, send, errs)
 
 	for {
 		select {

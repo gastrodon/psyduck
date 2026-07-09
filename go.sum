@@ -25,6 +25,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/psyduck-etl/sdk v0.5.0 h1:b9v11by93ZTomevfP9GskUnBTF+KjQvhDfru4J+IgVM=
 github.com/psyduck-etl/sdk v0.5.0/go.mod h1:gwCEsqNNSfP2cWK9zVVirWwYCb/vtOeLXR0eaiJTz3g=
+github.com/psyduck-etl/sdk v0.5.1 h1:qu7ezb6PL5IxJTNIT9Q11EgBzVK7Ya31S4dUGM1Sqc4=
+github.com/psyduck-etl/sdk v0.5.1/go.mod h1:gwCEsqNNSfP2cWK9zVVirWwYCb/vtOeLXR0eaiJTz3g=
 github.com/russross/blackfriday/v2 v2.1.0 h1:JIOH55/0cWyOuilr9/qlrm0BSXldqnqwMsf35Ld67mk=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=
