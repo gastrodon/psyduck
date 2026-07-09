@@ -245,15 +245,17 @@ func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error
 }
 ```
 
-Most stdlib transformers are plain per-message mappings, so `stdlib/transform`
-and `stdlib/flow` each keep a small package-local `mapTransform` helper that
-wraps a `func(in []byte) ([]byte, error)` in exactly this loop — see
-`stdlib/transform/codec.go` or `stdlib/flow/flow.go`. That helper is
-stdlib-internal, not part of the SDK: the SDK deliberately ships no
-Map/Filter adapter, so every plugin author writes the raw loop above (or
-their own equivalent skeleton) rather than depending on one baked into the
-contract. For a stateful example that flushes on stream end, see
-`stdlib/transform/keyed.go`'s `Batch`, which buffers messages into
+Most stdlib transformers are plain per-message mappings, but there is no
+shared helper anywhere in stdlib — not even a stdlib-internal one — that
+adapts a `func(in []byte) ([]byte, error)` into this contract. Every
+transformer, in stdlib and out, writes the raw loop above (or its own
+equivalent skeleton) directly: see `stdlib/transform/codec.go`'s
+`codecTransformer` or `stdlib/flow/flow.go`'s `Wait`/`Head`/`Tail` for
+examples of the plain per-message shape written out in full. The SDK
+deliberately ships no Map/Filter adapter, and stdlib holds itself to the same
+rule, so reading any stdlib transformer shows exactly the loop a plugin
+author is expected to write. For a stateful example that flushes on stream
+end, see `stdlib/transform/keyed.go`'s `Batch`, which buffers messages into
 fixed-size groups and emits a final partial group when `in` closes.
 
 ### `sdk.BlockMeta`

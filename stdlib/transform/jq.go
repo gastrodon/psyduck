@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -26,14 +27,48 @@ func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("jq: parse expression %q: %w", config.Expression, err)
 	}
 
-	return mapTransform(func(in []byte) ([]byte, error) {
-		v, err := runJQ(query, in)
+	jqOnce := func(msg []byte) (b []byte, drop bool, err error) {
+		v, err := runJQ(query, msg)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
+		b, err = marshalJQ(v)
+		if err != nil {
+			return nil, false, err
+		}
+		return b, b == nil, nil // no output: drop
+	}
 
-		return marshalJQ(v)
-	}), nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				b, drop, err := jqOnce(msg)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if drop {
+					continue
+				}
+				select {
+				case out <- b:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}, nil
 }
 
 // runJQ compiles and executes a jq expression against JSON-decoded input.

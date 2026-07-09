@@ -74,25 +74,44 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 	seen := make(map[string]struct{}, window)
 	ring := make([]string, 0, window)
 
-	return mapTransform(func(in []byte) ([]byte, error) {
-		key, ok, err := k.key(in)
-		if err != nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				key, keyOK, err := k.key(msg)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if keyOK {
+					if _, dup := seen[key]; dup {
+						continue
+					}
+					if len(ring) >= window {
+						delete(seen, ring[0])
+						ring = ring[1:]
+					}
+					seen[key] = struct{}{}
+					ring = append(ring, key)
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		if !ok {
-			return in, nil
-		}
-		if _, dup := seen[key]; dup {
-			return nil, nil
-		}
-		if len(ring) >= window {
-			delete(seen, ring[0])
-			ring = ring[1:]
-		}
-		seen[key] = struct{}{}
-		ring = append(ring, key)
-		return in, nil
-	}), nil
+	}, nil
 }
 
 // ── uniq ───────────────────────────────────────────────────────────────────
@@ -118,20 +137,39 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 	var last string
 	var have bool
 
-	return mapTransform(func(in []byte) ([]byte, error) {
-		key, ok, err := k.key(in)
-		if err != nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				key, keyOK, err := k.key(msg)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if keyOK {
+					if have && key == last {
+						continue
+					}
+					last, have = key, true
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		if !ok {
-			return in, nil
-		}
-		if have && key == last {
-			return nil, nil
-		}
-		last, have = key, true
-		return in, nil
-	}), nil
+	}, nil
 }
 
 // ── batch ──────────────────────────────────────────────────────────────────

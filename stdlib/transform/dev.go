@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 
@@ -30,7 +31,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 		msg = "assertion failed"
 	}
 
-	return mapTransform(func(in []byte) ([]byte, error) {
+	assertOnce := func(in []byte) ([]byte, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
 			return nil, err
@@ -43,7 +44,35 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 			return nil, fmt.Errorf("%s: %s", msg, config.Expression)
 		}
 		return in, nil
-	}), nil
+	}
+
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case m, ok := <-in:
+				if !ok {
+					return
+				}
+				b, err := assertOnce(m)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				select {
+				case out <- b:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}, nil
 }
 
 func falsey(v data.Value) bool {
@@ -78,11 +107,27 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 
 	n := 0
 
-	return mapTransform(func(in []byte) ([]byte, error) {
-		n++
-		if n%every != 0 {
-			return in, nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				n++
+				b := msg
+				if n%every == 0 {
+					b = []byte(config.Prefix + strconv.Itoa(n))
+				}
+				select {
+				case out <- b:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		return []byte(config.Prefix + strconv.Itoa(n)), nil
-	}), nil
+	}, nil
 }

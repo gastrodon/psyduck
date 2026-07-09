@@ -306,37 +306,23 @@ func TestKeyed(t *testing.T) {
 }
 
 func TestFlow(t *testing.T) {
+	// Head/Tail/Sample keep their counters inside the returned closure body
+	// (invocation-local, same as Batch), so each is meant to run once per
+	// stream — feed every message through one channel lifetime with runAll
+	// rather than calling run repeatedly.
 	fn := build(t, Head, map[string]any{"count": 2})
-	pass := 0
-	for i := 0; i < 5; i++ {
-		if _, ok := run(t, fn, "x"); ok {
-			pass++
-		}
-	}
-	if pass != 2 {
-		t.Errorf("head passed %d, want 2", pass)
+	if got := runAll(t, fn, "x", "x", "x", "x", "x"); len(got) != 2 {
+		t.Errorf("head passed %d, want 2", len(got))
 	}
 
 	fn = build(t, Tail, map[string]any{"skip": 3})
-	pass = 0
-	for i := 0; i < 5; i++ {
-		if _, ok := run(t, fn, "x"); ok {
-			pass++
-		}
-	}
-	if pass != 2 {
-		t.Errorf("tail passed %d, want 2", pass)
+	if got := runAll(t, fn, "x", "x", "x", "x", "x"); len(got) != 2 {
+		t.Errorf("tail passed %d, want 2", len(got))
 	}
 
 	fn = build(t, Sample, map[string]any{"rate": 2})
-	pass = 0
-	for i := 0; i < 4; i++ {
-		if _, ok := run(t, fn, "x"); ok {
-			pass++
-		}
-	}
-	if pass != 2 {
-		t.Errorf("sample kept %d, want 2", pass)
+	if got := runAll(t, fn, "x", "x", "x", "x"); len(got) != 2 {
+		t.Errorf("sample kept %d, want 2", len(got))
 	}
 }
 

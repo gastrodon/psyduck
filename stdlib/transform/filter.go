@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/itchyny/gojq"
@@ -24,21 +25,48 @@ func Filter(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("filter: parse expression %q: %w", config.Expression, err)
 	}
 
-	return mapTransform(func(in []byte) ([]byte, error) {
-		v, err := runJQ(query, in)
+	keep := func(msg []byte) (bool, error) {
+		v, err := runJQ(query, msg)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-
 		switch val := v.(type) {
 		case nil:
-			return nil, nil // drop
+			return false, nil
 		case bool:
-			if !val {
-				return nil, nil // drop
+			return val, nil
+		}
+		return true, nil
+	}
+
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				pass, err := keep(msg)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				if !pass {
+					continue
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
 			}
 		}
-
-		return in, nil // pass through original message
-	}), nil
+	}, nil
 }
