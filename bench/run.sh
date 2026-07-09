@@ -5,7 +5,7 @@
 # and confidence interval per benchmark instead of a single noisy number.
 #
 # Usage:
-#   scripts/bench.sh [label] [count] [benchtime] [regex]
+#   bench/run.sh [label] [count] [benchtime] [regex]
 #
 #   label      name for the output file under bench/results/ (default: "run")
 #   count      repetitions per benchmark, fed to -count (default: 10)
@@ -16,10 +16,10 @@
 # bench/results/<label>.benchstat.txt (benchstat's formatted summary).
 #
 # To compare before/after an optimization:
-#   scripts/bench.sh baseline
+#   bench/run.sh baseline
 #   # make your change
-#   scripts/bench.sh candidate
-#   scripts/compare.sh baseline candidate
+#   bench/run.sh candidate
+#   bench/diff.sh baseline candidate
 set -euo pipefail
 
 label="${1:-run}"
@@ -27,7 +27,7 @@ count="${2:-10}"
 benchtime="${3:-200ms}"
 regex="${4:-.}"
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 out_dir="$root/results"
 mkdir -p "$out_dir"
 

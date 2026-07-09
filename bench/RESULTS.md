@@ -1,11 +1,11 @@
 # Benchmark results & optimization triage
 
 Generated from the `bench/` suite (`golang.org/x/perf/cmd/benchstat` over
-10 repeats via `scripts/bench.sh baseline`), profiled with plain
+10 repeats via `run.sh baseline`), profiled with plain
 `go test -cpuprofile`/`-memprofile` and `go tool pprof`. Machine: 4-core
 Intel Xeon @ 2.80GHz container. Raw data lives in `results/baseline.txt` /
 `results/baseline.benchstat.txt` (gitignored -- regenerate with
-`scripts/bench.sh baseline`).
+`run.sh baseline`).
 
 This is a **triage of propositions**, not applied fixes -- nothing in
 `stdlib`/`core` was changed. Every number below is measured, not estimated;
@@ -399,7 +399,7 @@ race instead of a compile error.
 ## How these numbers were produced
 
 ```sh
-bench/scripts/bench.sh baseline 10 200ms .          # full suite, benchstat summary
+bench/run.sh baseline 10 200ms .          # full suite, benchstat summary
 
 # profiles for each family below, via plain go test + go tool pprof:
 go test -run='^$' -bench='BenchmarkByJQ_vs_Compiled|BenchmarkPick|BenchmarkDedupe|BenchmarkUniq|BenchmarkJqTransformer|BenchmarkFilterTransformer|BenchmarkAssertTransformer' \

@@ -46,14 +46,14 @@ Combined with `go test -count=N`, this is the Go-native equivalent of
 ```sh
 go install golang.org/x/perf/cmd/benchstat@latest
 
-scripts/bench.sh baseline          # runs the whole suite 10x, benchstat-summarizes it
-scripts/bench.sh baseline 20 1s    # count=20, benchtime=1s per rep, for tighter CIs
+run.sh baseline          # runs the whole suite 10x, benchstat-summarizes it
+run.sh baseline 20 1s    # count=20, benchtime=1s per rep, for tighter CIs
 
 # before/after an optimization:
-scripts/bench.sh before
+run.sh before
 # ...make a change...
-scripts/bench.sh after
-scripts/compare.sh before after    # benchstat delta % + significance
+run.sh after
+diff.sh before after    # benchstat delta % + significance
 ```
 
 Output lands in `bench/results/<label>.txt` (raw) and
