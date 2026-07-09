@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -35,7 +36,8 @@ func textString(in []byte, decode string) (string, error) {
 }
 
 // stringTransformer wraps a string→(Value) op with decode + on-error handling.
-// A nil onError defaults to data.Raise.
+// A nil onError defaults to data.Raise. It owns its raw channel loop directly,
+// same as every other stdlib transformer.
 func stringTransformer(decode string, onError data.OnError, op func(string) (data.Value, error)) sdk.Transformer {
 	if decode == "" {
 		decode = "utf-8"
@@ -43,21 +45,54 @@ func stringTransformer(decode string, onError data.OnError, op func(string) (dat
 	if onError == nil {
 		onError = data.Raise
 	}
-	fail := func(err error) ([]byte, error) { return nil, onError(err) }
-	return mapTransform(func(in []byte) ([]byte, error) {
-		s, err := textString(in, decode)
-		if err != nil {
-			return fail(err)
+
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		reportErr := func(err error) (stop bool) {
+			if err = onError(err); err == nil {
+				return false
+			}
+			select {
+			case errs <- err:
+				return false
+			case <-ctx.Done():
+				return true
+			}
 		}
-		out, err := op(s)
-		if err != nil {
-			return fail(err)
+
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				s, err := textString(msg, decode)
+				if err != nil {
+					if reportErr(err) {
+						return
+					}
+					continue
+				}
+				result, err := op(s)
+				if err != nil {
+					if reportErr(err) {
+						return
+					}
+					continue
+				}
+				if result == nil {
+					continue
+				}
+				select {
+				case out <- result.Bytes():
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		if out == nil {
-			return nil, nil
-		}
-		return out.Bytes(), nil
-	})
+	}
 }
 
 type splitConfig struct {
@@ -107,21 +142,51 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mapTransform(func(in []byte) ([]byte, error) {
-		v, err := data.Decode(in, "json")
+	joinOnce := func(msg []byte) ([]byte, error) {
+		v, err := data.Decode(msg, "json")
 		if err != nil {
-			return nil, onError(err)
+			return nil, err
 		}
 		list, ok := v.(data.List)
 		if !ok {
-			return nil, onError(fmt.Errorf("join: want a list, got %s", v.Kind()))
+			return nil, fmt.Errorf("join: want a list, got %s", v.Kind())
 		}
 		parts := make([]string, len(list))
 		for i, e := range list {
 			parts[i] = e.String()
 		}
 		return []byte(strings.Join(parts, config.Delimiter)), nil
-	}), nil
+	}
+
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				b, err := joinOnce(msg)
+				if err != nil {
+					if err = onError(err); err != nil {
+						select {
+						case errs <- err:
+						case <-ctx.Done():
+							return
+						}
+					}
+					continue
+				}
+				select {
+				case out <- b:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}, nil
 }
 
 type replaceConfig struct {
@@ -283,9 +348,9 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("hash: unknown algorithm %q", config.Algorithm)
 	}
 
-	return mapTransform(func(in []byte) ([]byte, error) {
+	hashOnce := func(msg []byte) ([]byte, error) {
 		h := newHash()
-		h.Write(in)
+		h.Write(msg)
 		sum := h.Sum(nil)
 		switch config.Output {
 		case "", "hex":
@@ -295,5 +360,33 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		default:
 			return nil, fmt.Errorf("hash: unknown output %q", config.Output)
 		}
-	}), nil
+	}
+
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				b, err := hashOnce(msg)
+				if err != nil {
+					select {
+					case errs <- err:
+					case <-ctx.Done():
+						return
+					}
+					continue
+				}
+				select {
+				case out <- b:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}, nil
 }

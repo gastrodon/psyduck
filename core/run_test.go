@@ -71,7 +71,8 @@ func countAll(got *atomic.Int64) sdk.Consumer {
 // testMapTransform adapts a per-message function into the channel-based
 // sdk.Transformer contract: a (nil, nil) result filters the message out, an
 // error is reported on errs (skipping that message) without halting the
-// stream, mirroring stdlib's own mapTransform helper.
+// stream. It exists only to keep these engine tests terse — stdlib itself
+// has no such adapter; every real transformer owns its raw loop.
 func testMapTransform(f func(msg []byte) ([]byte, error)) sdk.Transformer {
 	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 		defer close(out)
