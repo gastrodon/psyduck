@@ -167,6 +167,11 @@ change runtime log verbosity.
 - [`examples/`](examples/) — `.psy` fixtures exercised by the test suite, one
   file per example. `shared.psy` holds consumers reused across the others;
   files that want them declare their own `import { shared = "shared.psy" }`.
+- [`bench/`](bench/) — Go benchmarks (`testing.B`) for stdlib resources and
+  the engine itself, plus scripts for statistical comparison (benchstat) and
+  CPU/memory profiling (pprof call graphs, flame graphs). See
+  [`bench/RESULTS.md`](bench/RESULTS.md) for a triage of the most impactful
+  optimization targets found so far.
 
 ## Layout
 
