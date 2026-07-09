@@ -82,7 +82,7 @@ func TestLoad_Integration(t *testing.T) {
 
 	send := make(chan []byte, 4)
 	errs := make(chan error, 1)
-	go inst.Produce(send, errs)
+	go inst.Produce(t.Context(), send, errs)
 
 	var got [][]byte
 	timeout := time.After(2 * time.Second)

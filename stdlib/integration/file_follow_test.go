@@ -29,7 +29,7 @@ func TestFileFollowTail(t *testing.T) {
 	}
 	send := make(chan []byte, N)
 	perrs := make(chan error, 1)
-	go p(send, perrs)
+	go p(t.Context(), send, perrs)
 	drainErrs(perrs)
 
 	// Append N lines with a delay that forces the tail reader to wake from its
@@ -73,7 +73,7 @@ func TestFileFollowExistingContent(t *testing.T) {
 	}
 	send := make(chan []byte, 8)
 	perrs := make(chan error, 1)
-	go p(send, perrs)
+	go p(t.Context(), send, perrs)
 	drainErrs(perrs)
 
 	// Collect the 3 pre-existing lines first.

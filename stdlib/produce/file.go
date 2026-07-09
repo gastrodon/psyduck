@@ -1,6 +1,7 @@
 package produce
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,21 @@ import (
 
 	"github.com/gastrodon/psyduck/stdlib/transport"
 )
+
+// closeOnDone closes c the moment ctx ends, unless the returned stop fires
+// first. It exists to unblock a synchronous, otherwise uncancellable Read()
+// on a reader/connection/listener when the producer's ctx is cancelled.
+func closeOnDone(ctx context.Context, c io.Closer) (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			c.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
 
 type fileConfig struct {
 	Location     string  `psy:"location"`
@@ -45,7 +61,7 @@ func File(parse sdk.Parser) (sdk.Producer, error) {
 		return nil, err
 	}
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
@@ -69,10 +85,20 @@ func File(parse sdk.Parser) (sdk.Producer, error) {
 		}
 		defer closer.Close()
 
+		// closing the reader on cancellation unblocks a Read() that's
+		// waiting on data (or a follow-mode sleep) with no message ready
+		// to route the ctx.Done() check below through.
+		stop := closeOnDone(ctx, closer)
+		defer stop()
+
 		if err := d.Split(reader, func(b []byte) error {
-			send <- b
-			return nil
-		}); err != nil {
+			select {
+			case send <- b:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}); err != nil && ctx.Err() == nil {
 			errs <- err
 		}
 	}, nil

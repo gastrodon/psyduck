@@ -1,6 +1,8 @@
 package consume
 
 import (
+	"context"
+
 	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib/transport"
@@ -34,7 +36,7 @@ func Socket(parse sdk.Parser) (sdk.Consumer, error) {
 		return nil, err
 	}
 
-	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		defer close(done)
 		defer close(errs)
 
@@ -45,13 +47,19 @@ func Socket(parse sdk.Parser) (sdk.Consumer, error) {
 		}
 		defer wc.Close()
 
+		stop := closeOnDone(ctx, wc)
+		defer stop()
+
 		joiner := d.Joiner(wc)
 		for msg := range recv {
 			if err := joiner.Write(msg); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				errs <- err
 			}
 		}
-		if err := joiner.Close(); err != nil {
+		if err := joiner.Close(); err != nil && ctx.Err() == nil {
 			errs <- err
 		}
 	}, nil

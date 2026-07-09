@@ -1,6 +1,7 @@
 package produce
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -31,7 +32,7 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 		return nil, err
 	}
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
@@ -55,7 +56,12 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			send <- body
+			select {
+			case send <- body:
+			case <-ctx.Done():
+				http.Error(w, "shutting down", http.StatusServiceUnavailable)
+				return
+			}
 			w.WriteHeader(config.Status)
 			if config.Reply != "" {
 				_, _ = io.WriteString(w, config.Reply)
@@ -69,7 +75,10 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 			WriteTimeout: time.Duration(config.WriteTimeoutMs) * time.Millisecond,
 			IdleTimeout:  time.Duration(config.IdleTimeoutMs) * time.Millisecond,
 		}
-		if err := srv.ListenAndServe(); err != nil {
+		stop := closeOnDone(ctx, srv)
+		defer stop()
+
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
 	}, nil

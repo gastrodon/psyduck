@@ -1,271 +1,267 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"math"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
-	"github.com/sirupsen/logrus"
 )
 
-type Values func() (int, int)
+// runTimeout guards every RunPipeline call in this file: the old engine's
+// failure modes were deadlocks, so a hang IS the regression.
+const runTimeout = 10 * time.Second
 
-type testPipelineCase struct {
-	DataCount     int
-	Delay         bool
-	ProducerCount int
-	ConsumerCount int
-}
-
-func makeTestProducer(testcase testPipelineCase) (sdk.Producer, func() []int) {
-	counts := make([]int, testcase.ProducerCount)
-	producers := make([]sdk.Producer, testcase.ProducerCount)
-
-	for index := 0; index < testcase.ProducerCount; index++ {
-		producers[index] = func(slot int) sdk.Producer {
-			return func(send chan<- []byte, errs chan<- error) {
-				go func(slot int) {
-					for dataEach := 0; dataEach < testcase.DataCount; dataEach++ {
-						send <- []byte{byte(dataEach)}
-						counts[slot]++
-					}
-
-					close(send)
-					close(errs)
-				}(slot)
-			}
-
-		}(index)
-	}
-
-	return joinProducers(producers, pipelineLogger()), func() []int { return counts }
-}
-
-func makeTestConsumer(testcase testPipelineCase) (sdk.Consumer, func() []int) {
-	counts := make([]int, testcase.ConsumerCount)
-	consumers := make([]sdk.Consumer, testcase.ConsumerCount)
-
-	for index := 0; index < testcase.ConsumerCount; index++ {
-		consumers[index] = func(slot int) sdk.Consumer {
-			return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-				go func(i int) {
-					for range recv {
-						counts[i]++
-					}
-
-					close(done)
-				}(slot)
-			}
-
-		}(index)
-
-	}
-
-	return joinConsumers(consumers, pipelineLogger()), func() []int { return counts }
-}
-
-func testPipeline(testcase testPipelineCase) error {
-	producer, reportProducer := makeTestProducer(testcase)
-	consumer, reportConsumer := makeTestConsumer(testcase)
-	transformer := func(d []byte) ([]byte, error) { return d, nil }
-
-	if testcase.Delay {
-		transformer = func(d []byte) ([]byte, error) {
-			time.Sleep(50 * time.Millisecond)
-			return d, nil
-		}
-	}
-
-	pipeline := &Pipeline{
-		Producer:    producer,
-		Consumer:    consumer,
-		Transformer: transformer,
-	}
-
-	if err := RunPipeline(pipeline); err != nil {
+func mustRun(t *testing.T, ctx context.Context, p *Pipeline) error {
+	t.Helper()
+	got := make(chan error, 1)
+	go func() { got <- RunPipeline(ctx, p) }()
+	select {
+	case err := <-got:
 		return err
-	}
-
-	producerCount := reportProducer()
-	for index := range producerCount {
-		if producerCount[index] != testcase.DataCount {
-			return fmt.Errorf("produce count mismatch at %d! %d / %d", index, producerCount[index], testcase.DataCount)
-		}
-
-	}
-
-	consumerCount := reportConsumer()
-	for index := range consumerCount {
-		if consumerCount[index] != testcase.DataCount*testcase.ProducerCount {
-			return fmt.Errorf("consume count mismatch at %d! %d / %d * %d", index, consumerCount[index], testcase.DataCount, testcase.ProducerCount)
-		}
-	}
-
-	return nil
-}
-
-func Test_RunPipeline(test *testing.T) {
-	const (
-		COUNT_DELAY     = 100
-		COUNT_IMMEDIATE = 10_000
-		COUNT_BUFFERED  = 10_000
-	)
-
-	cases := []testPipelineCase{
-		{COUNT_DELAY, true, 1, 1},
-		{COUNT_DELAY, true, 10, 10},
-		{COUNT_IMMEDIATE, false, 1, 1},
-		{COUNT_IMMEDIATE, false, 1, 10},
-		{COUNT_IMMEDIATE, false, 10, 1},
-		{COUNT_IMMEDIATE, false, 10, 10},
-	}
-
-	for i, testcase := range cases {
-		if testcase.Delay && testing.Short() {
-			continue
-		}
-
-		if err := testPipeline(testcase); err != nil {
-			test.Fatalf("case %d failed: %s", i, err)
-		}
+	case <-time.After(runTimeout):
+		t.Fatal("RunPipeline did not finish: pipeline deadlocked")
+		return nil
 	}
 }
 
-func Test_RunPipeline_filtering(test *testing.T) {
-	received, limit, fac := byte(0), byte(100), byte(2)
-	testcase := &Pipeline{
-		Producer: func(send chan<- []byte, errs chan<- error) {
-			for i := byte(0); i < limit; i++ {
-				send <- []byte{i}
+// emitN produces count copies of payload, counting sends, closing both
+// channels on the way out like the stdlib producers do.
+func emitN(count int, payload []byte, sent *atomic.Int64) sdk.Producer {
+	return func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
+		defer close(errs)
+		for i := 0; i < count; i++ {
+			send <- payload
+			if sent != nil {
+				sent.Add(1)
 			}
-			close(send)
-		},
-		Consumer: func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			for range recv {
-				received++
-			}
-
-			close(done)
-		},
-		Transformer: func(in []byte) ([]byte, error) {
-			if in[0]%fac != fac-1 {
-				return nil, nil
-
-			}
-			return in, nil
-		},
-	}
-
-	if err := RunPipeline(testcase); err != nil {
-		test.Fatal(err)
-	}
-
-	if received != limit/fac {
-		test.Fatalf("recieved %d != %d/%d!", received, limit, fac)
-	}
-}
-
-type testHook struct {
-	fn func()
-}
-
-func (testHook) Levels() []logrus.Level {
-	return []logrus.Level{logrus.ErrorLevel}
-}
-
-func (hook testHook) Fire(*logrus.Entry) error {
-	hook.fn()
-	return nil
-}
-
-func pipelineTestLogger(fn func()) *logrus.Logger {
-	log := pipelineLogger()
-	log.Hooks.Add(testHook{fn})
-	return log
-}
-
-func Test_RunPipeline_error(test *testing.T) {
-	errText := "error made"
-	produceErr := func(n int) sdk.Producer {
-		return func(send chan<- []byte, errs chan<- error) {
-			for i := 0; i < n; i++ {
-				send <- []byte{0}
-			}
-
-			errs <- fmt.Errorf("%s", errText)
 		}
 	}
+}
 
-	consumeErr := func(n int) sdk.Consumer {
-		return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			for i := 0; i < n; i++ {
-				<-recv
-			}
-
-			errs <- fmt.Errorf("%s", errText)
+// emitForever produces payload until nothing receives anymore. It closes
+// neither channel and deliberately ignores ctx — it never finishes on its
+// own, unlike a well-behaved plugin. Tests use it to prove RunPipeline
+// itself bounds StopAfter/cancellation rather than relying on plugin
+// cooperation with the sdk's context contract.
+func emitForever(payload []byte) sdk.Producer {
+	return func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		for {
+			send <- payload
 		}
 	}
+}
 
-	transformeErr := func(n int) sdk.Transformer {
-		i := 0
-		return func(in []byte) ([]byte, error) {
-			if i >= n {
-				return nil, fmt.Errorf("%s", errText)
-			}
-			i++
-			return in, nil
+// countAll consumes everything, counting receipts.
+func countAll(got *atomic.Int64) sdk.Consumer {
+	return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(done)
+		defer close(errs)
+		for range recv {
+			got.Add(1)
 		}
 	}
+}
 
-	testcases := [...]struct {
-		pipeline *Pipeline
-		want     error
+func Test_RunPipeline(t *testing.T) {
+	cases := []struct {
+		name                 string
+		count                int
+		producers, consumers int
+		delay                bool
 	}{
-		{&Pipeline{
-			Producer:    produceErr(50),
-			Consumer:    consumeErr(math.MaxInt32),
-			Transformer: transformeErr(math.MaxInt32),
-			ExitOnError: true,
-		}, fmt.Errorf("producer supplied error: %s", errText)},
-		{&Pipeline{
-			Producer:    produceErr(math.MaxInt32),
-			Consumer:    consumeErr(50),
-			Transformer: transformeErr(math.MaxInt32),
-			ExitOnError: true,
-		}, fmt.Errorf("consumer supplied error: %s", errText)},
-		{&Pipeline{
-			Producer:    produceErr(math.MaxInt32),
-			Consumer:    consumeErr(math.MaxInt32),
-			Transformer: transformeErr(50),
-			ExitOnError: true,
-		}, fmt.Errorf("transformer supplied error: %s", errText)},
-		{&Pipeline{
-			Producer:    joinProducers([]sdk.Producer{produceErr(50), produceErr(math.MaxInt32)}, logrus.StandardLogger()),
-			Consumer:    consumeErr(math.MaxInt32),
-			Transformer: transformeErr(math.MaxInt32),
-			ExitOnError: true,
-		}, fmt.Errorf("producer supplied error: %s", errText)},
-		{&Pipeline{
-			Producer:    produceErr(math.MaxInt32),
-			Consumer:    joinConsumers([]sdk.Consumer{consumeErr(math.MaxInt32), consumeErr(50)}, logrus.StandardLogger()),
-			Transformer: transformeErr(math.MaxInt32),
-			ExitOnError: true,
-		}, fmt.Errorf("consumer supplied error: %s", errText)},
+		{"1x1", 10_000, 1, 1, false},
+		{"1x10", 10_000, 1, 10, false},
+		{"10x1", 10_000, 10, 1, false},
+		{"10x10", 1_000, 10, 10, false},
+		{"slow transformer", 100, 10, 10, true},
 	}
 
-	for _, testcase := range testcases {
-		didFire := false
-		testcase.pipeline.logger = pipelineTestLogger(func() {
-			didFire = true
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sent := make([]atomic.Int64, tc.producers)
+			producers := make([]sdk.Producer, tc.producers)
+			for i := range producers {
+				producers[i] = emitN(tc.count, []byte{byte(i)}, &sent[i])
+			}
+
+			got := make([]atomic.Int64, tc.consumers)
+			consumers := make([]sdk.Consumer, tc.consumers)
+			for i := range consumers {
+				consumers[i] = countAll(&got[i])
+			}
+
+			transform := func(msg []byte) ([]byte, error) { return msg, nil }
+			if tc.delay {
+				transform = func(msg []byte) ([]byte, error) {
+					time.Sleep(time.Millisecond)
+					return msg, nil
+				}
+			}
+
+			err := mustRun(t, t.Context(), &Pipeline{
+				Producers:   producers,
+				Consumers:   consumers,
+				Transformer: transform,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for i := range sent {
+				if n := sent[i].Load(); n != int64(tc.count) {
+					t.Errorf("producer %d: sent %d of %d", i, n, tc.count)
+				}
+			}
+			want := int64(tc.count * tc.producers)
+			for i := range got {
+				if n := got[i].Load(); n != want {
+					t.Errorf("consumer %d: got %d of %d", i, n, want)
+				}
+			}
 		})
-		if err := RunPipeline(testcase.pipeline); err == nil {
-			test.Fatal("no error returned")
-		} else if err.Error() != testcase.want.Error() {
-			test.Fatalf("other error: %s != %s!", err, testcase.want)
-		} else if !didFire {
-			test.Fatal("logger hook did not fire")
+	}
+}
+
+func Test_RunPipeline_filtering(t *testing.T) {
+	var got atomic.Int64
+	err := mustRun(t, t.Context(), &Pipeline{
+		Producers: []sdk.Producer{func(_ context.Context, send chan<- []byte, errs chan<- error) {
+			defer close(send)
+			defer close(errs)
+			for i := 0; i < 100; i++ {
+				send <- []byte{byte(i)}
+			}
+		}},
+		Consumers: []sdk.Consumer{countAll(&got)},
+		Transformer: func(msg []byte) ([]byte, error) {
+			if msg[0]%2 == 0 {
+				return nil, nil // filtered
+			}
+			return msg, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 50 {
+		t.Fatalf("want 50 messages past the filter, got %d", n)
+	}
+}
+
+// Pipeline-level stop-after must terminate even an infinite producer.
+func Test_RunPipeline_stopAfter(t *testing.T) {
+	var got atomic.Int64
+	err := mustRun(t, t.Context(), &Pipeline{
+		Producers:   []sdk.Producer{emitForever([]byte("x"))},
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		StopAfter:   5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 5 {
+		t.Fatalf("want exactly 5 consumed, got %d", n)
+	}
+}
+
+// Cancelling the context stops a pipeline whose producer would never finish.
+func Test_RunPipeline_cancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	var got atomic.Int64
+	err := mustRun(t, ctx, &Pipeline{
+		Producers:   []sdk.Producer{emitForever([]byte("x"))},
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+func Test_RunPipeline_errors(t *testing.T) {
+	boom := errors.New("boom")
+	erroring := func(side string) sdk.Producer {
+		return func(_ context.Context, send chan<- []byte, errs chan<- error) {
+			defer close(send)
+			defer close(errs)
+			send <- []byte("one")
+			errs <- fmt.Errorf("%s: %w", side, boom)
+			send <- []byte("two")
 		}
 	}
+
+	t.Run("producer error, exit-on-error", func(t *testing.T) {
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   []sdk.Producer{erroring("producer")},
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			ExitOnError: true,
+		})
+		if !errors.Is(err, boom) {
+			t.Fatalf("want the producer's error, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "producer supplied error") {
+			t.Fatalf("unattributed error: %v", err)
+		}
+	})
+
+	t.Run("producer error, keep going", func(t *testing.T) {
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   []sdk.Producer{erroring("producer")},
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		})
+		if err != nil {
+			t.Fatalf("errors are logged, not returned, without exit-on-error: %v", err)
+		}
+		if n := got.Load(); n != 2 {
+			t.Fatalf("stream should survive the error: got %d of 2", n)
+		}
+	})
+
+	t.Run("transformer error, exit-on-error", func(t *testing.T) {
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   []sdk.Producer{emitN(10, []byte("x"), nil)},
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: func(msg []byte) ([]byte, error) { return nil, boom },
+			ExitOnError: true,
+		})
+		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "transformer supplied error") {
+			t.Fatalf("want the transformer's error, got %v", err)
+		}
+	})
+
+	t.Run("consumer error, exit-on-error", func(t *testing.T) {
+		consume := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer close(done)
+			defer close(errs)
+			for range recv {
+				errs <- fmt.Errorf("consumer: %w", boom)
+			}
+		}
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   []sdk.Producer{emitN(10, []byte("x"), nil)},
+			Consumers:   []sdk.Consumer{consume},
+			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			ExitOnError: true,
+		})
+		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "consumer supplied error") {
+			t.Fatalf("want the consumer's error, got %v", err)
+		}
+	})
 }

@@ -1,6 +1,8 @@
 package produce
 
 import (
+	"context"
+
 	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib/transport"
@@ -33,7 +35,7 @@ func Socket(parse sdk.Parser) (sdk.Producer, error) {
 		return nil, err
 	}
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
@@ -44,10 +46,17 @@ func Socket(parse sdk.Parser) (sdk.Producer, error) {
 		}
 		defer rc.Close()
 
+		stop := closeOnDone(ctx, rc)
+		defer stop()
+
 		if err := d.Split(rc, func(b []byte) error {
-			send <- b
-			return nil
-		}); err != nil {
+			select {
+			case send <- b:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}); err != nil && ctx.Err() == nil {
 			errs <- err
 		}
 	}, nil

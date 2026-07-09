@@ -1,6 +1,7 @@
 package produce
 
 import (
+	"context"
 	"strconv"
 	"time"
 
@@ -25,13 +26,17 @@ func Sequence(parse sdk.Parser) (sdk.Producer, error) {
 		step = 1
 	}
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
 		n := config.Start
 		for i := 0; config.StopAfter == 0 || i < config.StopAfter; i++ {
-			send <- []byte(strconv.Itoa(n))
+			select {
+			case send <- []byte(strconv.Itoa(n)):
+			case <-ctx.Done():
+				return
+			}
 			n += step
 		}
 	}, nil
@@ -51,14 +56,18 @@ func Generate(parse sdk.Parser) (sdk.Producer, error) {
 		return nil, err
 	}
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
 		emitted := 0
 		for {
 			for _, v := range config.Values {
-				send <- []byte(v)
+				select {
+				case send <- []byte(v):
+				case <-ctx.Done():
+					return
+				}
 				emitted++
 				if config.StopAfter > 0 && emitted >= config.StopAfter {
 					return
@@ -93,7 +102,7 @@ func Ticker(parse sdk.Parser) (sdk.Producer, error) {
 		format = "unix-ms"
 	}
 
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 
@@ -102,8 +111,17 @@ func Ticker(parse sdk.Parser) (sdk.Producer, error) {
 
 		for i := 0; config.StopAfter == 0 || i < config.StopAfter; i++ {
 			now := time.Now()
-			send <- []byte(formatTime(now, format))
-			<-tick.C
+			select {
+			case send <- []byte(formatTime(now, format)):
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case <-tick.C:
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 	}, nil
 }

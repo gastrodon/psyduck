@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 			Name:  "emit",
 			Kinds: sdk.PRODUCER,
 			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
-				return func(send chan<- []byte, errs chan<- error) {
+				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					for i := 0; i < count; i++ {
 						send <- payload
 					}
@@ -37,7 +38,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 			Name:  "count",
 			Kinds: sdk.CONSUMER,
 			ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
-				return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+				return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 					for range recv {
 						*consumed++
 					}
@@ -113,7 +114,7 @@ func Test_drain(t *testing.T) {
 		resources[i] = r
 	}
 	seen := []string{}
-	err := drain(parse.LiteralResourceFunc(resources...), plugins, func(b parse.Resource, _ sdk.Instance) {
+	err := drain(t.Context(), parse.LiteralResourceFunc(resources...), plugins, func(b parse.Resource, _ sdk.Instance) {
 		seen = append(seen, b.Ref)
 	})
 	if err != nil {
@@ -124,20 +125,20 @@ func Test_drain(t *testing.T) {
 	}
 
 	// unknown plugin
-	err = drain(parse.LiteralResourceFunc(testResource("ghost", "emit", sdk.PRODUCER, sdk.BlockMeta{})), plugins, func(parse.Resource, sdk.Instance) {})
+	err = drain(t.Context(), parse.LiteralResourceFunc(testResource("ghost", "emit", sdk.PRODUCER, sdk.BlockMeta{})), plugins, func(parse.Resource, sdk.Instance) {})
 	if err == nil || !strings.Contains(err.Error(), `no plugin "ghost"`) {
 		t.Fatalf("want no-plugin error, got %v", err)
 	}
 
 	// bind failure (unknown resource within the plugin)
-	err = drain(parse.LiteralResourceFunc(testResource("p", "nonexistent", sdk.PRODUCER, sdk.BlockMeta{})), plugins, func(parse.Resource, sdk.Instance) {})
+	err = drain(t.Context(), parse.LiteralResourceFunc(testResource("p", "nonexistent", sdk.PRODUCER, sdk.BlockMeta{})), plugins, func(parse.Resource, sdk.Instance) {})
 	if err == nil {
 		t.Fatal("want bind error, got nil")
 	}
 
 	// stream error propagates
-	streamErr := func(int) ([]parse.Resource, error) { return nil, fmt.Errorf("stream broke") }
-	if err := drain(streamErr, plugins, func(parse.Resource, sdk.Instance) {}); err == nil || err.Error() != "stream broke" {
+	streamErr := func(context.Context, int) ([]parse.Resource, error) { return nil, fmt.Errorf("stream broke") }
+	if err := drain(t.Context(), streamErr, plugins, func(parse.Resource, sdk.Instance) {}); err == nil || err.Error() != "stream broke" {
 		t.Fatalf("want stream error, got %v", err)
 	}
 }
@@ -159,14 +160,14 @@ func Test_BuildPipeline(t *testing.T) {
 
 	src := mksrc(sdk.BlockMeta{})
 	src.StopAfter = 7
-	pipeline, err := BuildPipeline(src, []sdk.Plugin{plugin})
+	pipeline, err := BuildPipeline(t.Context(), src, []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if pipeline.StopAfter != 7 || !pipeline.ExitOnError {
 		t.Fatalf("pipeline flags not propagated: %#v", pipeline)
 	}
-	if err := RunPipeline(pipeline); err != nil {
+	if err := RunPipeline(t.Context(), pipeline); err != nil {
 		t.Fatal(err)
 	}
 	if consumed != 5 {
@@ -175,11 +176,11 @@ func Test_BuildPipeline(t *testing.T) {
 
 	// producer meta applies: stop-after 2 of 5
 	consumed = 0
-	pipeline, err = BuildPipeline(mksrc(sdk.BlockMeta{StopAfter: 2}), []sdk.Plugin{plugin})
+	pipeline, err = BuildPipeline(t.Context(), mksrc(sdk.BlockMeta{StopAfter: 2}), []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RunPipeline(pipeline); err != nil {
+	if err := RunPipeline(t.Context(), pipeline); err != nil {
 		t.Fatal(err)
 	}
 	if consumed != 2 {
@@ -195,18 +196,18 @@ func Test_BuildPipeline_errors(t *testing.T) {
 	producer := parse.LiteralResourceFunc(testResource("p", "emit", sdk.PRODUCER, sdk.BlockMeta{}))
 	consumer := parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{}))
 
-	_, err := BuildPipeline(parse.Pipeline{Name: "x", Producers: empty, Consumers: consumer, Transformers: empty}, []sdk.Plugin{plugin})
+	_, err := BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: empty, Consumers: consumer, Transformers: empty}, []sdk.Plugin{plugin})
 	if err == nil || !strings.Contains(err.Error(), "no producers") {
 		t.Fatalf("want no-producers error, got %v", err)
 	}
 
-	_, err = BuildPipeline(parse.Pipeline{Name: "x", Producers: producer, Consumers: empty, Transformers: empty}, []sdk.Plugin{plugin})
+	_, err = BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: producer, Consumers: empty, Transformers: empty}, []sdk.Plugin{plugin})
 	if err == nil || !strings.Contains(err.Error(), "no consumers") {
 		t.Fatalf("want no-consumers error, got %v", err)
 	}
 
 	ghost := parse.LiteralResourceFunc(testResource("ghost", "emit", sdk.PRODUCER, sdk.BlockMeta{}))
-	_, err = BuildPipeline(parse.Pipeline{Name: "x", Producers: ghost, Consumers: consumer, Transformers: empty}, []sdk.Plugin{plugin})
+	_, err = BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: ghost, Consumers: consumer, Transformers: empty}, []sdk.Plugin{plugin})
 	if err == nil || !strings.Contains(err.Error(), `no plugin "ghost"`) {
 		t.Fatalf("want no-plugin error, got %v", err)
 	}

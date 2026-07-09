@@ -52,10 +52,16 @@ func (f *fetcher) cleanup() {
 // build compiles codePath into a temporary .so. It never writes directly
 // into the store — the store only knows binaries by content hash, which
 // isn't known until after the build produces bytes to hash.
+//
+// plugin.Open refuses a .so whose race setting differs from the host's, so
+// the build mirrors this binary's own (mostly relevant to `go test -race`).
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	tmpOut := filepath.Join(f.tmpDir, spec.Name+".so")
-	cmd := exec.Command("go", "build", "-C", codePath, "-o", tmpOut, "-buildmode", "plugin")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	args := []string{"build", "-C", codePath, "-o", tmpOut, "-buildmode", "plugin"}
+	if raceEnabled {
+		args = append(args, "-race")
+	}
+	if out, err := exec.Command("go", args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
 	return tmpOut, nil

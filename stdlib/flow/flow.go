@@ -7,6 +7,7 @@
 package flow
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -40,48 +41,82 @@ func Limiter(perMinute, perSecond int) func() {
 }
 
 // Producer wraps p with rate limiting and a stop-after cutoff. With all limits
-// unset it returns p unchanged.
+// unset it returns p unchanged. p receives the same ctx as the wrapper — the
+// sdk contract requires it to select on ctx.Done() on its own — and the
+// wrapper's own relay to send also honors ctx, so an abandoned wrapped
+// producer never blocks past cancellation.
 func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer {
 	if perMinute <= 0 && perSecond <= 0 && stopAfter <= 0 {
 		return p
 	}
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
 		inner := make(chan []byte)
-		go p(inner, errs)
+		go p(ctx, inner, errs)
 
 		wait, count := Limiter(perMinute, perSecond), 0
-		for msg := range inner {
-			wait()
-			send <- msg
-			count++
-			if stopAfter > 0 && count >= stopAfter {
-				break
+		for {
+			select {
+			case msg, ok := <-inner:
+				if !ok {
+					return
+				}
+				wait()
+				select {
+				case send <- msg:
+				case <-ctx.Done():
+					return
+				}
+				count++
+				if stopAfter > 0 && count >= stopAfter {
+					return
+				}
+			case <-ctx.Done():
+				return
 			}
 		}
-		close(send)
 	}
 }
 
 // Consumer wraps c with rate limiting and a stop-after cutoff. With all limits
-// unset it returns c unchanged.
+// unset it returns c unchanged. c receives the same ctx as the wrapper, and
+// the wrapper's own relay from recv also honors ctx.
+//
+// At the cutoff (or on cancellation) the wrapper stops receiving and closes
+// the inner stream; c flushes and closes done. The wrapper deliberately does
+// not drain recv — done is the host's signal to stop sending (core's sink
+// honors it), and silently discarding messages would hide the cutoff from
+// the host and keep upstream producing into the void.
 func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer {
 	if perMinute <= 0 && perSecond <= 0 && stopAfter <= 0 {
 		return c
 	}
-	return func(recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		inner := make(chan []byte)
-		go c(inner, errs, done)
+		go c(ctx, inner, errs, done)
+		defer close(inner)
 
 		wait, count := Limiter(perMinute, perSecond), 0
-		for msg := range recv {
-			wait()
-			inner <- msg
-			count++
-			if stopAfter > 0 && count >= stopAfter {
-				break
+		for {
+			select {
+			case msg, ok := <-recv:
+				if !ok {
+					return
+				}
+				wait()
+				select {
+				case inner <- msg:
+				case <-ctx.Done():
+					return
+				}
+				count++
+				if stopAfter > 0 && count >= stopAfter {
+					return
+				}
+			case <-ctx.Done():
+				return
 			}
 		}
-		close(inner)
 	}
 }
 

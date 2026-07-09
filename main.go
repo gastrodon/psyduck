@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/urfave/cli/v2"
@@ -95,7 +98,7 @@ func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, e
 	}
 	loaded = append(loaded, stdlib.Plugin())
 
-	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.FileLoader, loaded)
+	pipelines, err := hcl.NewParserHCL().Parse(ctx.Context, entry, parse.FileLoader, loaded)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -118,7 +121,7 @@ func run(ctx *cli.Context) error {
 
 	built := make([]*core.Pipeline, 0, len(pipelines))
 	for _, pipe := range pipelines {
-		b, err := core.BuildPipeline(pipe, loaded)
+		b, err := core.BuildPipeline(ctx.Context, pipe, loaded)
 		if err != nil {
 			return err
 		}
@@ -126,12 +129,12 @@ func run(ctx *cli.Context) error {
 	}
 
 	if len(built) == 1 {
-		return core.RunPipeline(built[0])
+		return core.RunPipeline(ctx.Context, built[0])
 	}
 
 	errs := make(chan error, len(built))
 	for _, b := range built {
-		go func(b *core.Pipeline) { errs <- core.RunPipeline(b) }(b)
+		go func(b *core.Pipeline) { errs <- core.RunPipeline(ctx.Context, b) }(b)
 	}
 
 	var failed error
@@ -277,7 +280,12 @@ func main() {
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	// SIGINT/SIGTERM cancel the context every pipeline runs under, so
+	// Ctrl-C winds pipelines down instead of tearing the process apart.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := app.RunContext(ctx, os.Args); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

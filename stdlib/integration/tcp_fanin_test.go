@@ -29,7 +29,7 @@ func TestTCPFanIn(t *testing.T) {
 	}
 	send := make(chan []byte, total)
 	lerrs := make(chan error, 1)
-	go lp(send, lerrs)
+	go lp(t.Context(), send, lerrs)
 	drainErrs(lerrs)
 
 	waitForTCP(t, addr)
@@ -51,7 +51,7 @@ func TestTCPFanIn(t *testing.T) {
 			recv := make(chan []byte, msgsPerWriter)
 			cerrs := make(chan error, msgsPerWriter)
 			cdone := make(chan struct{})
-			go cw(recv, cerrs, cdone)
+			go cw(t.Context(), recv, cerrs, cdone)
 			drainErrs(cerrs)
 
 			for m := 0; m < msgsPerWriter; m++ {
@@ -96,7 +96,7 @@ func TestTCPFanInSequential(t *testing.T) {
 	}
 	send := make(chan []byte, rounds*msgsPerRound)
 	lerrs := make(chan error, 1)
-	go lp(send, lerrs)
+	go lp(t.Context(), send, lerrs)
 	drainErrs(lerrs)
 
 	waitForTCP(t, addr)
@@ -110,7 +110,7 @@ func TestTCPFanInSequential(t *testing.T) {
 		recv := make(chan []byte, msgsPerRound)
 		cerrs := make(chan error, msgsPerRound)
 		cdone := make(chan struct{})
-		go cw(recv, cerrs, cdone)
+		go cw(t.Context(), recv, cerrs, cdone)
 		drainErrs(cerrs)
 
 		for m := 0; m < msgsPerRound; m++ {

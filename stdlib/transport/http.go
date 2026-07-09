@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -63,8 +64,10 @@ func (h HTTP) Client() *http.Client {
 }
 
 // Do issues one request with the given body (nil for none) and returns the
-// response body. A status code outside SuccessCodes is an error.
-func (h HTTP) Do(client *http.Client, body []byte) ([]byte, error) {
+// response body. A status code outside SuccessCodes is an error. ctx bounds
+// the request — cancelling it aborts an in-flight Do promptly instead of
+// waiting out the client's timeout.
+func (h HTTP) Do(ctx context.Context, client *http.Client, body []byte) ([]byte, error) {
 	target, err := url.Parse(h.URL)
 	if err != nil {
 		return nil, fmt.Errorf("http: bad url %q: %w", h.URL, err)
@@ -86,7 +89,7 @@ func (h HTTP) Do(client *http.Client, body []byte) ([]byte, error) {
 	if method == "" {
 		method = http.MethodGet
 	}
-	req, err := http.NewRequest(method, target.String(), reader)
+	req, err := http.NewRequestWithContext(ctx, method, target.String(), reader)
 	if err != nil {
 		return nil, fmt.Errorf("http: build request: %w", err)
 	}

@@ -39,7 +39,7 @@ func TestFileBroadcast(t *testing.T) {
 		}
 		send := make(chan []byte)
 		perrs := make(chan error, 1)
-		go p(send, perrs)
+		go p(t.Context(), send, perrs)
 		drainErrs(perrs)
 		return send
 	}
@@ -82,7 +82,7 @@ func TestUnixSocketFanIn(t *testing.T) {
 	}
 	send := make(chan []byte, total)
 	lerrs := make(chan error, 1)
-	go lp(send, lerrs)
+	go lp(t.Context(), send, lerrs)
 	drainErrs(lerrs)
 
 	waitForSocket(t, sockPath)
@@ -101,7 +101,7 @@ func TestUnixSocketFanIn(t *testing.T) {
 			recv := make(chan []byte, msgsPerWriter)
 			cerrs := make(chan error, msgsPerWriter)
 			cdone := make(chan struct{})
-			go sw(recv, cerrs, cdone)
+			go sw(t.Context(), recv, cerrs, cdone)
 			drainErrs(cerrs)
 
 			for m := 0; m < msgsPerWriter; m++ {

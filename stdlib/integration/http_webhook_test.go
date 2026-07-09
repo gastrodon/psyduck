@@ -33,7 +33,7 @@ func TestHTTPWebhookReceiver(t *testing.T) {
 	// requests are in flight.
 	send := make(chan []byte, N)
 	errs := make(chan error, N)
-	go p(send, errs)
+	go p(t.Context(), send, errs)
 	drainErrs(errs)
 
 	waitForHTTP(t, "http://"+addr+"/hook")
@@ -83,7 +83,7 @@ func TestHTTPWebhookBodyCap(t *testing.T) {
 	}
 	send := make(chan []byte, 2)
 	errs := make(chan error, 1)
-	go p(send, errs)
+	go p(t.Context(), send, errs)
 	drainErrs(errs)
 
 	waitForHTTP(t, "http://"+addr+"/ingest")
@@ -136,7 +136,7 @@ func TestHTTPWebhookMethodGating(t *testing.T) {
 	}
 	send := make(chan []byte, 4)
 	errs := make(chan error, 1)
-	go p(send, errs)
+	go p(t.Context(), send, errs)
 	drainErrs(errs)
 
 	waitForHTTP(t, "http://"+addr+"/ingest")

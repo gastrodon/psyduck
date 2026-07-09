@@ -118,7 +118,7 @@ func runExample(t *testing.T, name string, fix fixture) {
 	}
 	entry := filepath.Join("examples", file)
 
-	pipelines, err := hcl.NewParserHCL().Parse(entry, parse.FileLoader, plugins)
+	pipelines, err := hcl.NewParserHCL().Parse(t.Context(), entry, parse.FileLoader, plugins)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -131,7 +131,7 @@ func runExample(t *testing.T, name string, fix fixture) {
 		return
 	}
 
-	built, err := core.BuildPipeline(pipe, plugins)
+	built, err := core.BuildPipeline(t.Context(), pipe, plugins)
 	if err != nil {
 		t.Fatalf("build %q: %v", name, err)
 	}
@@ -140,7 +140,7 @@ func runExample(t *testing.T, name string, fix fixture) {
 		return
 	}
 
-	if err := core.RunPipeline(built); err != nil {
+	if err := core.RunPipeline(t.Context(), built); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
@@ -169,16 +169,16 @@ pipeline "check" {
 	load := func(path string) (parse.Source, error) {
 		return parse.Source{Name: path, Content: []byte(src)}, nil
 	}
-	pipelines, err := hcl.NewParserHCL().Parse("assert.psy", load, plugins)
+	pipelines, err := hcl.NewParserHCL().Parse(t.Context(), "assert.psy", load, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bp, err := core.BuildPipeline(pipelines["check"], plugins)
+	bp, err := core.BuildPipeline(t.Context(), pipelines["check"], plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bp.ExitOnError = true
-	if err := core.RunPipeline(bp); err == nil {
+	if err := core.RunPipeline(t.Context(), bp); err == nil {
 		t.Error("expected a false assert to error the pipeline")
 	}
 }

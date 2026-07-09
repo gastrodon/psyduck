@@ -23,7 +23,7 @@ func TestUDPDatagramTransport(t *testing.T) {
 	}
 	send := make(chan []byte, N)
 	lerrs := make(chan error, 1)
-	go lp(send, lerrs)
+	go lp(t.Context(), send, lerrs)
 	drainErrs(lerrs)
 
 	// Give the goroutine time to call net.ListenPacket and bind before we dial.

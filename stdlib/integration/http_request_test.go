@@ -51,7 +51,7 @@ func TestHTTPRequestConsumer(t *testing.T) {
 	recv := make(chan []byte)
 	cerrs := make(chan error, 1)
 	cdone := make(chan struct{})
-	go c(recv, cerrs, cdone)
+	go c(t.Context(), recv, cerrs, cdone)
 	drainErrs(cerrs)
 
 	want := make([]string, N)
@@ -100,7 +100,7 @@ func TestHTTPRequestConsumerErrorOnBadStatus(t *testing.T) {
 	recv := make(chan []byte, 1)
 	cerrs := make(chan error, 1)
 	cdone := make(chan struct{})
-	go c(recv, cerrs, cdone)
+	go c(t.Context(), recv, cerrs, cdone)
 
 	recv <- []byte("trigger-error")
 	close(recv)

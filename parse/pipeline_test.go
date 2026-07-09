@@ -12,7 +12,7 @@ func TestLiteralResourceFunc(t *testing.T) {
 	sizes := []int{}
 	total := []Resource{}
 	for {
-		chunk, err := f(2)
+		chunk, err := f(t.Context(), 2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -33,18 +33,18 @@ func TestLiteralResourceFunc(t *testing.T) {
 	}
 
 	// exhausted stream stays exhausted
-	if chunk, err := f(2); err != nil || chunk != nil {
+	if chunk, err := f(t.Context(), 2); err != nil || chunk != nil {
 		t.Fatalf("want exhausted, got %v %v", chunk, err)
 	}
 
 	// max < 1 yields nothing
 	f = LiteralResourceFunc(rs...)
-	if chunk, err := f(0); err != nil || chunk != nil {
+	if chunk, err := f(t.Context(), 0); err != nil || chunk != nil {
 		t.Fatalf("max=0: want nil, got %v %v", chunk, err)
 	}
 
 	// empty literal exhausts immediately
-	if chunk, err := LiteralResourceFunc()(4); err != nil || chunk != nil {
+	if chunk, err := LiteralResourceFunc()(t.Context(), 4); err != nil || chunk != nil {
 		t.Fatalf("empty: want nil, got %v %v", chunk, err)
 	}
 }

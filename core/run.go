@@ -1,56 +1,94 @@
 package core
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"sync"
+)
 
-func RunPipeline(pipeline *Pipeline) error {
-	dataProducer, errorProducer := make(chan []byte), make(chan error)
-	dataConsumer, errorConsumer, finishConsumer := make(chan []byte), make(chan error), make(chan struct{})
-	errs := make(chan error)
+/*
+RunPipeline drives a built pipeline until its producers are exhausted, all
+of its consumers finish, StopAfter is reached, or ctx ends.
 
-	go pipeline.Producer(dataProducer, errorProducer)
-	go pipeline.Consumer(dataConsumer, errorConsumer, finishConsumer)
+Producers are merged into one iter.Seq2 stream (see produce); each message
+runs through the transformer stack and fans out to every consumer still
+accepting (see sink). Errors from any side are logged; with ExitOnError set
+the first one also cancels the pipeline and is returned. Cancelling ctx
+stops the run promptly and returns ctx's error.
 
-	go func() {
-		for err := range errorProducer {
-			if err != nil {
-				errs <- fmt.Errorf("producer supplied error: %s", err)
-			}
-		}
-	}()
+Every goroutine the engine starts is signaled to stop before RunPipeline
+returns, and the engine's own goroutines are joined. Plugin goroutines are
+signaled but not joined on the cancellation path: producers and consumers
+receive the pipeline's ctx and are contractually required to select on
+ctx.Done() alongside their sends, so a conforming plugin exits promptly on
+cancellation — but one that ignores ctx may still be winding down (or
+parked forever) after RunPipeline returns.
+*/
+func RunPipeline(outer context.Context, pipeline *Pipeline) error {
+	ctx, cancel := context.WithCancel(outer)
+	defer cancel()
 
-	go func() {
-		for err := range errorConsumer {
-			if err != nil {
-				errs <- fmt.Errorf("consumer supplied error: %s", err)
-			}
-		}
-	}()
+	logger := pipeline.logger
+	if logger == nil {
+		logger = pipelineLogger()
+	}
 
-	go func() {
-		for msg := range dataProducer {
-			transformed, err := pipeline.Transformer(msg)
-			if err != nil {
-				errs <- fmt.Errorf("transformer supplied error: %s", err)
-			}
-
-			if transformed == nil {
-				continue
-			}
-
-			dataConsumer <- transformed
-		}
-
-		close(dataConsumer)
-		<-finishConsumer
-		close(errs)
-	}()
-
-	for err := range errs {
-		pipeline.logger.Error(err)
+	var failMu sync.Mutex
+	var failure error
+	report := func(err error) {
+		logger.Error(err)
 		if pipeline.ExitOnError {
-			return err
+			failMu.Lock()
+			if failure == nil {
+				failure = err
+				cancel()
+			}
+			failMu.Unlock()
 		}
 	}
 
-	return nil
+	transform := pipeline.Transformer
+	if transform == nil {
+		transform = func(msg []byte) ([]byte, error) { return msg, nil }
+	}
+
+	consumers := startSink(ctx, pipeline.Consumers, report)
+
+	delivered := 0
+	for msg, err := range produce(ctx, pipeline.Producers) {
+		if err != nil {
+			report(fmt.Errorf("producer supplied error: %w", err))
+			continue
+		}
+
+		transformed, err := transform(msg)
+		if err != nil {
+			report(fmt.Errorf("transformer supplied error: %w", err))
+			continue
+		}
+		if transformed == nil {
+			continue // filtered out
+		}
+
+		if !consumers.send(ctx, transformed) {
+			break // every consumer finished, or ctx ended
+		}
+
+		delivered++
+		if pipeline.StopAfter > 0 && delivered >= pipeline.StopAfter {
+			break
+		}
+	}
+
+	consumers.close()
+	consumers.flush(ctx)
+	cancel() // release error forwarders whose channels never close
+	consumers.waitErrs()
+
+	failMu.Lock()
+	defer failMu.Unlock()
+	if failure != nil {
+		return failure
+	}
+	return outer.Err() // non-nil only when the caller's ctx ended the run
 }

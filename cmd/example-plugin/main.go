@@ -1,6 +1,10 @@
 package main
 
-import "github.com/psyduck-etl/sdk"
+import (
+	"context"
+
+	"github.com/psyduck-etl/sdk"
+)
 
 // main is a no-op — required because -buildmode=plugin still needs package main.
 func main() {}
@@ -33,11 +37,16 @@ func constantProducer(parse sdk.Parser) (sdk.Producer, error) {
 		return nil, err
 	}
 	value := []byte(config.Value)
-	return func(send chan<- []byte, errs chan<- error) {
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
 		defer close(errs)
 		for i := 0; config.Count == 0 || i < config.Count; i++ {
-			send <- value
+			select {
+			case send <- value:
+				continue
+			case <-ctx.Done():
+				return
+			}
 		}
 	}, nil
 }
