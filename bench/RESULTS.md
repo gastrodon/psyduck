@@ -16,23 +16,32 @@ This is a **triage of propositions**, not applied fixes -- nothing in
 | Rank | Finding | Evidence | Effort | Risk |
 |---|---|---|---|---|
 | 1 | Codec chain specs (`"json"`, `"gzip\|json"`, ...) are re-split on every `Decode`/`Encode` call | `splitSpec` = 8.5% of CPU / 5.5% of allocations across the codec benchmark family | Low | Low (needs `sync.Map`/`RWMutex`, not a plain map -- see below) |
-| 2 | gzip encode/decode build a fresh compressor/decompressor per call, never pooled | gzip-related allocation (`flate`/`gzip`/`bufio` construction) is >50% of all allocations in the codec profile; `Encode/gzip` is 10x `Decode/gzip` for the same payload | Medium | Low-Medium |
+| 2 | gzip encode/decode build a fresh compressor/decompressor per call, never pooled | gzip construction (deduplicated) is ~29% of all allocations in the codec profile -- the single largest cluster; `Encode/gzip` is 10x `Decode/gzip` for the same payload | Medium | Low-Medium (watch the zero-value-Writer trap below) |
 | 3 | `by=` jq selectors (`pick`, `dedupe`, `uniq`) re-parse (not re-*compile* -- see below) the expression on every message | ~21% saving available in isolation; the larger 1.8x-3.0x deltas vs `path=` are mostly inherent to using jq at all, not this bug alone | Low | Low |
-| 4 | `core/sink.go`'s fan-out sends to consumers sequentially, not concurrently | 10-consumer pipelines cost ~4.9x a 1-consumer pipeline per message; 10-producer fan-in costs the same as 1-producer | High | Medium |
+| 4 | `core/sink.go`'s fan-out sends to consumers sequentially, not concurrently | Real mechanism, but every one of this repo's 15 example pipelines uses exactly 1 consumer -- see reframing below | High | Medium |
 | 5 | `flow.Head`/`Tail`/`Sample`/`transform.Count` guard a plain counter with an always-uncontended `sync.Mutex` | Engine calls the transform stack from one goroutine only; mutex is provably dead weight | Low | Low |
 
 Findings 1 and 3 are the same anti-pattern in two different layers: **doing
 per-message work (parsing a static config string) that only needs to
 happen once, at transformer-build time.** Finding 2 is related but
 distinct -- reusable, expensive-to-construct state (a compressor) that
-simply isn't pooled. This report went through an adversarial verification
-pass (independent review of each finding against the actual source, not
-just the benchmark numbers) before being finalized below -- it caught a
-real mechanism error in the original jq write-up (conflating jq *parsing*
-with jq *compiling*, corrected in place in finding #3) and a real
-concurrency hazard in finding #1 (a naive cache would race across
-psyduck's one-goroutine-per-pipeline concurrency model, confirmed against
-`main.go`). Both are called out inline rather than swept under the rug.
+simply isn't pooled.
+
+**All five findings went through an adversarial verification pass**
+(independent agents re-reading the actual source, re-running benchmarks,
+and in one case writing and running an original repro program) before this
+report was finalized -- not a rubber stamp. It caught and corrected: a
+real mechanism error in the jq write-up (conflating jq *parsing* with jq
+*compiling*, finding #3); a real concurrency hazard in a naive fix for
+finding #1 (would race across psyduck's one-goroutine-per-pipeline model,
+confirmed against `main.go`); a measurement error in finding #2 (the
+original "well over half of all allocations" claim double-counted nested
+profile frames and misattributed unrelated CSV-codec allocations -- the
+real, still-significant figure is ~29%) plus a genuinely shippable silent
+bug in its proposed fix (a naively pool-seeded `gzip.Writer` silently
+stops compressing); and an overstated usage claim in finding #4 (corrected
+against all 15 `examples/*.psy` files). Every correction is called out
+inline in its section rather than swept under the rug.
 
 ---
 
@@ -103,23 +112,57 @@ Neither side reuses anything across calls.
 `Decode/gzip/medium` (**34.74µs ± 7%**, 40.8KiB/op, 10 allocs/op) for the
 same payload size. Compression is inherently pricier than decompression,
 but not by architecture alone -- a memory profile of the codec family shows
-gzip/flate/bufio *construction* (not the actual compress/decompress work)
+gzip/flate *construction* (not the actual compress/decompress work)
 dominating: `compress/flate.(*dictDecoder).init` alone is **15.3% of all
-allocated bytes** in that profile (3.40GB of 22.15GB); `flate.NewWriter` +
-`gzip.NewReader` + `flate.NewReader` + the `bufio.New*Size` wrappers they
-pull in collectively account for **well over half** of all allocations
-across the *entire* codec suite (json/bytes/utf8/base64/hex/csv included,
-not just gzip).
+allocated bytes** in that profile (3.40GB of 22.15GB).
 
-**Proposition:** pool `*gzip.Writer`/`*gzip.Reader` (and/or the `bufio`
-wrappers) via `sync.Pool`, using `gzip.Writer.Reset(w)` /
-`gzip.Reader.Reset(r)` -- both exist specifically for this reuse pattern --
-instead of constructing fresh ones on every call. This is medium effort
-(needs care that `Reset` fully re-initializes state with no cross-message
-leakage, and that pooled writers are always `Close()`d/flushed before
-returning to the pool) but should meaningfully cut allocation volume for
-any pipeline using `gzip`/`gzip|json` encode or decode under sustained
-throughput.
+*Correction from verification:* the first draft of this finding summed
+`flate.NewWriter` + `gzip.NewReader` + `flate.NewReader` + the
+`bufio.New*Size` wrappers and claimed "well over half" of all allocations.
+That double-counts: `gzip.NewReader`'s 4.27GB cumulative figure already
+*includes* `flate.NewReader`'s 4.20GB, which already includes
+`dictDecoder.init`'s 3.40GB -- they're parent/child frames on one call
+stack, not independent contributors. The `bufio.New*Size` allocations are
+also misattributed: this codec's gzip input is always a `bytes.Reader`,
+which already satisfies `io.ByteReader`, so neither `gzip`/`flate`'s reader
+nor its writer path ever wraps it in a `bufio.Reader`/`Writer` here -- that
+allocation actually comes from the unrelated CSV codec in the same
+benchmark suite (`encoding/csv` always bufio-wraps unconditionally). A
+de-duplicated, gzip-only figure is `gzip.NewReader` cum (4.27GB, already
+inclusive of its children) + `flate.NewWriter` cum (2.22GB) ≈ **6.49GB,
+~29% of the 22.15GB suite total** -- still the single largest identifiable
+cluster in the whole benchmark suite (encoding/json's own machinery is the
+next biggest at ~15-19%), just not "over half."
+
+**Proposition:** pool `*gzip.Writer`/`*gzip.Reader` via `sync.Pool`, using
+`gzip.Writer.Reset(w)`/`gzip.Reader.Reset(r)` -- both exist specifically
+for this reuse pattern, and both were confirmed (by reading the Go 1.24
+stdlib source and by an actual concurrent-stress-plus-`-race` repro during
+verification) to fully re-initialize all per-message state with no
+cross-message leakage. `bufio` pooling is not applicable to this codec
+specifically (see above) and would be wasted effort here. Two concrete,
+non-obvious hazards a real implementation must handle -- the second one is
+a genuine, easy-to-ship bug, not a theoretical caveat:
+
+1. **Seed the pool with `gzip.NewWriter`, never `new(gzip.Writer)`.** A
+   zero-value `*gzip.Writer`'s `level` field is `0`, which is
+   `flate.NoCompression`, not `DefaultCompression` -- `Writer.Reset` only
+   reuses whatever level is already on the struct, it can't set one. This
+   was reproduced directly: a pool seeded with `new(gzip.Writer)` silently
+   produced *larger* output than the input (225 bytes for a 197-byte
+   payload) instead of compressing it. Round-trip tests would not catch
+   this (decode still works fine) -- only compression ratio would reveal
+   it, which is exactly the kind of regression that ships unnoticed.
+2. If the destination `bytes.Buffer` is also pooled, the `[]byte` returned
+   from `buf.Bytes()` aliases its backing array and must be copied out
+   before the buffer is reset/reused -- or the buffer must not be pooled.
+   `io.ReadAll` on the decode side already returns an unaliased slice, so
+   decode has no equivalent hazard.
+
+Standard `sync.Pool` discipline (never let a pooled reader/writer escape
+the function that `Get()` it; one `Put()` per `Get()`) is what keeps this
+safe under concurrent pipelines -- no gzip-specific concurrency hazard
+beyond that.
 
 ---
 
@@ -236,18 +279,59 @@ A CPU profile backs this up structurally: `runtime.selectgo` is **26.9% of
 cumulative CPU** and `core.(*sink).send` is **14.8%** across this whole
 benchmark family.
 
-**Proposition (higher effort, architectural):** deliver to all live
-consumers concurrently -- e.g. one lightweight goroutine/worker per
-consumer per message, or a persistent per-consumer relay goroutine fed by
-its own queue, joined with a `sync.WaitGroup` -- so total per-message fan-out
-latency approaches `max(consumer latency)` rather than
-`sum(consumer latencies)`. This is real engineering, not a one-line change:
-it touches `sink`'s `finished`/`live` bookkeeping and the `ctx`-cancellation
-contract `RunPipeline` depends on to know when every consumer is done. It's
-also only worth doing if high-consumer-fan-out pipelines are a real shape
-this project cares about supporting at scale -- worth confirming with the
-maintainers before investing the effort, since most `.psy` examples in this
-repo use one or two consumers.
+**Reframed after verification -- this is real but its priority is lower
+than "10 consumers" makes it look, and its actual bite is different from
+what the homogeneous benchmark above shows:**
+
+- *Usage reality check:* every one of this repo's 15 `examples/*.psy`
+  pipelines declares exactly one consumer; none declare two or more,
+  despite multi-consumer fan-out being a documented, supported feature.
+  "10 consumers" is a synthetic stress case with no analog anywhere in this
+  project today -- the first draft of this finding said "most examples use
+  one or two consumers," which overstated how much multi-consumer usage
+  actually exists.
+- *But the sequential design has a sharper edge than raw consumer count
+  suggests:* because `sink.send` only moves to consumer `i+1` once
+  consumer `i`'s rendezvous resolves, **one slow consumer taxes every
+  consumer after it in the slice**, every message. The benchmark above uses
+  identical, near-instant `consume.Trash` consumers, so it only measures
+  the fixed per-consumer scheduling cost -- a real pipeline mixing a slow
+  consumer (a blocking HTTP POST, say) with a fast one (a local file) would
+  see materially worse behavior than this benchmark shows, and would see it
+  at **2-3 consumers**, not 10.
+- *The sequential design isn't accidental, either:* it currently provides
+  two properties for free that a naive concurrent rewrite must go out of
+  its way to preserve -- strict per-consumer in-order delivery, and natural
+  backpressure (the whole fan-out for message N can't finish until the
+  slowest live consumer accepts it, which is what keeps a fast producer
+  from running away from a slow consumer).
+
+**Proposition (higher effort, architectural, lower priority than it first
+looked):** deliver to all live consumers concurrently -- e.g. spawn
+per-consumer work and join with a `sync.WaitGroup` before returning, or a
+persistent per-consumer relay goroutine fed by its own queue -- so total
+per-message fan-out latency approaches `max(consumer latency)` rather than
+`sum(consumer latencies)`. A join-based design can preserve both properties
+above (it's still a per-message barrier), but is not a safe drop-in:
+- `s.finished[i]`/`s.live` are mutated today from a single goroutine with
+  no synchronization; any version with multiple goroutines writing them
+  directly is a real data race on `s.live` specifically (writes to
+  disjoint `s.finished[i]` slice elements from goroutine `i` are fine on
+  their own). Collect each worker's outcome and only mutate `s.finished`/
+  `s.live` from the calling goroutine after `Wait()` returns.
+- `send`'s `false` return today means "ctx ended *or* every consumer
+  finished," and `RunPipeline` depends on that exact disjunction to decide
+  whether to report `outer.Err()` or a clean stop. A concurrent version
+  must reproduce it precisely when aggregating per-worker results, not
+  just count finishes.
+- Needs new tests: a `-race` run under N-consumer fan-out with mid-fan-out
+  cancellation, plus an explicit per-consumer *ordering* assertion --
+  `core/run_test.go` today only asserts message *counts* per consumer, so
+  an ordering regression here would currently slip past the test suite.
+
+Given the usage reality check above, this is worth doing if/when
+multi-consumer or heterogeneous-latency-consumer pipelines become a real
+shape this project supports at scale -- not an urgent item today.
 
 ---
 
