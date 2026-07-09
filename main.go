@@ -18,7 +18,17 @@ import (
 	"github.com/gastrodon/psyduck/parse/hcl"
 	"github.com/gastrodon/psyduck/plugins"
 	"github.com/gastrodon/psyduck/stdlib"
+	"github.com/gastrodon/psyduck/stdlib/data"
 )
+
+// init installs the process-wide codec factory sdk.GetCodec resolves
+// against. Plugins that read an "encoding" config option — mysql, and
+// eventually others — call sdk.GetCodec, so the host has to hand it a
+// factory before any pipeline starts. init runs before main and before
+// any plugin.Open, which keeps this ordering trivially correct.
+func init() {
+	sdk.RegisterCodecs(data.Codec)
+}
 
 // entryPath validates and returns the pipeline file argument that
 // run/init/list/show all take as their first positional argument. There's
