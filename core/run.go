@@ -16,11 +16,13 @@ accepting (see sink). Errors from any side are logged; with ExitOnError set
 the first one also cancels the pipeline and is returned. Cancelling ctx
 stops the run promptly and returns ctx's error.
 
-Every goroutine the engine starts — its own and every plugin's — is
-released before RunPipeline returns: producers and consumers receive the
-pipeline's ctx and are contractually required to select on ctx.Done()
-alongside their sends, so an abandoned plugin is expected to exit on
-cancellation rather than parking on its last send.
+Every goroutine the engine starts is signaled to stop before RunPipeline
+returns, and the engine's own goroutines are joined. Plugin goroutines are
+signaled but not joined on the cancellation path: producers and consumers
+receive the pipeline's ctx and are contractually required to select on
+ctx.Done() alongside their sends, so a conforming plugin exits promptly on
+cancellation — but one that ignores ctx may still be winding down (or
+parked forever) after RunPipeline returns.
 */
 func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 	ctx, cancel := context.WithCancel(outer)

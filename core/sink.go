@@ -63,6 +63,12 @@ func startSink(ctx context.Context, consumers []sdk.Consumer, report func(error)
 // any consumer remains live — false means the pipeline has nowhere left to
 // deliver and should stop producing. A false return also covers ctx ending
 // mid-delivery.
+//
+// If a consumer closes done while it can still receive, select may pick
+// either case: one extra message can land in a consumer that has already
+// signaled done. Consumers that close done early should therefore keep
+// draining (or stop receiving entirely) — the next send will observe done
+// and mark them finished.
 func (s *sink) send(ctx context.Context, msg []byte) bool {
 	for i := range s.ins {
 		if s.finished[i] {
@@ -89,6 +95,11 @@ func (s *sink) close() {
 }
 
 // flush waits for every consumer to signal done, giving up when ctx ends.
+// Giving up is deliberate: done is the only completion signal a consumer
+// has, so waiting without a ctx escape would hang forever on a consumer
+// that ignores cancellation. The cost is that on the cancellation path
+// consumers are signaled but not joined — a conforming consumer may still
+// be flushing for a moment after RunPipeline returns.
 func (s *sink) flush(ctx context.Context) {
 	for i := range s.dones {
 		if s.finished[i] {

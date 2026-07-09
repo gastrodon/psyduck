@@ -294,3 +294,66 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 	t.Fatalf("ctx-aware producer still leaked a goroutine on abandon: %d -> %d\n%s",
 		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
 }
+
+// Regression for the late-error drop: a producer that closes its data
+// channel and then reports an error. The error forwarder used to sweep
+// pending errors with a non-blocking default the moment all data channels
+// closed — but on an unbuffered errs channel a plugin blocked mid-send has
+// nothing "pending in the channel", so the sweep saw nothing and the error
+// was silently lost (and the plugin stayed parked on the send until
+// pipeline cancellation). The error must instead be delivered: the
+// forwarder now waits for the producer function to return before its final
+// race-free drain.
+func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
+	producer := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(errs)
+		send <- []byte("x")
+		close(send)
+		// Give the old sweep every chance to run first, so the drop is
+		// deterministic rather than a lucky race.
+		time.Sleep(50 * time.Millisecond)
+		select {
+		case errs <- errors.New("late error after data close"):
+		case <-ctx.Done():
+		}
+	}
+
+	var got atomic.Int64
+	err := panicSafeRun(t, &Pipeline{
+		Producers:   []sdk.Producer{producer},
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		ExitOnError: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
+		t.Fatalf("late error was dropped: got %v", err)
+	}
+}
+
+// A producer that ignores ctx entirely and sends forever with a bare send
+// (no select on ctx.Done) violates the sdk contract and leaks its own
+// goroutine when abandoned — the engine can't prevent that. What the engine
+// must still guarantee is that RunPipeline itself returns: the abandoned
+// plugin parks, the pipeline doesn't.
+func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
+	misbehaving := func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		for {
+			send <- []byte("x") // bare send: parks forever once abandoned
+		}
+	}
+
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   []sdk.Producer{misbehaving},
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		StopAfter:   3,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 3 {
+		t.Fatalf("want 3 delivered, got %d", n)
+	}
+	// Note: this test intentionally leaks the misbehaving producer's
+	// goroutine — that's the documented cost of violating the contract.
+}
