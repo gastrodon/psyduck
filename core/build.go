@@ -22,6 +22,11 @@ type Pipeline struct {
 	logger      *logrus.Logger
 	StopAfter   int
 	ExitOnError bool
+	// Stats accumulates live counters as the pipeline runs. BuildPipeline
+	// always sets it; RunPipeline bumps it. A caller that wants to observe
+	// a running pipeline (see the server/supervise packages) holds onto
+	// this pointer and reads Stats.Snapshot() concurrently.
+	Stats *Stats
 }
 
 func pipelineLogger() *logrus.Logger {
@@ -152,5 +157,6 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 		logger:      logger,
 		StopAfter:   src.StopAfter,
 		ExitOnError: src.ExitOnError,
+		Stats:       &Stats{},
 	}, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/gastrodon/psyduck/server"
 	"github.com/gastrodon/psyduck/stdlib"
 	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/gastrodon/psyduck/supervise"
 )
 
 // init installs the process-wide codec factory sdk.GetCodec resolves
@@ -251,14 +252,15 @@ func show(ctx *cli.Context) error {
 // serve starts the single-instance HTTP API (see the server package and
 // docs/http-api.md). Unlike the other commands it takes no pipeline file:
 // it's a long-running daemon that observes and dispatches pipelines over
-// HTTP. Today it runs against a stub supervisor returning representative
-// data — wiring it to a live, pipeline-owning supervisor is the documented
-// follow-up. It serves until ctx is canceled (SIGINT/SIGTERM), then shuts
-// down gracefully.
+// HTTP. It runs against a live supervisor that parses, builds, and runs
+// dispatched .psy documents with core, sharing ctx.Context so SIGINT/SIGTERM
+// winds down both the server and every running pipeline. Dispatched
+// pipelines resolve against stdlib (external plugin{} loading over the wire
+// is a follow-up).
 func serve(ctx *cli.Context) error {
-	sup := server.NewStubSupervisor()
+	sup := supervise.New(ctx.Context)
 	addr := ctx.String("addr")
-	fmt.Printf("psyduck serve: listening on %s (stub supervisor)\n", addr)
+	fmt.Printf("psyduck serve: listening on %s\n", addr)
 	return server.New(sup).ListenAndServe(ctx.Context, addr)
 }
 

@@ -237,15 +237,15 @@ func (s *StubSupervisor) Cancel(id string) error {
 }
 
 func (s *StubSupervisor) Graph() Graph {
-	return buildGraph(s.List())
+	return BuildGraph(s.List())
 }
 
-// buildGraph projects a set of pipelines into nodes and edges. It is pure
+// BuildGraph projects a set of pipelines into nodes and edges. It is pure
 // (no supervisor state), so the live supervisor can reuse it verbatim. Each
 // pipeline becomes a container node; each of its stages becomes a node wired
 // in declaration order producer(s) → transform(s) → consumer(s). A
 // produce-from seed is rendered as the single head node.
-func buildGraph(pipelines []PipelineInfo) Graph {
+func BuildGraph(pipelines []PipelineInfo) Graph {
 	g := Graph{Nodes: []GraphNode{}, Edges: []GraphEdge{}}
 	for _, p := range pipelines {
 		stats := p.Stats

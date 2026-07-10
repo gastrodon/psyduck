@@ -33,9 +33,15 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 		logger = pipelineLogger()
 	}
 
+	stats := pipeline.Stats
+	if stats == nil {
+		stats = &Stats{} // never bump a nil; a caller that skipped Build still runs
+	}
+
 	var failMu sync.Mutex
 	var failure error
 	report := func(err error) {
+		stats.errors.Add(1)
 		logger.Error(err)
 		if pipeline.ExitOnError {
 			failMu.Lock()
@@ -60,6 +66,7 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 			report(fmt.Errorf("producer supplied error: %w", err))
 			continue
 		}
+		stats.produced.Add(1)
 
 		transformed, err := transform(msg)
 		if err != nil {
@@ -67,12 +74,15 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 			continue
 		}
 		if transformed == nil {
+			stats.filtered.Add(1)
 			continue // filtered out
 		}
+		stats.transformed.Add(1)
 
 		if !consumers.send(ctx, transformed) {
 			break // every consumer finished, or ctx ended
 		}
+		stats.delivered.Add(1)
 
 		delivered++
 		if pipeline.StopAfter > 0 && delivered >= pipeline.StopAfter {

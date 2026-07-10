@@ -8,10 +8,10 @@ This document is the design for **stage 1 — everything that concerns a single
 instance**. Peer-to-peer (siblings, job splitting) is [stage 2](#stage-2-peers),
 sketched at the end but deliberately not built yet.
 
-The API ships today as a **compiling skeleton**: every route exists and
-returns correctly-shaped data, backed by a stub. What's stubbed and what's
-real is called out throughout, and the runtime work to make it live is in
-[Wiring it live](#wiring-it-live).
+The API is **live**: `psyduck serve` parses, builds, and runs dispatched
+pipelines through the real engine, and reports their status and stats as they
+run. What's wired and what's still a follow-up is called out in
+[What's wired](#whats-wired-this-pr).
 
 ## Why an API at all
 
@@ -242,55 +242,61 @@ each edge carries the message count that has crossed it.
 
 ```
  HTTP router (server.Server)      routes + JSON/Prometheus marshaling; no runtime types
+        │  server.Supervisor (interface)
+        ▼
+ supervise.Supervisor            owns pipelines; parses/builds/runs; List/Get/Dispatch/Cancel/…
         │
         ▼
- Supervisor (interface)           owns pipelines; List/Get/Dispatch/Cancel/Graph/Instance
-        │
-        ▼
- core.BuildPipeline / RunPipeline unchanged engine, one goroutine per pipeline
+ core.BuildPipeline / RunPipeline the engine, one goroutine per pipeline; counters wired in
 ```
 
 The **`server` package never imports `core` or `parse`** — it talks only to a
-`Supervisor` interface. That boundary is the whole point: it lets the exact
-same routes serve a stub today and a live supervisor tomorrow, and keeps the
-HTTP concerns (status codes, payload shapes) testable without standing up a
+`Supervisor` interface. That boundary is the whole point, and it holds even
+now that the API is live: the concrete `supervise.Supervisor` imports `core`,
+`parse`, and `stdlib`; `server` imports none of them. The same routes serve
+either the live supervisor (`psyduck serve`) or the in-memory `StubSupervisor`
+(HTTP-layer tests), and the HTTP concerns stay testable without standing up a
 pipeline.
 
-### What's real vs. stubbed today
+### What's wired (this PR)
 
-**Real:** the router, every route and status code, the JSON payload types,
-the Prometheus exposition, the graph projection (`buildGraph`, a pure
-function the live supervisor reuses verbatim), graceful shutdown on
-SIGINT/SIGTERM, and the full test suite (`server/server_test.go`).
+The API observes and runs real pipelines:
 
-**Stubbed:** `StubSupervisor` is in-memory. It seeds two representative
-pipelines, records a `pending` pipeline on dispatch (running nothing), and
-honors cancel. It never parses `source`, builds a `core.Pipeline`, or moves a
-counter on its own. Everything it returns has the exact shape the live
-implementation will — so a UI, a Grafana dashboard, or a client can be built
-against it now.
+- **`supervise.Supervisor`** (new package) implements `server.Supervisor`.
+  `Dispatch` parses `source` with `hcl.NewParserHCL()` against an in-memory
+  loader, requires exactly one `pipeline{}` block, and — asynchronously —
+  calls `core.BuildPipeline` and `core.RunPipeline` in a goroutine under a
+  cancelable child of the serve context. `Cancel` cancels it; terminal state
+  (`succeeded`/`failed`/`canceled`) and any error come from `RunPipeline`'s
+  return. Topology is extracted from the parsed `parse.PipelineSpec` at
+  dispatch time, so it's visible before the run finishes. `psyduck serve` now
+  runs this, not the stub.
+- **Stats in `core`.** `core.Stats` is a set of `atomic.Uint64` counters on
+  `core.Pipeline`; `RunPipeline` bumps them at each observable event
+  (produced / transformed / filtered / delivered / errors), and
+  `Stats.Snapshot()` reads a copy concurrently. The change is additive — a
+  nil `Stats` means "don't count", so the CLI `run` path and any caller that
+  skips `BuildPipeline` are unaffected. The supervisor reads a snapshot per
+  pipeline and computes `in_flight`; `server` marshals it to JSON and
+  `/metrics`.
 
-### Wiring it live
+`StubSupervisor` stays as the fixture the `server` package tests against —
+same interface, representative data, no runtime.
 
-Turning the stub into a real supervisor is the follow-up, in two pieces:
+### Still to wire (follow-ups)
 
-1. **A live `Supervisor`.** Holds a map of `id → running pipeline`. `Dispatch`
-   parses `source` with `hcl.NewParserHCL()`, calls `core.BuildPipeline`,
-   assigns an id, and runs it in its own goroutine under a cancelable context;
-   `Cancel` cancels that context; `List`/`Get` read the map. Terminal state
-   and `error` come from `RunPipeline`'s return.
+- **External plugins over the wire.** Dispatched pipelines resolve against
+  `stdlib` only; a `plugin{}` block needs the clone/compile store flow
+  (`psyduck init`) the serve path doesn't run yet. A source that references
+  an external plugin fails at build with a clear "no plugin loaded" error.
+- **Persistence.** Terminal pipelines live in memory; a restart forgets them.
+- **Auth.** Still none — see [Open questions](#open-questions).
+- **Per-resource stats.** Counters are per-pipeline; per-stage attribution
+  (which transformer drops, which consumer errors) wants the counter keyed by
+  resource ref.
 
-2. **Instrumentation in `core`.** The stats counters need a home. `RunPipeline`
-   already sees every event — it increments `delivered`, calls `report(err)`,
-   and knows when `transform` returns `nil` (filtered). The minimal hook is an
-   optional counter sink on the pipeline (e.g. a `core.Stats` struct of
-   `atomic.Uint64`s the loop bumps, exposed via a getter). The supervisor
-   reads that snapshot for each pipeline; `server` marshals it. This is the
-   only change outside the `server` package, and it's additive — a nil sink
-   means "don't count", so `psyduck run` is unaffected.
-
-Neither piece changes any route or payload, which is why they're safe to
-defer: the contract in this document is already fixed.
+None of these change a route or payload — the contract in this document is
+fixed.
 
 ## Stage 2: peers
 

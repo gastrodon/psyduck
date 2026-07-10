@@ -6,9 +6,10 @@ It is deliberately split from the pipeline runtime: everything here talks to
 a [Supervisor], an interface that owns whatever pipelines this instance is
 running and answers questions about them. The HTTP layer only marshals — it
 never touches core, parse, or the plugin store directly. That boundary is
-what lets the same routes serve a stub today (see [StubSupervisor]) and a
-live, pipeline-owning supervisor once the runtime grows one (see
-docs/http-api.md, "Wiring it live").
+what lets the same routes serve either the live, pipeline-owning supervisor
+(package supervise, used by `psyduck serve`) or the in-memory
+[StubSupervisor] this package's own tests run against — the HTTP layer can't
+tell them apart.
 
 Scope: this package is the *single-instance* API — observe the pipelines
 this process runs, dispatch new ones to it, and expose metrics. Peer-to-peer

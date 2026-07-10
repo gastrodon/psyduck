@@ -183,3 +183,4 @@ change runtime log verbosity.
 | `stdlib` | The built-in plugin. Always loaded; no `plugin {}` block needed. |
 | `core` | `BuildPipeline`, `RunPipeline` — turns a parsed pipeline into a running one. |
 | `server` | HTTP control/observability API for `psyduck serve`; talks only to a `Supervisor` interface (see [`docs/http-api.md`](docs/http-api.md)). |
+| `supervise` | Live `server.Supervisor`: parses, builds, and runs dispatched pipelines with `core`, and reports their status and stats. |
