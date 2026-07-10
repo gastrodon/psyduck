@@ -21,11 +21,20 @@ const maxDispatchBody = 1 << 20
 type Server struct {
 	sup Supervisor
 	mux *http.ServeMux
+
+	// authUser/authPass gate the plugin routes when set (see auth.go and
+	// WithBasicAuth). Empty means auth is disabled.
+	authUser string
+	authPass string
 }
 
-// New builds a Server backed by sup and wires every route.
-func New(sup Supervisor) *Server {
+// New builds a Server backed by sup, applies any options, and wires every
+// route.
+func New(sup Supervisor, opts ...Option) *Server {
 	s := &Server{sup: sup, mux: http.NewServeMux()}
+	for _, o := range opts {
+		o(s)
+	}
 	s.routes()
 	return s
 }
@@ -51,11 +60,14 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/pipelines/{id}", s.handleCancelPipeline)
 	s.mux.HandleFunc("GET /api/v1/pipelines/{id}/stats", s.handlePipelineStats)
 
-	s.mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
-	s.mux.HandleFunc("POST /api/v1/plugins", s.handleAddPlugin)
-	s.mux.HandleFunc("GET /api/v1/plugins/{name}", s.handleGetPlugin)
-	s.mux.HandleFunc("PUT /api/v1/plugins/{name}", s.handleUpdatePlugin)
-	s.mux.HandleFunc("DELETE /api/v1/plugins/{name}", s.handleRemovePlugin)
+	// Plugin routes are gated by Basic auth when a credential is configured
+	// (see auth.go). Registration clones + compiles operator-supplied
+	// sources, so the whole subtree is guarded, reads included.
+	s.mux.HandleFunc("GET /api/v1/plugins", s.guard(s.handleListPlugins))
+	s.mux.HandleFunc("POST /api/v1/plugins", s.guard(s.handleAddPlugin))
+	s.mux.HandleFunc("GET /api/v1/plugins/{name}", s.guard(s.handleGetPlugin))
+	s.mux.HandleFunc("PUT /api/v1/plugins/{name}", s.guard(s.handleUpdatePlugin))
+	s.mux.HandleFunc("DELETE /api/v1/plugins/{name}", s.guard(s.handleRemovePlugin))
 
 	// Stage 2 (peer-to-peer) is reserved but not implemented.
 	s.mux.HandleFunc("GET /api/v1/peers", s.handlePeers)

@@ -177,9 +177,11 @@ alternative can come later without changing the route.)
 
 > **Security.** Dispatch runs arbitrary pipeline config on the instance,
 > which can read files, open sockets, and load plugins. It is **not**
-> authenticated in this skeleton — bind `serve` to a private interface / mesh
-> and put auth (token, mTLS) in front before exposing it. Auth is called out
-> as a follow-up in [Open questions](#open-questions), not designed here.
+> authenticated today (only the [plugin routes](#plugins) are, via
+> `--basic-auth`) — bind `serve` to a private interface / mesh and, until
+> dispatch shares the same gate, keep it off any public bind. Extending the
+> Basic-auth guard to dispatch is a one-line change (the middleware is
+> reusable); see [Open questions](#open-questions).
 
 ### Metrics
 
@@ -328,6 +330,15 @@ loads that binary from the store, and builds the pipeline with it. A job that
 names a plugin the instance doesn't have — or whose source/tag doesn't match
 the manifest — is rejected with a clear error.
 
+**Auth.** Because registration clones and compiles operator-supplied sources
+(arbitrary code on the host), the whole `/api/v1/plugins` subtree is gated by
+HTTP Basic auth when `serve --basic-auth user:pass` (or
+`PSYDUCK_SERVE_BASIC_AUTH`) is set — the same `"user:pass"` convention
+stdlib's `request` transport uses. Unset, the routes stay open and `serve`
+logs a warning at startup. A gated request without valid credentials gets
+`401` with a `WWW-Authenticate` challenge; observability, dispatch, and
+`/metrics` are not behind this gate.
+
 > **The one hard constraint: Go plugins can't be unloaded or reloaded.** Once
 > a `.so` is opened it stays resident for the life of the process. So
 > *delete* frees the manifest, not the memory, and *update* can't hot-swap a
@@ -403,9 +414,10 @@ same interface, representative data, no runtime.
 - **Store GC.** `DELETE` removes a plugin from the manifest but leaves its
   content-addressed binary in the store cache; a `psyduck` store-GC to reap
   unreferenced binaries is a follow-up.
-- **Auth.** Still none — see [Open questions](#open-questions). Plugin
-  registration runs `git clone` + `go build`, so it needs auth at least as
-  much as dispatch.
+- **Auth.** The plugin routes are gated by HTTP Basic auth (`--basic-auth`);
+  dispatch/cancel are not yet, though they're just as sensitive. Extending
+  the same guard to them (and, later, tokens/mTLS) is the follow-up — see
+  [Open questions](#open-questions).
 - **Per-resource stats.** Counters are per-pipeline; per-stage attribution
   (which transformer drops, which consumer errors) wants the counter keyed by
   resource ref.
@@ -439,8 +451,11 @@ Reserved endpoints (shape TBD): `GET/POST /api/v1/peers`,
 
 ## Open questions
 
-- **Auth.** None in the skeleton. Token or mTLS in front of `serve`, or a
-  built-in middleware? Dispatch especially needs it before any public bind.
+- **Auth.** The plugin routes have a built-in HTTP Basic guard
+  (`--basic-auth user:pass`, mirroring stdlib's `request` credential format);
+  the reusable middleware lives in `server/auth.go`. Open: extend it to
+  dispatch/cancel (equally sensitive), and whether to add token/mTLS as
+  stronger options in front of `serve`.
 - **Persistence.** Terminal pipelines live in memory; a restart forgets them.
   Do we need a retention window, or a bounded ring of recent runs?
 - **Dispatch payload.** Full `.psy` HCL reuses `parse/hcl` for free but is
@@ -453,10 +468,15 @@ Reserved endpoints (shape TBD): `GET/POST /api/v1/peers`,
 ## Try it
 
 ```sh
-go run . serve --addr :8080
+go run . serve --addr :8080 --basic-auth ops:s3cret
 curl -s localhost:8080/api/v1/instance | jq
 curl -s localhost:8080/api/v1/pipelines | jq
 curl -s -XPOST localhost:8080/api/v1/pipelines \
   -d '{"name":"demo","source":"pipeline \"demo\" {}"}'
 curl -s localhost:8080/metrics
+
+# plugin routes need the credential:
+curl -s -u ops:s3cret localhost:8080/api/v1/plugins | jq
+curl -s -u ops:s3cret -XPOST localhost:8080/api/v1/plugins \
+  -d '{"name":"amqp","source":"https://github.com/psyduck-etl/amqp","tag":"v0.1.0"}'
 ```

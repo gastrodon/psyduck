@@ -257,10 +257,32 @@ func show(ctx *cli.Context) error {
 // winds down both the server and every running pipeline. Plugins added over
 // the API are cloned/compiled into the --plugin-dir store and loaded per job.
 func serve(ctx *cli.Context) error {
+	opts, err := authOptions(ctx.String("basic-auth"))
+	if err != nil {
+		return err
+	}
+
 	sup := supervise.New(ctx.Context, ctx.String("plugin-dir"))
 	addr := ctx.String("addr")
 	fmt.Printf("psyduck serve: listening on %s\n", addr)
-	return server.New(sup).ListenAndServe(ctx.Context, addr)
+	return server.New(sup, opts...).ListenAndServe(ctx.Context, addr)
+}
+
+// authOptions turns the --basic-auth "user:pass" flag into server options,
+// mirroring the credential format stdlib's request transport uses. An empty
+// value leaves the plugin routes open — with a warning, since registration
+// clones and compiles arbitrary sources.
+func authOptions(cred string) ([]server.Option, error) {
+	if cred == "" {
+		fmt.Println("psyduck serve: WARNING plugin routes are unauthenticated; set --basic-auth user:pass (or PSYDUCK_SERVE_BASIC_AUTH)")
+		return nil, nil
+	}
+	user, pass, ok := strings.Cut(cred, ":")
+	if !ok || user == "" || pass == "" {
+		return nil, fmt.Errorf(`--basic-auth must be "user:pass"`)
+	}
+	fmt.Println("psyduck serve: plugin routes require basic auth")
+	return []server.Option{server.WithBasicAuth(user, pass)}, nil
 }
 
 func main() {
@@ -317,6 +339,11 @@ func main() {
 						Name:  "plugin-dir",
 						Value: ".psyduck",
 						Usage: "content-addressed store dir for plugins added over the api",
+					},
+					&cli.StringFlag{
+						Name:    "basic-auth",
+						Usage:   `protect plugin routes with HTTP Basic auth, "user:pass"`,
+						EnvVars: []string{"PSYDUCK_SERVE_BASIC_AUTH"},
 					},
 				},
 			},

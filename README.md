@@ -149,7 +149,7 @@ psyduck <command> <file>.psy [args]
 | `list [--stat] <file>` | List the file's pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
 | `show <file> [name ...]` | Print resource references and evaluated config for each pipeline. |
 | `init <file>` | Fetch and compile every `plugin {}` reachable from the file (including through imports), content-address the built binaries into `.psyduck/`, and write `<file>.lock`. Required before `run`/`list`/`show` will work — see [above](#using-an-external-plugin). |
-| `serve [--addr] [--plugin-dir]` | Run the HTTP control/observability API as a long-running daemon (takes no file). Observe running pipelines, dispatch new ones, register plugins, and expose JSON + Prometheus metrics. See [`docs/http-api.md`](docs/http-api.md). Single-instance today; peer-to-peer is a planned stage 2. |
+| `serve [--addr] [--plugin-dir] [--basic-auth]` | Run the HTTP control/observability API as a long-running daemon (takes no file). Observe running pipelines, dispatch new ones, register plugins (guarded by `--basic-auth user:pass`), and expose JSON + Prometheus metrics. See [`docs/http-api.md`](docs/http-api.md). Single-instance today; peer-to-peer is a planned stage 2. |
 
 Set `PSYDUCK_LOG_LEVEL` to `trace`/`debug`/`warn`/`error`/`fatal`/`panic` to
 change runtime log verbosity.
