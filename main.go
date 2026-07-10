@@ -17,6 +17,7 @@ import (
 	"github.com/gastrodon/psyduck/parse"
 	"github.com/gastrodon/psyduck/parse/hcl"
 	"github.com/gastrodon/psyduck/plugins"
+	"github.com/gastrodon/psyduck/server"
 	"github.com/gastrodon/psyduck/stdlib"
 	"github.com/gastrodon/psyduck/stdlib/data"
 )
@@ -247,6 +248,20 @@ func show(ctx *cli.Context) error {
 	return nil
 }
 
+// serve starts the single-instance HTTP API (see the server package and
+// docs/http-api.md). Unlike the other commands it takes no pipeline file:
+// it's a long-running daemon that observes and dispatches pipelines over
+// HTTP. Today it runs against a stub supervisor returning representative
+// data — wiring it to a live, pipeline-owning supervisor is the documented
+// follow-up. It serves until ctx is canceled (SIGINT/SIGTERM), then shuts
+// down gracefully.
+func serve(ctx *cli.Context) error {
+	sup := server.NewStubSupervisor()
+	addr := ctx.String("addr")
+	fmt.Printf("psyduck serve: listening on %s (stub supervisor)\n", addr)
+	return server.New(sup).ListenAndServe(ctx.Context, addr)
+}
+
 func main() {
 	app := cli.App{
 		Name:  "psyduck",
@@ -286,6 +301,18 @@ func main() {
 				Args:      true,
 				ArgsUsage: "pipeline file",
 				Flags:     []cli.Flag{},
+			},
+			{
+				Name:   "serve",
+				Usage:  "run the http api server (single-instance; peers are WIP)",
+				Action: serve,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "addr",
+						Value: ":8080",
+						Usage: "address to listen on",
+					},
+				},
 			},
 		},
 	}

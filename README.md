@@ -149,6 +149,7 @@ psyduck <command> <file>.psy [args]
 | `list [--stat] <file>` | List the file's pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
 | `show <file> [name ...]` | Print resource references and evaluated config for each pipeline. |
 | `init <file>` | Fetch and compile every `plugin {}` reachable from the file (including through imports), content-address the built binaries into `.psyduck/`, and write `<file>.lock`. Required before `run`/`list`/`show` will work — see [above](#using-an-external-plugin). |
+| `serve [--addr]` | Run the HTTP control/observability API as a long-running daemon (takes no file). Observe running pipelines, dispatch new ones, and expose JSON + Prometheus metrics. See [`docs/http-api.md`](docs/http-api.md). Single-instance today; peer-to-peer is a planned stage 2. |
 
 Set `PSYDUCK_LOG_LEVEL` to `trace`/`debug`/`warn`/`error`/`fatal`/`panic` to
 change runtime log verbosity.
@@ -164,6 +165,9 @@ change runtime log verbosity.
 - [`docs/plugins.md`](docs/plugins.md) — writing plugins in Go: the
   `sdk.Plugin` interface, `Spec` fields, `psy` struct tags, and how psyduck
   loads binaries.
+- [`docs/http-api.md`](docs/http-api.md) — the `psyduck serve` HTTP API:
+  observe running pipelines, dispatch new ones, and expose JSON + Prometheus
+  metrics (single-instance; peer-to-peer is a planned stage 2).
 - [`examples/`](examples/) — `.psy` fixtures exercised by the test suite, one
   file per example. `shared.psy` holds consumers reused across the others;
   files that want them declare their own `import { shared = "shared.psy" }`.
@@ -178,3 +182,4 @@ change runtime log verbosity.
 | `plugins` | `Store` — clones, builds, and content-addresses external plugins into `.psyduck/`; `Lock`/`ReadLock`/`WriteLock` for the per-file `.lock` format. |
 | `stdlib` | The built-in plugin. Always loaded; no `plugin {}` block needed. |
 | `core` | `BuildPipeline`, `RunPipeline` — turns a parsed pipeline into a running one. |
+| `server` | HTTP control/observability API for `psyduck serve`; talks only to a `Supervisor` interface (see [`docs/http-api.md`](docs/http-api.md)). |
