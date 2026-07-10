@@ -215,6 +215,65 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 	}
 }
 
+// Regression for the #22 design smell: sdk.Transformer used to return only
+// (data, error), so run.go had no choice but to treat a nil result as
+// "filtered out". That collapsed two distinct signals — "drop this item"
+// and "keep this item, its payload happens to be empty bytes" — into one,
+// the same shape of bug as bufio.Scanner's `sep = ""` busy-spin (issue #27):
+// a single return value forced to carry two meanings, ambiguous at the
+// margins. The keep-bool contract added in the sdk splits them apart:
+// (nil, true, nil) is a legitimately empty message; (nil, false, nil) is a
+// drop. This test locks in the distinction so a future refactor that
+// re-collapses "nil result → filter" fails loudly.
+func Test_Transformer_NilBytesWithKeepIsDelivered_NotFiltered(t *testing.T) {
+	// Ten inputs: even-indexed → transformer returns (nil, true, nil), odd →
+	// (nil, false, nil). Under the old contract every one of these would look
+	// like a filter drop; under the new one, exactly five empty messages must
+	// reach the consumer.
+	const n = 10
+
+	var delivered atomic.Int64
+	var nonNilBytes atomic.Int64
+	consumer := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(done)
+		defer close(errs)
+		for msg := range recv {
+			delivered.Add(1)
+			if msg != nil {
+				nonNilBytes.Add(1)
+			}
+		}
+	}
+
+	err := panicSafeRun(t, &Pipeline{
+		Producers: []sdk.Producer{
+			func(_ context.Context, send chan<- []byte, errs chan<- error) {
+				defer close(send)
+				defer close(errs)
+				for i := 0; i < n; i++ {
+					send <- []byte{byte(i)}
+				}
+			},
+		},
+		Consumers: []sdk.Consumer{consumer},
+		Transformer: func(msg []byte) ([]byte, bool, error) {
+			if msg[0]%2 == 0 {
+				return nil, true, nil // keep, payload is legitimately empty
+			}
+			return nil, false, nil // filter out
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := delivered.Load(); got != n/2 {
+		t.Fatalf("delivered = %d, want %d (nil bytes with keep=true must not be filtered)", got, n/2)
+	}
+	if got := nonNilBytes.Load(); got != 0 {
+		t.Fatalf("delivered %d non-nil messages; the transformer only ever emitted nil bytes", got)
+	}
+}
+
 // Regression for #11/#19: a run the engine completes must release every
 // goroutine it started — the old join machinery leaked a fixed set per run,
 // even fully successful ones, and every failed ExitOnError run leaked its
