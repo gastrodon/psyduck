@@ -125,11 +125,11 @@ func TestGates(t *testing.T) {
 	count := func(fn sdk.Transformer, n int) int {
 		passed := 0
 		for i := 0; i < n; i++ {
-			out, err := fn([]byte("x"))
+			out, keep, err := fn([]byte("x"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			if out != nil {
+			if keep && out != nil {
 				passed++
 			}
 		}

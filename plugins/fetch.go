@@ -57,7 +57,7 @@ func (f *fetcher) cleanup() {
 // the build mirrors this binary's own (mostly relevant to `go test -race`).
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	tmpOut := filepath.Join(f.tmpDir, spec.Name+".so")
-	args := []string{"build", "-C", codePath, "-o", tmpOut, "-buildmode", "plugin"}
+	args := []string{"build", "-C", codePath, "-o", tmpOut, "-buildmode", "plugin", "-buildvcs=false"}
 	if raceEnabled {
 		args = append(args, "-race")
 	}
@@ -87,16 +87,32 @@ func (f *fetcher) clone(spec parse.Plugin) (string, error) {
 // SHA. Called unconditionally for every remote plugin — even one with no
 // `tag` attribute still lands on some real commit, and that's what gets
 // recorded.
+// gitCmd builds a git subprocess targeted at dir, with GIT_* env vars
+// scrubbed so an ambient GIT_DIR/GIT_INDEX_FILE (set e.g. when psyduck
+// is invoked from inside a git hook) can't override -C dir.
+func gitCmd(dir string, args ...string) *exec.Cmd {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "GIT_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = env
+	return cmd
+}
+
 func resolveRef(cloneDir string) (string, error) {
-	if out, err := exec.Command("git", "-C", cloneDir, "symbolic-ref", "-q", "HEAD").CombinedOutput(); err == nil {
+	if out, err := gitCmd(cloneDir, "symbolic-ref", "-q", "HEAD").CombinedOutput(); err == nil {
 		return strings.TrimSpace(string(out)), nil
 	}
 
-	if out, err := exec.Command("git", "-C", cloneDir, "describe", "--tags", "--exact-match", "HEAD").CombinedOutput(); err == nil {
+	if out, err := gitCmd(cloneDir, "describe", "--tags", "--exact-match", "HEAD").CombinedOutput(); err == nil {
 		return "refs/tags/" + strings.TrimSpace(string(out)), nil
 	}
 
-	out, err := exec.Command("git", "-C", cloneDir, "rev-parse", "HEAD").CombinedOutput()
+	out, err := gitCmd(cloneDir, "rev-parse", "HEAD").CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve HEAD in %s: %w\noutput: %s", cloneDir, err, out)
 	}

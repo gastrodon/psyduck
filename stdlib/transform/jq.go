@@ -13,8 +13,9 @@ type jqConfig struct {
 }
 
 // Jq applies a jq expression to the message and emits the result.
-// If the expression produces no output, the message is dropped (nil returned).
-// String outputs are emitted as plain bytes; all other types are JSON-encoded.
+// If the expression produces no output, the message is filtered out
+// (returns keep=false). String outputs are emitted as plain bytes; all
+// other types are JSON-encoded.
 func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(jqConfig)
 	if err := parse(config); err != nil {
@@ -26,10 +27,10 @@ func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("jq: parse expression %q: %w", config.Expression, err)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		v, err := runJQ(query, in)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		return marshalJQ(v)
@@ -57,13 +58,17 @@ func runJQ(query *gojq.Query, in []byte) (interface{}, error) {
 }
 
 // marshalJQ converts a jq output value back to bytes.
-func marshalJQ(v interface{}) ([]byte, error) {
+func marshalJQ(v interface{}) ([]byte, bool, error) {
 	if v == nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	// Strings are returned as plain bytes (no JSON quoting).
 	if s, ok := v.(string); ok {
-		return []byte(s), nil
+		return []byte(s), true, nil
 	}
-	return json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil, false, err
+	}
+	return b, true, nil
 }

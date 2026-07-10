@@ -22,9 +22,9 @@ func codecTransformer(decode, encode string, onError data.OnError, op func(data.
 		onError = data.Raise
 	}
 
-	fail := func(err error) ([]byte, error) { return nil, onError(err) }
+	fail := func(err error) ([]byte, bool, error) { return nil, false, onError(err) }
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		v, err := data.Decode(in, decode)
 		if err != nil {
 			return fail(err)
@@ -34,12 +34,12 @@ func codecTransformer(decode, encode string, onError data.OnError, op func(data.
 			return fail(err)
 		}
 		if out == nil {
-			return nil, nil // op chose to drop
+			return nil, false, nil // op chose to drop
 		}
 		b, err := data.Encode(out, encode)
 		if err != nil {
 			return fail(err)
 		}
-		return b, nil
+		return b, true, nil
 	}
 }

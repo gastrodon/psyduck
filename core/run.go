@@ -49,7 +49,7 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 
 	transform := pipeline.Transformer
 	if transform == nil {
-		transform = func(msg []byte) ([]byte, error) { return msg, nil }
+		transform = func(msg []byte) ([]byte, bool, error) { return msg, true, nil }
 	}
 
 	consumers := startSink(ctx, pipeline.Consumers, report)
@@ -61,12 +61,12 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 			continue
 		}
 
-		transformed, err := transform(msg)
+		transformed, keep, err := transform(msg)
 		if err != nil {
 			report(fmt.Errorf("transformer supplied error: %w", err))
 			continue
 		}
-		if transformed == nil {
+		if !keep {
 			continue // filtered out
 		}
 

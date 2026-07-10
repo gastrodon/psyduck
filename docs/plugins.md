@@ -153,7 +153,7 @@ starts pumping data through, it should be a live pipeline stage.
 ```go
 type Producer    func(send chan<- []byte, errs chan<- error)
 type Consumer    func(recv <-chan []byte, errs chan<- error, done chan<- struct{})
-type Transformer func(in []byte) ([]byte, error)
+type Transformer func(in []byte) ([]byte, bool, error)
 ```
 
 **Producer.** Emit bytes on `send`. Close `send` and `errs` when done. If you
@@ -164,12 +164,13 @@ it will not read more. Errors go on `errs` before you stop.
 exit. `done` is the host's cue that draining finished; do not close it early
 or the host will race you.
 
-**Transformer.** One in, one out. If you need to drop a message, return
-`(nil, nil)`. If you need to signal an error, return `(nil, err)` — the host
-decides whether that terminates the pipeline based on the pipeline's
-`exit-on-error`. Transformers may be called concurrently from more than one
-goroutine; guard mutable state (see `stdlib/transform/dev.go`'s `Count` for a
-mutex example).
+**Transformer.** One in, one out. The middle `bool` return is the keep
+flag: return `(data, true, nil)` to pass the item downstream, or
+`(nil, false, nil)` to explicitly filter it out. To signal an error return
+`(nil, false, err)` — the host decides whether that terminates the pipeline
+based on the pipeline's `exit-on-error`. Transformers may be called
+concurrently from more than one goroutine; guard mutable state (see
+`stdlib/transform/dev.go`'s `Count` for a mutex example).
 
 ### `sdk.BlockMeta`
 

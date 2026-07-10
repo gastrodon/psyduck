@@ -12,7 +12,8 @@ type filterConfig struct {
 }
 
 // Filter passes a message through only when the jq expression returns a truthy
-// value (anything other than false or null). A nil result also drops the message.
+// value (anything other than false or null). A nil result also filters the
+// message out (returns keep=false).
 func Filter(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(filterConfig)
 	if err := parse(config); err != nil {
@@ -24,21 +25,21 @@ func Filter(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("filter: parse expression %q: %w", config.Expression, err)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		v, err := runJQ(query, in)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		switch val := v.(type) {
 		case nil:
-			return nil, nil // drop
+			return nil, false, nil // drop
 		case bool:
 			if !val {
-				return nil, nil // drop
+				return nil, false, nil // drop
 			}
 		}
 
-		return in, nil // pass through original message
+		return in, true, nil // pass through original message
 	}, nil
 }

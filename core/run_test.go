@@ -96,11 +96,11 @@ func Test_RunPipeline(t *testing.T) {
 				consumers[i] = countAll(&got[i])
 			}
 
-			transform := func(msg []byte) ([]byte, error) { return msg, nil }
+			transform := func(msg []byte) ([]byte, bool, error) { return msg, true, nil }
 			if tc.delay {
-				transform = func(msg []byte) ([]byte, error) {
+				transform = func(msg []byte) ([]byte, bool, error) {
 					time.Sleep(time.Millisecond)
-					return msg, nil
+					return msg, true, nil
 				}
 			}
 
@@ -139,11 +139,11 @@ func Test_RunPipeline_filtering(t *testing.T) {
 			}
 		}},
 		Consumers: []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) {
+		Transformer: func(msg []byte) ([]byte, bool, error) {
 			if msg[0]%2 == 0 {
-				return nil, nil // filtered
+				return nil, false, nil // filtered
 			}
-			return msg, nil
+			return msg, true, nil
 		},
 	})
 	if err != nil {
@@ -160,7 +160,7 @@ func Test_RunPipeline_stopAfter(t *testing.T) {
 	err := mustRun(t, t.Context(), &Pipeline{
 		Producers:   []sdk.Producer{emitForever([]byte("x"))},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		StopAfter:   5,
 	})
 	if err != nil {
@@ -183,7 +183,7 @@ func Test_RunPipeline_cancel(t *testing.T) {
 	err := mustRun(t, ctx, &Pipeline{
 		Producers:   []sdk.Producer{emitForever([]byte("x"))},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
@@ -207,7 +207,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   []sdk.Producer{erroring("producer")},
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) {
@@ -223,7 +223,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   []sdk.Producer{erroring("producer")},
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		})
 		if err != nil {
 			t.Fatalf("errors are logged, not returned, without exit-on-error: %v", err)
@@ -238,7 +238,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   []sdk.Producer{emitN(10, []byte("x"), nil)},
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return nil, boom },
+			Transformer: func(msg []byte) ([]byte, bool, error) { return nil, false, boom },
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "transformer supplied error") {
@@ -257,7 +257,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   []sdk.Producer{emitN(10, []byte("x"), nil)},
 			Consumers:   []sdk.Consumer{consume},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "consumer supplied error") {

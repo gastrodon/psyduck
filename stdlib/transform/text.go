@@ -43,8 +43,8 @@ func stringTransformer(decode string, onError data.OnError, op func(string) (dat
 	if onError == nil {
 		onError = data.Raise
 	}
-	fail := func(err error) ([]byte, error) { return nil, onError(err) }
-	return func(in []byte) ([]byte, error) {
+	fail := func(err error) ([]byte, bool, error) { return nil, false, onError(err) }
+	return func(in []byte) ([]byte, bool, error) {
 		s, err := textString(in, decode)
 		if err != nil {
 			return fail(err)
@@ -54,9 +54,9 @@ func stringTransformer(decode string, onError data.OnError, op func(string) (dat
 			return fail(err)
 		}
 		if out == nil {
-			return nil, nil
+			return nil, false, nil
 		}
-		return out.Bytes(), nil
+		return out.Bytes(), true, nil
 	}
 }
 
@@ -107,20 +107,20 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
-			return nil, onError(err)
+			return nil, false, onError(err)
 		}
 		list, ok := v.(data.List)
 		if !ok {
-			return nil, onError(fmt.Errorf("join: want a list, got %s", v.Kind()))
+			return nil, false, onError(fmt.Errorf("join: want a list, got %s", v.Kind()))
 		}
 		parts := make([]string, len(list))
 		for i, e := range list {
 			parts[i] = e.String()
 		}
-		return []byte(strings.Join(parts, config.Delimiter)), nil
+		return []byte(strings.Join(parts, config.Delimiter)), true, nil
 	}, nil
 }
 
@@ -283,17 +283,17 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("hash: unknown algorithm %q", config.Algorithm)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		h := newHash()
 		h.Write(in)
 		sum := h.Sum(nil)
 		switch config.Output {
 		case "", "hex":
-			return []byte(hex.EncodeToString(sum)), nil
+			return []byte(hex.EncodeToString(sum)), true, nil
 		case "base64":
-			return []byte(base64.StdEncoding.EncodeToString(sum)), nil
+			return []byte(base64.StdEncoding.EncodeToString(sum)), true, nil
 		default:
-			return nil, fmt.Errorf("hash: unknown output %q", config.Output)
+			return nil, false, fmt.Errorf("hash: unknown output %q", config.Output)
 		}
 	}, nil
 }

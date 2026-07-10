@@ -50,7 +50,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 			Name:  "suffix",
 			Kinds: sdk.TRANSFORMER,
 			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
-				return func(in []byte) ([]byte, error) { return append(in, suffix...), nil }, nil
+				return func(in []byte) ([]byte, bool, error) { return append(in, suffix...), true, nil }, nil
 			},
 		},
 	)
@@ -69,34 +69,34 @@ func testResource(pluginID, resource string, kind sdk.Kind, meta sdk.BlockMeta) 
 
 func Test_stackTransform(t *testing.T) {
 	appendc := func(c byte) sdk.Transformer {
-		return func(in []byte) ([]byte, error) { return append(in, c), nil }
+		return func(in []byte) ([]byte, bool, error) { return append(in, c), true, nil }
 	}
 
 	// empty stack is identity
-	out, err := stackTransform(nil)([]byte("x"))
-	if err != nil || string(out) != "x" {
-		t.Fatalf("empty stack: %q, %v", out, err)
+	out, keep, err := stackTransform(nil)([]byte("x"))
+	if err != nil || !keep || string(out) != "x" {
+		t.Fatalf("empty stack: %q %v %v", out, keep, err)
 	}
 
 	// applied in declaration order
-	out, err = stackTransform([]sdk.Transformer{appendc('a'), appendc('b'), appendc('c')})([]byte("_"))
-	if err != nil || string(out) != "_abc" {
-		t.Fatalf("order: %q, %v", out, err)
+	out, keep, err = stackTransform([]sdk.Transformer{appendc('a'), appendc('b'), appendc('c')})([]byte("_"))
+	if err != nil || !keep || string(out) != "_abc" {
+		t.Fatalf("order: %q %v %v", out, keep, err)
 	}
 
 	// error propagates and halts the stack
-	boom := func([]byte) ([]byte, error) { return nil, fmt.Errorf("boom") }
-	if _, err := stackTransform([]sdk.Transformer{appendc('a'), boom, appendc('c')})([]byte("_")); err == nil || err.Error() != "boom" {
+	boom := func([]byte) ([]byte, bool, error) { return nil, false, fmt.Errorf("boom") }
+	if _, _, err := stackTransform([]sdk.Transformer{appendc('a'), boom, appendc('c')})([]byte("_")); err == nil || err.Error() != "boom" {
 		t.Fatalf("want boom, got %v", err)
 	}
 
-	// nil (filtered) short-circuits later transformers
-	filter := func([]byte) ([]byte, error) { return nil, nil }
+	// false (filtered) short-circuits later transformers
+	filter := func([]byte) ([]byte, bool, error) { return nil, false, nil }
 	called := false
-	spy := func(in []byte) ([]byte, error) { called = true; return in, nil }
-	out, err = stackTransform([]sdk.Transformer{filter, spy})([]byte("_"))
-	if err != nil || out != nil || called {
-		t.Fatalf("filter: out=%q called=%v err=%v", out, called, err)
+	spy := func(in []byte) ([]byte, bool, error) { called = true; return in, true, nil }
+	out, keep, err = stackTransform([]sdk.Transformer{filter, spy})([]byte("_"))
+	if err != nil || keep || out != nil || called {
+		t.Fatalf("filter: out=%q keep=%v called=%v err=%v", out, keep, called, err)
 	}
 }
 

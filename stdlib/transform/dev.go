@@ -32,19 +32,19 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 		msg = "assertion failed"
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		got, ok, err := data.EvalJQ(query, v)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if !ok || falsey(got) {
-			return nil, fmt.Errorf("%s: %s", msg, config.Expression)
+			return nil, false, fmt.Errorf("%s: %s", msg, config.Expression)
 		}
-		return in, nil
+		return in, true, nil
 	}, nil
 }
 
@@ -81,13 +81,13 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 	var mu sync.Mutex
 	n := 0
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		n++
 		if n%every != 0 {
-			return in, nil
+			return in, true, nil
 		}
-		return []byte(config.Prefix + strconv.Itoa(n)), nil
+		return []byte(config.Prefix + strconv.Itoa(n)), true, nil
 	}, nil
 }

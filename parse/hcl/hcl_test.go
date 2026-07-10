@@ -67,7 +67,7 @@ func testPlugin(name string) sdk.Plugin {
 			Name:  "echo",
 			Kinds: sdk.TRANSFORMER,
 			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
-				return func(in []byte) ([]byte, error) { return in, nil }, nil
+				return func(in []byte) ([]byte, bool, error) { return in, true, nil }, nil
 			},
 		},
 	)

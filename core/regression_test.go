@@ -119,7 +119,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{producer},
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		ExitOnError: true,
 	})
 	elapsed := time.Since(start)
@@ -148,7 +148,7 @@ func Test_ConsumerStopAfter_NoDeadlock(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{emitN(100, []byte("x"), nil)},
 		Consumers:   []sdk.Consumer{flow.Consumer(countAll(&got), 0, 0, 3)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -194,9 +194,14 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 	}
 
 	err := panicSafeRun(t, &Pipeline{
-		Producers:   producers,
-		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Producers: producers,
+		Consumers: []sdk.Consumer{consumer},
+		Transformer: func(msg []byte) ([]byte, bool, error) {
+			if msg == nil {
+				return nil, false, nil // filter out nil
+			}
+			return msg, true, nil
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -232,7 +237,7 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 				},
 			},
 			Consumers:   []sdk.Consumer{countAll(&got), countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		}
 	}
 
@@ -278,7 +283,7 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 	if err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{blockForever},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		StopAfter:   3,
 	}); err != nil {
 		t.Fatal(err)
@@ -323,7 +328,7 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{producer},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		ExitOnError: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
@@ -347,7 +352,7 @@ func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 	if err := panicSafeRun(t, &Pipeline{
 		Producers:   []sdk.Producer{misbehaving},
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: func(msg []byte) ([]byte, bool, error) { return msg, true, nil },
 		StopAfter:   3,
 	}); err != nil {
 		t.Fatal(err)

@@ -53,7 +53,7 @@ Join a collection of transformers into a single that applies them in order
 */
 func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 	if len(transformers) == 0 {
-		return func(data []byte) ([]byte, error) { return data, nil }
+		return func(data []byte) ([]byte, bool, error) { return data, true, nil }
 	}
 
 	if len(transformers) == 1 {
@@ -62,10 +62,10 @@ func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
 
 	tail := len(transformers) - 1
 
-	return func(data []byte) ([]byte, error) {
-		transformed, err := stackTransform(transformers[:tail])(data)
-		if err != nil || transformed == nil {
-			return nil, err
+	return func(data []byte) ([]byte, bool, error) {
+		transformed, keep, err := stackTransform(transformers[:tail])(data)
+		if err != nil || !keep {
+			return nil, false, err
 		}
 
 		return transformers[tail](transformed)

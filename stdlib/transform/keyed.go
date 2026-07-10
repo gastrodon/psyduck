@@ -74,16 +74,16 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 	seen := make(map[string]struct{}, window)
 	ring := make([]string, 0, window)
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		key, ok, err := k.key(in)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if !ok {
-			return in, nil
+			return in, true, nil
 		}
 		if _, dup := seen[key]; dup {
-			return nil, nil
+			return nil, false, nil
 		}
 		if len(ring) >= window {
 			delete(seen, ring[0])
@@ -91,7 +91,7 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		seen[key] = struct{}{}
 		ring = append(ring, key)
-		return in, nil
+		return in, true, nil
 	}, nil
 }
 
@@ -118,19 +118,19 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 	var last string
 	var have bool
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		key, ok, err := k.key(in)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if !ok {
-			return in, nil
+			return in, true, nil
 		}
 		if have && key == last {
-			return nil, nil
+			return nil, false, nil
 		}
 		last, have = key, true
-		return in, nil
+		return in, true, nil
 	}, nil
 }
 
@@ -156,17 +156,20 @@ func Batch(parse sdk.Parser) (sdk.Transformer, error) {
 
 	buf := make(data.List, 0, size)
 
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
 			v = data.Bytes(in)
 		}
 		buf = append(buf, v)
 		if len(buf) < size {
-			return nil, nil
+			return nil, false, nil
 		}
 		b, err := data.Encode(buf, "json")
+		if err != nil {
+			return nil, false, err
+		}
 		buf = make(data.List, 0, size)
-		return b, err
+		return b, true, nil
 	}, nil
 }

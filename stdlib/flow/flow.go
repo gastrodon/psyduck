@@ -125,18 +125,18 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 // Wait sleeps a fixed duration before passing each message through.
 func Wait(ms int) sdk.Transformer {
 	d := time.Duration(ms) * time.Millisecond
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		time.Sleep(d)
-		return in, nil
+		return in, true, nil
 	}
 }
 
 // Throttle rate-limits the stream to perSecond messages, blocking as needed.
 func Throttle(perSecond int) sdk.Transformer {
 	wait := Limiter(0, perSecond)
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		wait()
-		return in, nil
+		return in, true, nil
 	}
 }
 
@@ -144,14 +144,14 @@ func Throttle(perSecond int) sdk.Transformer {
 func Head(count int) sdk.Transformer {
 	var mu sync.Mutex
 	seen := 0
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if seen >= count {
-			return nil, nil
+			return nil, false, nil
 		}
 		seen++
-		return in, nil
+		return in, true, nil
 	}
 }
 
@@ -159,32 +159,32 @@ func Head(count int) sdk.Transformer {
 func Tail(skip int) sdk.Transformer {
 	var mu sync.Mutex
 	seen := 0
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if seen < skip {
 			seen++
-			return nil, nil
+			return nil, false, nil
 		}
-		return in, nil
+		return in, true, nil
 	}
 }
 
 // Sample keeps one message in every rate (rate <= 1 keeps everything).
 func Sample(rate int) sdk.Transformer {
 	if rate <= 1 {
-		return func(in []byte) ([]byte, error) { return in, nil }
+		return func(in []byte) ([]byte, bool, error) { return in, true, nil }
 	}
 	var mu sync.Mutex
 	n := 0
-	return func(in []byte) ([]byte, error) {
+	return func(in []byte) ([]byte, bool, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		keep := n%rate == 0
 		n++
 		if keep {
-			return in, nil
+			return in, true, nil
 		}
-		return nil, nil
+		return nil, false, nil
 	}
 }

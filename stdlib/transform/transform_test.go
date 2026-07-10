@@ -37,11 +37,11 @@ func build(t *testing.T, provider func(sdk.Parser) (sdk.Transformer, error), val
 
 func run(t *testing.T, fn sdk.Transformer, in string) (string, bool) {
 	t.Helper()
-	out, err := fn([]byte(in))
+	out, keep, err := fn([]byte(in))
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if out == nil {
+	if !keep {
 		return "", false
 	}
 	return string(out), true
@@ -178,15 +178,15 @@ func TestTextGarbageOnError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fn([]byte{0xff, 0xfe}); err == nil {
+	if _, _, err := fn([]byte{0xff, 0xfe}); err == nil {
 		t.Error("expected utf-8 error on garbage with on-error=raise")
 	}
 
 	// on-error=drop swallows it
 	fn, _ = Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "drop"}))
-	out, err := fn([]byte{0xff, 0xfe})
-	if err != nil || out != nil {
-		t.Errorf("on-error=drop should swallow: out=%q err=%v", out, err)
+	out, keep, err := fn([]byte{0xff, 0xfe})
+	if err != nil || keep || out != nil {
+		t.Errorf("on-error=drop should swallow: out=%q keep=%v err=%v", out, keep, err)
 	}
 }
 
@@ -261,10 +261,10 @@ func TestFlow(t *testing.T) {
 
 func TestAssertCount(t *testing.T) {
 	fn, _ := Assert(psyParser(map[string]any{"expression": ".ok", "message": "not ok"}))
-	if _, err := fn([]byte(`{"ok":true}`)); err != nil {
+	if _, _, err := fn([]byte(`{"ok":true}`)); err != nil {
 		t.Errorf("assert true errored: %v", err)
 	}
-	if _, err := fn([]byte(`{"ok":false}`)); err == nil {
+	if _, _, err := fn([]byte(`{"ok":false}`)); err == nil {
 		t.Error("assert false should error")
 	}
 

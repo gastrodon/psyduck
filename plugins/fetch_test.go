@@ -36,10 +36,21 @@ func TestPluginKind(t *testing.T) {
 }
 
 // mustGit runs a git command in dir, failing the test on error and
-// returning trimmed stdout+stderr.
+// returning trimmed stdout+stderr. It scrubs GIT_* env vars so that when
+// the test is invoked from a pre-commit hook the outer commit's exported
+// GIT_DIR/GIT_INDEX_FILE don't leak into these tempdir git calls.
 func mustGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	env := make([]string, 0, len(os.Environ()))
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "GIT_") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
