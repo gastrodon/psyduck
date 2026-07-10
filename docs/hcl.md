@@ -89,7 +89,7 @@ pipeline "hello" {
 | `transform` | list of refs | transformers, applied in order |
 | `stop-after` | int | pipeline-level stop count |
 | `exit-on-error` | bool | stop the pipeline on the first error |
-| `produce-parallel` | int | cap on concurrently-running producers, for `produce` and `produce-from` alike (default 1, must be ≥ 1) |
+| `produce-parallel` | int | cap on concurrently-running producers, for `produce` and `produce-from` alike (default 1). With a static `produce` list, `0` means "all at once" (resolves to the producer count); with `produce-from` it must be ≥ 1 (`0` is rejected — no fixed count to expand to) |
 | `produce-from-timeout` | int | seconds to wait for the `produce-from` seed's first producers (0 = wait indefinitely, default 10) |
 
 Exactly one of `produce` / `produce-from` describes the producer set.
