@@ -286,10 +286,18 @@ func makePipeline(
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: %w", name, err)
 		}
 		n, _ := converted.AsBigFloat().Int64()
-		if n < 1 {
-			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: must be at least 1", name)
+		switch {
+		case n < 0:
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: must be non-negative", name)
+		case n == 0 && hasRemote:
+			// 0 means "run them all at once", which needs a known count.
+			// produce-from has no fixed count, so 0 is meaningless there.
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: 0 (run all at once) requires a static produce list; produce-from has no fixed producer count", name)
+		case n == 0:
+			pipe.ProduceParallel = len(pipe.Spec.Producers)
+		default:
+			pipe.ProduceParallel = int(n)
 		}
-		pipe.ProduceParallel = int(n)
 	}
 
 	return pipe, nil

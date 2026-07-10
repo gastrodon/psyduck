@@ -951,24 +951,50 @@ func TestParseProduceParallelNegative(t *testing.T) {
 	}
 	`)
 	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
-	if err == nil || !strings.Contains(err.Error(), "must be at least 1") {
+	if err == nil || !strings.Contains(err.Error(), "must be non-negative") {
 		t.Fatalf("want produce-parallel floor error, got: %v", err)
 	}
 }
 
-func TestParseProduceParallelZero(t *testing.T) {
+// With a static produce list, produce-parallel = 0 means "run them all at
+// once" — it resolves to the number of producers declared.
+func TestParseProduceParallelZeroStatic(t *testing.T) {
 	entry, load := src(`
-	produce "constant" "p" { value = "x" }
+	produce "constant" "a" { value = "x" }
+	produce "constant" "b" { value = "y" }
+	produce "constant" "c" { value = "z" }
 	consume "trash" "t" {}
 	pipeline "main" {
-		produce          = [produce.constant.p]
+		produce          = [produce.constant.a, produce.constant.b, produce.constant.c]
 		consume          = [trash.t]
 		produce-parallel = 0
 	}
 	`)
-	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
-	if err == nil || !strings.Contains(err.Error(), "must be at least 1") {
-		t.Fatalf("want produce-parallel floor error, got: %v", err)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result["main"].ProduceParallel; got != 3 {
+		t.Fatalf("ProduceParallel: got %d, want 3 (one per producer)", got)
+	}
+}
+
+// produce-from has no fixed producer count, so produce-parallel = 0 there is
+// meaningless and rejected at parse.
+func TestParseProduceParallelZeroRemote(t *testing.T) {
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) { close(send) })
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from     = produce.seed.s
+		consume          = [trash.t]
+		produce-parallel = 0
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err == nil || !strings.Contains(err.Error(), "requires a static produce list") {
+		t.Fatalf("want produce-from rejection of 0, got: %v", err)
 	}
 }
 
