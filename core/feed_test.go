@@ -330,10 +330,10 @@ func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 		released.Load(), baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
 }
 
-// A stream that never yields a producer builds fine but fails the run with
-// ErrNoProducers — even with exit-on-error off, since a pipeline that never
-// produced anything did not run.
-func Test_feed_ZeroProducers(t *testing.T) {
+// A stream that never yields a producer is not an error: it builds fine and
+// the run finishes normally (nil), having delivered nothing. The stream is
+// still released exactly once on the way out.
+func Test_feed_EmptyStream(t *testing.T) {
 	consumed := 0
 	plugin := corePlugin("p", nil, 0, &consumed, "")
 
@@ -348,10 +348,84 @@ func Test_feed_ZeroProducers(t *testing.T) {
 		t.Fatalf("empty stream should build, got %v", err)
 	}
 
-	if err := panicSafeRun(t, pipeline); !errors.Is(err, ErrNoProducers) {
-		t.Fatalf("want ErrNoProducers, got %v", err)
+	if err := panicSafeRun(t, pipeline); err != nil {
+		t.Fatalf("empty stream should run to a clean finish, got %v", err)
+	}
+	if consumed != 0 {
+		t.Fatalf("want nothing consumed, got %d", consumed)
 	}
 	if n := released.Load(); n != 1 {
 		t.Fatalf("want the stream released exactly once, got %d", n)
+	}
+}
+
+// A stream error partway through (the seed dying, a timeout) is an ordinary
+// producer error, governed by exit-on-error. With it set the run fails with
+// that error; without it the run finishes normally after delivering whatever
+// the healthy producers already emitted. Either way the stream is released.
+func Test_feed_StreamError(t *testing.T) {
+	// errAfterFirst yields one good chunk, then fails on the next pull.
+	errAfterFirst := func(released *atomic.Int64) parse.ResourceFunc {
+		var delivered, dead bool
+		return func(ctx context.Context, max int) ([]parse.Resource, error) {
+			if max < 1 {
+				dead = true
+				released.Add(1)
+				return nil, nil
+			}
+			if dead {
+				return nil, nil
+			}
+			if !delivered {
+				delivered = true
+				return []parse.Resource{testResource("p", "emit", sdk.PRODUCER, sdk.BlockMeta{})}, nil
+			}
+			return nil, errors.New("seed exploded")
+		}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		exitOnError bool
+		wantErr     bool
+	}{
+		{"exit-on-error fails the run", true, true},
+		{"suppressed finishes clean", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			consumed := 0
+			plugin := corePlugin("p", []byte("m"), 1, &consumed, "")
+
+			var released atomic.Int64
+			pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
+				Name:         "stream-error",
+				Producers:    errAfterFirst(&released),
+				Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+				Transformers: parse.LiteralResourceFunc(),
+				ExitOnError:  tc.exitOnError,
+			}, []sdk.Plugin{plugin})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = panicSafeRun(t, pipeline)
+			switch {
+			case tc.wantErr && (err == nil || !strings.Contains(err.Error(), "seed exploded")):
+				t.Fatalf("want the stream error to fail the run, got %v", err)
+			case !tc.wantErr && err != nil:
+				t.Fatalf("suppressed stream error should finish clean, got %v", err)
+			}
+
+			// On the exit-on-error path the failure cancels the run, so the
+			// feeder may still be unwinding when RunPipeline returns — poll.
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) {
+				if released.Load() == 1 {
+					return
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			t.Fatalf("stream not released: released %d times", released.Load())
+		})
 	}
 }

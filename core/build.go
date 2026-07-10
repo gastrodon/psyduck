@@ -119,8 +119,8 @@ Consumers and transformers are drained and bound eagerly here. Producers
 are not: literal and produce-from pipelines alike are wrapped into a single
 ProducerSource (see producerSource) that binds lazily at run time. So a dead
 seed, an unknown producer plugin, or a broken producer config now surfaces at
-run time through the pipeline's error reporting rather than at build — and a
-stream that never yields a producer fails the run with ErrNoProducers.
+run time through the pipeline's error reporting rather than at build — subject
+to exit-on-error like any other producer error.
 */
 func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) {
 	logger := pipelineLogger()

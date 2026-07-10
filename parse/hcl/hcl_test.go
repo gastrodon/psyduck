@@ -1027,6 +1027,40 @@ func TestParseProduceFromTimeoutZero(t *testing.T) {
 	}
 }
 
+// With produce-from-timeout = 0 and a seed that never sends, the drain must
+// block indefinitely on the channel — only the caller's ctx ends it. The
+// error is the ctx cancellation, never "timeout waiting for remote producer":
+// a zero timeout arms no timer at all (resource.go: nil deadline channel).
+func TestParseProduceFromTimeoutZeroWaitsForever(t *testing.T) {
+	seed := seedPlugin(func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		<-ctx.Done() // never sends
+	})
+
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from         = produce.seed.s
+		consume              = [trash.t]
+		produce-from-timeout = 0
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	_, err = result["main"].Producers(ctx, 4)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want ctx deadline to end the wait, got %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "timeout waiting for remote producer") {
+		t.Fatalf("timeout=0 must arm no timer, got a timeout error: %v", err)
+	}
+}
+
 func TestParseProduceFromTimeoutNegative(t *testing.T) {
 	entry, load := src(`
 	produce "seed" "s" {}

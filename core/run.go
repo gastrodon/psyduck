@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 )
@@ -14,10 +13,12 @@ of its consumers finish, StopAfter is reached, or ctx ends.
 Producers are bound at run time by the pipeline's ProducerSource and run
 through a worker pool that merges their output into one iter.Seq2 stream
 (see produce); each message runs through the transformer stack and fans out
-to every consumer still accepting (see sink). Errors from any side are
-logged; with ExitOnError set the first one also cancels the pipeline and is
-returned. A stream that never yields a producer fails the run with
-ErrNoProducers regardless of ExitOnError. Cancelling ctx stops the run
+to every consumer still accepting (see sink). Errors from any side —
+including a produce-from seed that timed out or closed without ever declaring
+a producer — are logged uniformly; with ExitOnError set the first one also
+cancels the pipeline and is returned, and without it the run finishes
+normally. A stream that never yields a producer is not itself an error: the
+run simply exits having delivered nothing. Cancelling ctx stops the run
 promptly and returns ctx's error.
 
 Every goroutine the engine starts is signaled to stop before RunPipeline
@@ -38,7 +39,7 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 	}
 
 	if pipeline.Producers == nil {
-		return fmt.Errorf("pipeline has no producers: %w", ErrNoProducers)
+		return fmt.Errorf("pipeline has no producers")
 	}
 
 	var failMu sync.Mutex
@@ -67,18 +68,6 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 	delivered := 0
 	for msg, err := range produce(ctx, feed, feedErrs, pipeline.Parallel) {
 		if err != nil {
-			if errors.Is(err, ErrNoProducers) {
-				// A pipeline that never ran a producer is a failure, no
-				// matter what exit-on-error says. Keep any cause already
-				// reported (e.g. a seed timeout) as the returned failure.
-				failMu.Lock()
-				if failure == nil {
-					failure = err
-				}
-				failMu.Unlock()
-				cancel()
-				break
-			}
 			report(fmt.Errorf("producer supplied error: %w", err))
 			continue
 		}
