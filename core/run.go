@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -10,11 +11,14 @@ import (
 RunPipeline drives a built pipeline until its producers are exhausted, all
 of its consumers finish, StopAfter is reached, or ctx ends.
 
-Producers are merged into one iter.Seq2 stream (see produce); each message
-runs through the transformer stack and fans out to every consumer still
-accepting (see sink). Errors from any side are logged; with ExitOnError set
-the first one also cancels the pipeline and is returned. Cancelling ctx
-stops the run promptly and returns ctx's error.
+Producers are bound at run time by the pipeline's ProducerSource and run
+through a worker pool that merges their output into one iter.Seq2 stream
+(see produce); each message runs through the transformer stack and fans out
+to every consumer still accepting (see sink). Errors from any side are
+logged; with ExitOnError set the first one also cancels the pipeline and is
+returned. A stream that never yields a producer fails the run with
+ErrNoProducers regardless of ExitOnError. Cancelling ctx stops the run
+promptly and returns ctx's error.
 
 Every goroutine the engine starts is signaled to stop before RunPipeline
 returns, and the engine's own goroutines are joined. Plugin goroutines are
@@ -31,6 +35,10 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 	logger := pipeline.logger
 	if logger == nil {
 		logger = pipelineLogger()
+	}
+
+	if pipeline.Producers == nil {
+		return fmt.Errorf("pipeline has no producers: %w", ErrNoProducers)
 	}
 
 	var failMu sync.Mutex
@@ -54,9 +62,23 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 
 	consumers := startSink(ctx, pipeline.Consumers, report)
 
+	feed, feedErrs := pipeline.Producers(ctx)
+
 	delivered := 0
-	for msg, err := range produce(ctx, pipeline.Producers) {
+	for msg, err := range produce(ctx, feed, feedErrs, pipeline.Parallel) {
 		if err != nil {
+			if errors.Is(err, ErrNoProducers) {
+				// A pipeline that never ran a producer is a failure, no
+				// matter what exit-on-error says. Keep any cause already
+				// reported (e.g. a seed timeout) as the returned failure.
+				failMu.Lock()
+				if failure == nil {
+					failure = err
+				}
+				failMu.Unlock()
+				cancel()
+				break
+			}
 			report(fmt.Errorf("producer supplied error: %w", err))
 			continue
 		}

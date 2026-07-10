@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"strings"
 	"sync/atomic"
@@ -13,19 +14,18 @@ import (
 	"github.com/gastrodon/psyduck/parse"
 )
 
-// Tests for the meta producer (meta.go): the single sdk.Producer that
-// BuildPipeline emits for produce-from and produce-from-parallel pipelines.
+// Tests for the producer feeder + worker pool (feed.go, stream.go): the run-
+// time path that binds producers lazily and runs them replace-on-exhaustion.
 // House rules from regression_test.go apply: a hang IS a failure
-// (panicSafeRun bounds every run), and a finished run must leave no
-// goroutine behind.
+// (panicSafeRun bounds every run), and a finished run must leave no goroutine
+// behind.
 
 // gate coordinates gated producers with the test. Every producer announces
 // itself on arrive after bumping inFlight, then blocks until the test sends
-// it a release. Assembling a full wave at that barrier before releasing
-// anyone makes the concurrency observation deterministic: maxSeen records
-// exactly how many producers the engine allowed to overlap, and an
-// over-serialized engine (a wave smaller than expected) deadlocks into
-// panicSafeRun's timeout instead of passing by luck.
+// it a release. Driving arrivals and releases one at a time lets a test
+// observe exactly how many producers the engine allowed to overlap (maxSeen)
+// and prove replace-on-exhaustion: freeing one slot must start the next
+// producer even while another is still parked.
 type gate struct {
 	arrive   chan struct{}
 	release  chan struct{}
@@ -38,29 +38,25 @@ func newGate() *gate {
 	return &gate{arrive: make(chan struct{}), release: make(chan struct{})}
 }
 
-// run assembles and releases waves of the given sizes, in order, giving up
-// when ctx ends (the test failing or timing out).
-func (g *gate) run(ctx context.Context, sizes ...int) {
-	for _, size := range sizes {
-		for range size {
-			select {
-			case <-g.arrive:
-			case <-ctx.Done():
-				return
-			}
-		}
-		for range size {
-			select {
-			case g.release <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-		}
+// await blocks until one producer has arrived at the gate (or ctx ends).
+func (g *gate) await(ctx context.Context) {
+	select {
+	case <-g.arrive:
+	case <-ctx.Done():
 	}
 }
 
-// gatedPlugin's "gated" producer sends one message once released by g. It is
-// fully ctx-aware: the engine can abandon it at any point without leaking it.
+// releaseOne frees exactly one parked producer (or gives up when ctx ends).
+func (g *gate) releaseOne(ctx context.Context) {
+	select {
+	case g.release <- struct{}{}:
+	case <-ctx.Done():
+	}
+}
+
+// gatedPlugin's "gated" producer arrives at the gate, waits to be released,
+// sends one message, then exits. It is fully ctx-aware: the engine can
+// abandon it at any point without leaking it.
 func gatedPlugin(name string, g *gate) sdk.Plugin {
 	return sdk.NewInProc(name, &sdk.Resource{
 		Name:  "gated",
@@ -143,12 +139,15 @@ func blockingStream(released *atomic.Int64, first []parse.Resource) parse.Resour
 	}
 }
 
-// A produce-from-parallel pipeline must run its producers in sequential
-// groups of at most the configured size. Six gated producers under a cap of
-// 2 must overlap exactly two at a time, wave after wave, and every message
-// must still reach the consumer.
-func Test_BuildPipeline_ProduceFromParallel(t *testing.T) {
-	const total, parallel = 6, 2
+// The worker pool replaces a finished producer's slot immediately from the
+// next arrival — it does not wait for the whole group to drain (as the old
+// wave engine did). With three gated producers under a cap of two, freeing
+// one slot must start the third while the second is still parked. A wave
+// engine would refuse to start the third until both originals exhausted, so
+// reaching the third's arrival with the second parked deadlocks it into
+// panicSafeRun's timeout. maxSeen proves the cap is never exceeded.
+func Test_produce_ReplaceOnExhaustion(t *testing.T) {
+	const total, parallel = 3, 2
 
 	g := newGate()
 	consumed := 0
@@ -160,20 +159,26 @@ func Test_BuildPipeline_ProduceFromParallel(t *testing.T) {
 	}
 
 	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
-		Name:                "parallel",
-		Producers:           parse.LiteralResourceFunc(producers...),
-		Consumers:           parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-		Transformers:        parse.LiteralResourceFunc(),
-		ProduceFromParallel: parallel,
+		Name:            "parallel",
+		Producers:       parse.LiteralResourceFunc(producers...),
+		Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers:    parse.LiteralResourceFunc(),
+		ProduceParallel: parallel,
 	}, plugins)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := len(pipeline.Producers); n != 1 {
-		t.Fatalf("want 1 meta producer, got %d", n)
-	}
 
-	go g.run(t.Context(), parallel, parallel, parallel)
+	go func() {
+		ctx := t.Context()
+		g.await(ctx) // both original producers fill the two slots
+		g.await(ctx)
+		g.releaseOne(ctx) // free one slot; its replacement must start now
+		g.await(ctx)      // third producer arrived — replace-on-exhaustion proven
+		g.releaseOne(ctx) // let the remaining two finish
+		g.releaseOne(ctx)
+	}()
+
 	if err := panicSafeRun(t, pipeline); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +187,7 @@ func Test_BuildPipeline_ProduceFromParallel(t *testing.T) {
 		t.Fatalf("want %d producers run, got %d", total, n)
 	}
 	if n := g.maxSeen.Load(); n != parallel {
-		t.Fatalf("want exactly %d producers overlapping, got %d", parallel, n)
+		t.Fatalf("want at most %d producers overlapping, got %d", parallel, n)
 	}
 	if consumed != total {
 		t.Fatalf("want %d messages consumed, got %d", total, consumed)
@@ -190,11 +195,11 @@ func Test_BuildPipeline_ProduceFromParallel(t *testing.T) {
 }
 
 // A produce-from pipeline keeps yielding producers for as long as its stream
-// does: the bootstrap chunk and every later arrival all run, and all of
-// their messages reach the consumer. When the stream exhausts, the run ends
-// on its own and the stream is released before the meta producer closes its
-// stream — the meta producer owns the seed's lifetime.
-func Test_MetaProducer_StreamedProducersAllRun(t *testing.T) {
+// does: the bootstrap chunk and every later arrival all run, and all of their
+// messages reach the consumer. When the stream exhausts the run ends on its
+// own, and the feeder releases the stream before closing feed — so no polling
+// is needed to observe the release on the exhaustion path.
+func Test_feed_StreamedProducersAllRun(t *testing.T) {
 	const chunks, perProducer = 4, 3
 
 	consumed := 0
@@ -211,7 +216,6 @@ func Test_MetaProducer_StreamedProducersAllRun(t *testing.T) {
 		Producers:    streamOf(&released, stream...),
 		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
 		Transformers: parse.LiteralResourceFunc(),
-		Spec:         parse.PipelineSpec{RemoteSeed: &parse.Resource{Ref: "produce.seed.t"}},
 	}, []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
@@ -223,18 +227,16 @@ func Test_MetaProducer_StreamedProducersAllRun(t *testing.T) {
 	if want := chunks * perProducer; consumed != want {
 		t.Fatalf("want %d messages consumed, got %d", want, consumed)
 	}
-	// The run ended by exhaustion, so the meta producer released the stream
-	// before closing send — no polling needed on this path.
 	if n := released.Load(); n != 1 {
 		t.Fatalf("want the stream released exactly once, got %d", n)
 	}
 }
 
-// Bind errors past BuildPipeline's bootstrap peek surface at run time
-// through the pipeline's error reporting: with exit-on-error set, a
-// mid-stream resource naming an unknown plugin fails the run, and the
-// stream is still released on the way out.
-func Test_MetaProducer_BindErrorMidStream(t *testing.T) {
+// A bind error partway through the stream surfaces at run time through the
+// pipeline's error reporting: with exit-on-error set, a mid-stream resource
+// naming an unknown plugin fails the run, and the stream is still released on
+// the way out.
+func Test_feed_BindErrorMidStream(t *testing.T) {
 	consumed := 0
 	plugin := corePlugin("p", []byte("m"), 1, &consumed, "")
 
@@ -247,7 +249,6 @@ func Test_MetaProducer_BindErrorMidStream(t *testing.T) {
 		),
 		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
 		Transformers: parse.LiteralResourceFunc(),
-		Spec:         parse.PipelineSpec{RemoteSeed: &parse.Resource{Ref: "produce.seed.t"}},
 		ExitOnError:  true,
 	}, []sdk.Plugin{plugin})
 	if err != nil {
@@ -259,9 +260,8 @@ func Test_MetaProducer_BindErrorMidStream(t *testing.T) {
 		t.Fatalf("want the mid-stream bind error to fail the run, got %v", err)
 	}
 
-	// The failure cancels the run, so RunPipeline can return while the meta
-	// producer is still unwinding — poll for the release instead of
-	// asserting it.
+	// The failure cancels the run, so RunPipeline can return while the feeder
+	// is still unwinding — poll for the release instead of asserting it.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		if released.Load() == 1 {
@@ -273,11 +273,11 @@ func Test_MetaProducer_BindErrorMidStream(t *testing.T) {
 }
 
 // A produce-from run cut short mid-stream (StopAfter here; a caller's cancel
-// is the same path) must leave nothing behind: the running group is unwound,
-// the puller parked in the quiet stream is released by its ctx, and the
-// stream itself — and with it the seed — is released on the way out. Follows
-// the baseline-poll idiom from regression_test.go.
-func Test_MetaProducer_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
+// is the same path) must leave nothing behind: the running producer is
+// unwound, the feeder parked in the quiet stream is released by its ctx, and
+// the stream itself — and with it the seed — is released on the way out.
+// Follows the baseline-poll idiom from regression_test.go.
+func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 	forever := sdk.NewInProc("f", &sdk.Resource{
 		Name:  "forever",
 		Kinds: sdk.PRODUCER,
@@ -306,7 +306,6 @@ func Test_MetaProducer_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 		Producers:    blockingStream(&released, []parse.Resource{testResource("f", "forever", sdk.PRODUCER, sdk.BlockMeta{})}),
 		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
 		Transformers: parse.LiteralResourceFunc(),
-		Spec:         parse.PipelineSpec{RemoteSeed: &parse.Resource{Ref: "produce.seed.t"}},
 		StopAfter:    5,
 	}, plugins)
 	if err != nil {
@@ -329,4 +328,30 @@ func Test_MetaProducer_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 	buf := make([]byte, 1<<16)
 	t.Fatalf("early-stopped produce-from run left residue: released=%d goroutines %d -> %d\n%s",
 		released.Load(), baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
+}
+
+// A stream that never yields a producer builds fine but fails the run with
+// ErrNoProducers — even with exit-on-error off, since a pipeline that never
+// produced anything did not run.
+func Test_feed_ZeroProducers(t *testing.T) {
+	consumed := 0
+	plugin := corePlugin("p", nil, 0, &consumed, "")
+
+	var released atomic.Int64
+	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
+		Name:         "empty",
+		Producers:    streamOf(&released),
+		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers: parse.LiteralResourceFunc(),
+	}, []sdk.Plugin{plugin})
+	if err != nil {
+		t.Fatalf("empty stream should build, got %v", err)
+	}
+
+	if err := panicSafeRun(t, pipeline); !errors.Is(err, ErrNoProducers) {
+		t.Fatalf("want ErrNoProducers, got %v", err)
+	}
+	if n := released.Load(); n != 1 {
+		t.Fatalf("want the stream released exactly once, got %d", n)
+	}
 }

@@ -197,17 +197,19 @@ consume "file" "results" {
 }
 
 pipeline "scrape" {
-  produce-from          = produce.listen.meta-in
-  produce-from-parallel = 5
-  consume               = [consume.file.results]
+  produce-from     = produce.listen.meta-in
+  produce-parallel = 5
+  consume          = [consume.file.results]
 }
 ```
 
 `plan` writes; `scrape` executes. Many `plan`-like writers can fan into a
 single `scrape` listener, which keeps listening — every new config that
 arrives becomes another producer, for as long as `scrape` runs.
-`produce-from-parallel` caps how many of those producers run at once (waves of
-5 in the example; 0 means unbounded, the default). This is how you get
+`produce-parallel` caps how many of those producers run at once (5 in the
+example). Producers run through a worker pool: when one exhausts, its slot is
+refilled immediately from the next arrival. The default is 1 (one at a time);
+a high value approximates running everything at once. This is how you get
 dynamic parallel producers without recompiling anything.
 
 ## Rendering messages

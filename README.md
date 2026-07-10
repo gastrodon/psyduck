@@ -156,7 +156,7 @@ change runtime log verbosity.
 ## Docs
 
 - [`docs/hcl.md`](docs/hcl.md) — writing `.psy` files: resources, refs,
-  `locals`, `env`, `produce-from`, `produce-from-parallel`, fan shapes.
+  `locals`, `env`, `produce-from`, `produce-parallel`, fan shapes.
 - [`docs/stdlib.md`](docs/stdlib.md) — every built-in resource, the codec /
   framing / selection model, and the shape of `on-error`.
 - [`docs/patterns.md`](docs/patterns.md) — idiomatic patterns: reshape,
