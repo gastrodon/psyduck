@@ -98,11 +98,11 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 		return c
 	}
 	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		inner := make(chan []byte)
+		defer close(inner)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		inner := make(chan []byte)
 		go c(ctx, inner, errs, done)
-		defer close(inner)
 
 		wait, count := Limiter(perMinute, perSecond), 0
 		for {

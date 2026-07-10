@@ -157,39 +157,28 @@ func TestConsumer(t *testing.T) {
 	}
 }
 
-// A consumer that would block on a slow external call unless its ctx
-// cancels: it signals ctx observation via ctxCancelled. Without the
-// wrapper cancelling on stop-after, this call would hang past cutoff.
+// A consumer that reads one message then blocks doing simulated external
+// work — the realistic "consumer is mid-fetch when the cutoff hits"
+// scenario. Only ctx.Done can unblock it: without the wrapper cancelling
+// its ctx on cutoff, close(inner) alone doesn't help (the consumer isn't
+// waiting on inner anymore), and the test times out.
 func TestConsumerCancelsInnerOnStopAfter(t *testing.T) {
 	ctxCancelled := make(chan struct{})
 	consume := func(ctx context.Context, recv <-chan []byte, _ chan<- error, done chan<- struct{}) {
 		defer close(done)
-		for {
-			select {
-			case _, ok := <-recv:
-				if !ok {
-					return
-				}
-			case <-ctx.Done():
-				close(ctxCancelled)
-				return
-			}
+		<-recv // accept one message, then park in external work
+		select {
+		case <-ctx.Done():
+			close(ctxCancelled)
+		case <-time.After(2 * time.Second):
 		}
 	}
 
 	recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
-	go Consumer(consume, 0, 0, 3)(t.Context(), recv, errs, done)
+	go Consumer(consume, 0, 0, 1)(t.Context(), recv, errs, done)
 
-	go func() {
-		defer close(recv)
-		for i := 0; i < 10; i++ {
-			select {
-			case recv <- []byte{byte(i)}:
-			case <-done:
-				return
-			}
-		}
-	}()
+	recv <- []byte{0}
+	close(recv)
 
 	select {
 	case <-ctxCancelled:
