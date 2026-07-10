@@ -7,7 +7,7 @@ toolchain go1.24.13
 require (
 	github.com/hashicorp/hcl/v2 v2.20.1
 	github.com/itchyny/gojq v0.12.19
-	github.com/psyduck-etl/sdk v0.5.1
+	github.com/psyduck-etl/sdk v0.5.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/zclconf/go-cty v1.14.4
@@ -29,5 +29,3 @@ require (
 )
 
 replace github.com/zclconf/go-cty => github.com/gastrodon/go-cty v1.14.4-1
-
-replace github.com/psyduck-etl/sdk => ../psyduck-etl/sdk
