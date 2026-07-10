@@ -12,11 +12,16 @@ import (
 	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
-// Pipeline is a runnable pipeline: producers and consumers stay separate
-// slices — RunPipeline owns merging and fan-out — and transformers are
-// pre-stacked into one function.
+// Pipeline is a runnable pipeline. Producers are a run-time source rather
+// than a fixed slice: calling it starts a feeder that binds producers lazily
+// and streams them into RunPipeline's worker pool (see ProducerSource), which
+// is what lets a produce-from seed keep declaring new producers for the life
+// of the run. Parallel caps how many run at once. Consumers stay a slice —
+// RunPipeline owns fan-out — and transformers are pre-stacked into one
+// function.
 type Pipeline struct {
-	Producers   []sdk.Producer
+	Producers   ProducerSource
+	Parallel    int
 	Consumers   []sdk.Consumer
 	Transformer sdk.Transformer
 	logger      *logrus.Logger
@@ -110,15 +115,12 @@ BuildPipeline turns a parsed pipeline description into a runnable Pipeline.
 Each binding is resolved against its owning plugin, wrapped with host-owned
 BlockMeta behavior, and joined with its siblings.
 
-Producers come in two shapes. A literal pipeline drains its producer
-stream eagerly, exactly like consumers and transformers. A pipeline with a
-produce-from seed (or a produce-from-parallel cap) instead gets a single meta
-producer: the first chunk of the stream is still drained and bound here —
-so a dead seed, an unknown plugin, or a broken config errors at build time
-— but everything after rides the stream lazily, letting the seed keep
-delivering new producers for as long as the pipeline runs (see
-metaProducer in meta.go). Bind errors past the first chunk consequently
-surface at run time, through the pipeline's error reporting.
+Consumers and transformers are drained and bound eagerly here. Producers
+are not: literal and produce-from pipelines alike are wrapped into a single
+ProducerSource (see producerSource) that binds lazily at run time. So a dead
+seed, an unknown producer plugin, or a broken producer config now surfaces at
+run time through the pipeline's error reporting rather than at build — and a
+stream that never yields a producer fails the run with ErrNoProducers.
 */
 func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin) (*Pipeline, error) {
 	logger := pipelineLogger()
@@ -126,33 +128,6 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	lookup := make(map[string]sdk.Plugin, len(plugins))
 	for _, p := range plugins {
 		lookup[p.Name()] = p
-	}
-
-	producers := make([]sdk.Producer, 0)
-	if src.Spec.RemoteSeed != nil || src.ProduceFromParallel > 0 {
-		peek, err := src.Producers(ctx, bindChunk)
-		if err != nil {
-			return nil, err
-		}
-		if len(peek) == 0 {
-			return nil, fmt.Errorf("%s: pipeline %q has no producers", src.Origin, src.Name)
-		}
-		bootstrap := make([]sdk.Producer, 0, len(peek))
-		for _, b := range peek {
-			p, err := bindProducer(b, lookup)
-			if err != nil {
-				return nil, err
-			}
-			bootstrap = append(bootstrap, p)
-		}
-		producers = append(producers, metaProducer(bootstrap, src.Producers, lookup, src.ProduceFromParallel, logger))
-	} else if err := drain(ctx, src.Producers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		producers = append(producers, flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter))
-	}); err != nil {
-		return nil, err
-	}
-	if len(producers) == 0 {
-		return nil, fmt.Errorf("%s: pipeline %q has no producers", src.Origin, src.Name)
 	}
 
 	consumers := make([]sdk.Consumer, 0)
@@ -173,7 +148,8 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	}
 
 	return &Pipeline{
-		Producers:   producers,
+		Producers:   producerSource(src.Producers, lookup),
+		Parallel:    src.ProduceParallel,
 		Consumers:   consumers,
 		Transformer: stackTransform(transformers),
 		logger:      logger,

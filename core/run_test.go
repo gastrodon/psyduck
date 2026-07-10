@@ -68,6 +68,28 @@ func countAll(got *atomic.Int64) sdk.Consumer {
 	}
 }
 
+// staticSource adapts a fixed set of producers into a ProducerSource, the way
+// a literal (produce = [...]) pipeline's feeder does: send each producer into
+// the feed channel then close it, with an empty error stream.
+func staticSource(ps ...sdk.Producer) ProducerSource {
+	return func(ctx context.Context) (<-chan sdk.Producer, <-chan error) {
+		feed := make(chan sdk.Producer)
+		errs := make(chan error)
+		go func() {
+			defer close(errs)
+			defer close(feed)
+			for _, p := range ps {
+				select {
+				case feed <- p:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+		return feed, errs
+	}
+}
+
 func Test_RunPipeline(t *testing.T) {
 	cases := []struct {
 		name                 string
@@ -105,7 +127,8 @@ func Test_RunPipeline(t *testing.T) {
 			}
 
 			err := mustRun(t, t.Context(), &Pipeline{
-				Producers:   producers,
+				Producers:   staticSource(producers...),
+				Parallel:    tc.producers,
 				Consumers:   consumers,
 				Transformer: transform,
 			})
@@ -131,13 +154,13 @@ func Test_RunPipeline(t *testing.T) {
 func Test_RunPipeline_filtering(t *testing.T) {
 	var got atomic.Int64
 	err := mustRun(t, t.Context(), &Pipeline{
-		Producers: []sdk.Producer{func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		Producers: staticSource(func(_ context.Context, send chan<- []byte, errs chan<- error) {
 			defer close(send)
 			defer close(errs)
 			for i := 0; i < 100; i++ {
 				send <- []byte{byte(i)}
 			}
-		}},
+		}),
 		Consumers: []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) {
 			if msg[0]%2 == 0 {
@@ -158,7 +181,7 @@ func Test_RunPipeline_filtering(t *testing.T) {
 func Test_RunPipeline_stopAfter(t *testing.T) {
 	var got atomic.Int64
 	err := mustRun(t, t.Context(), &Pipeline{
-		Producers:   []sdk.Producer{emitForever([]byte("x"))},
+		Producers:   staticSource(emitForever([]byte("x"))),
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		StopAfter:   5,
@@ -181,7 +204,7 @@ func Test_RunPipeline_cancel(t *testing.T) {
 
 	var got atomic.Int64
 	err := mustRun(t, ctx, &Pipeline{
-		Producers:   []sdk.Producer{emitForever([]byte("x"))},
+		Producers:   staticSource(emitForever([]byte("x"))),
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 	})
@@ -205,7 +228,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 	t.Run("producer error, exit-on-error", func(t *testing.T) {
 		var got atomic.Int64
 		err := mustRun(t, t.Context(), &Pipeline{
-			Producers:   []sdk.Producer{erroring("producer")},
+			Producers:   staticSource(erroring("producer")),
 			Consumers:   []sdk.Consumer{countAll(&got)},
 			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 			ExitOnError: true,
@@ -221,7 +244,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 	t.Run("producer error, keep going", func(t *testing.T) {
 		var got atomic.Int64
 		err := mustRun(t, t.Context(), &Pipeline{
-			Producers:   []sdk.Producer{erroring("producer")},
+			Producers:   staticSource(erroring("producer")),
 			Consumers:   []sdk.Consumer{countAll(&got)},
 			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		})
@@ -236,7 +259,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 	t.Run("transformer error, exit-on-error", func(t *testing.T) {
 		var got atomic.Int64
 		err := mustRun(t, t.Context(), &Pipeline{
-			Producers:   []sdk.Producer{emitN(10, []byte("x"), nil)},
+			Producers:   staticSource(emitN(10, []byte("x"), nil)),
 			Consumers:   []sdk.Consumer{countAll(&got)},
 			Transformer: func(msg []byte) ([]byte, error) { return nil, boom },
 			ExitOnError: true,
@@ -255,7 +278,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			}
 		}
 		err := mustRun(t, t.Context(), &Pipeline{
-			Producers:   []sdk.Producer{emitN(10, []byte("x"), nil)},
+			Producers:   staticSource(emitN(10, []byte("x"), nil)),
 			Consumers:   []sdk.Consumer{consume},
 			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 			ExitOnError: true,

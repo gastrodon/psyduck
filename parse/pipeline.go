@@ -50,30 +50,31 @@ func LiteralResourceFunc(resources ...Resource) ResourceFunc {
 // Pipeline is a fully-resolved pipeline description. Each slot holds a
 // ResourceFunc stream of parsed-but-not-instantiated resources. Dynamic
 // producers (produce-from) are hidden inside the Producers stream by the
-// Parser; Spec.RemoteSeed tells core the stream is live and may keep
-// yielding new producers for as long as the seed keeps sending.
+// Parser and drained at run time exactly like a literal list; Spec.RemoteSeed
+// is display-only metadata noting the stream is live.
 //
-// ProduceFromParallel caps how many producers run concurrently at any
-// moment. Zero (the default) runs everything as soon as it is known. A
-// positive value runs producers in groups of at most that size; the next
-// group starts only once the current group is exhausted.
+// ProduceParallel caps how many producers run concurrently at any moment,
+// for both literal and produce-from pipelines. The parser defaults it to 1
+// when the attribute is absent and rejects any written value below 1; core
+// clamps a zero value up to 1 defensively. A finished producer's slot is
+// refilled immediately from the next one in arrival order.
 type Pipeline struct {
-	Name                string
-	Origin              sdk.SourceRange
-	Producers           ResourceFunc
-	Consumers           ResourceFunc
-	Transformers        ResourceFunc
-	StopAfter           int
-	ExitOnError         bool
-	ProduceFromParallel int
-	Spec                PipelineSpec
+	Name            string
+	Origin          sdk.SourceRange
+	Producers       ResourceFunc
+	Consumers       ResourceFunc
+	Transformers    ResourceFunc
+	StopAfter       int
+	ExitOnError     bool
+	ProduceParallel int
+	Spec            PipelineSpec
 }
 
 // PipelineSpec is display-only metadata describing the pipeline's declared
 // resources. Reading it never instantiates anything, and a produce-from
-// seed is never run. RemoteSeed doubles as core's signal that the Producers
-// stream is dynamic: literal streams exhaust at build time, while a seeded
-// stream must be drained lazily as the pipeline runs.
+// seed is never run. RemoteSeed is non-nil iff the pipeline uses
+// produce-from; both literal and seeded streams are drained lazily at run
+// time, so core does not branch on it.
 type PipelineSpec struct {
 	Producers    []Resource // literal producers; empty when produce-from is used
 	RemoteSeed   *Resource  // non-nil iff the pipeline uses produce-from

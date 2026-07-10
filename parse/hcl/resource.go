@@ -275,20 +275,21 @@ func makePipeline(
 		pipe.ExitOnError = converted.True()
 	}
 
-	if attr, ok := content.Attributes["produce-from-parallel"]; ok {
+	pipe.ProduceParallel = 1
+	if attr, ok := content.Attributes["produce-parallel"]; ok {
 		v, diags := attr.Expr.Value(localsCtx)
 		if diags.HasErrors() {
 			return parse.Pipeline{}, diags
 		}
 		converted, err := convert.Convert(v, cty.Number)
 		if err != nil {
-			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-parallel: %w", name, err)
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: %w", name, err)
 		}
 		n, _ := converted.AsBigFloat().Int64()
-		if n < 0 {
-			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-parallel: must be non-negative", name)
+		if n < 1 {
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: must be at least 1", name)
 		}
-		pipe.ProduceFromParallel = int(n)
+		pipe.ProduceParallel = int(n)
 	}
 
 	return pipe, nil
@@ -323,10 +324,11 @@ type seedResult struct {
 //
 // The seed keeps running until it closes its send channel (natural
 // exhaustion), fails, or the stream is torn down. The seed's lifetime is
-// anchored to the ctx of the call that starts it (BuildPipeline's, in
-// practice); any terminal return — exhaustion, error, a dead per-call ctx,
-// or an explicit max < 1 release — stops the seed and joins its goroutine
-// before returning, so no path leaves it running unobserved.
+// anchored to the ctx of the call that starts it (the run-time feeder's, in
+// practice — see core.producerSource); any terminal return — exhaustion,
+// error, a dead per-call ctx, or an explicit max < 1 release — stops the
+// seed and joins its goroutine before returning, so no path leaves it
+// running unobserved.
 func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext, timeout time.Duration) parse.ResourceFunc {
 	var (
 		results chan seedResult

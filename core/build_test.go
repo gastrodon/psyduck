@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -193,22 +194,36 @@ func Test_BuildPipeline_errors(t *testing.T) {
 	plugin := corePlugin("p", []byte("m"), 1, &consumed, "")
 	empty := parse.LiteralResourceFunc()
 
-	producer := parse.LiteralResourceFunc(testResource("p", "emit", sdk.PRODUCER, sdk.BlockMeta{}))
-	consumer := parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{}))
-
-	_, err := BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: empty, Consumers: consumer, Transformers: empty}, []sdk.Plugin{plugin})
-	if err == nil || !strings.Contains(err.Error(), "no producers") {
-		t.Fatalf("want no-producers error, got %v", err)
+	// Consumers drain eagerly at build; LiteralResourceFunc is one-shot, so a
+	// fresh one is needed per BuildPipeline call.
+	mkConsumer := func() parse.ResourceFunc {
+		return parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{}))
 	}
+	producer := parse.LiteralResourceFunc(testResource("p", "emit", sdk.PRODUCER, sdk.BlockMeta{}))
 
-	_, err = BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: producer, Consumers: empty, Transformers: empty}, []sdk.Plugin{plugin})
+	// No consumers is still a build-time failure.
+	_, err := BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: producer, Consumers: empty, Transformers: empty}, []sdk.Plugin{plugin})
 	if err == nil || !strings.Contains(err.Error(), "no consumers") {
 		t.Fatalf("want no-consumers error, got %v", err)
 	}
 
+	// Producers bind lazily now: an empty producer stream builds fine but the
+	// run fails with ErrNoProducers regardless of exit-on-error.
+	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: empty, Consumers: mkConsumer(), Transformers: empty}, []sdk.Plugin{plugin})
+	if err != nil {
+		t.Fatalf("empty producers should build, got %v", err)
+	}
+	if err := RunPipeline(t.Context(), pipeline); !errors.Is(err, ErrNoProducers) {
+		t.Fatalf("want ErrNoProducers at run, got %v", err)
+	}
+
+	// An unknown producer plugin also surfaces at run time, not build.
 	ghost := parse.LiteralResourceFunc(testResource("ghost", "emit", sdk.PRODUCER, sdk.BlockMeta{}))
-	_, err = BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: ghost, Consumers: consumer, Transformers: empty}, []sdk.Plugin{plugin})
-	if err == nil || !strings.Contains(err.Error(), `no plugin "ghost"`) {
-		t.Fatalf("want no-plugin error, got %v", err)
+	pipeline, err = BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: ghost, Consumers: mkConsumer(), Transformers: empty, ExitOnError: true}, []sdk.Plugin{plugin})
+	if err != nil {
+		t.Fatalf("ghost producer should build, got %v", err)
+	}
+	if err := RunPipeline(t.Context(), pipeline); err == nil || !strings.Contains(err.Error(), `no plugin "ghost"`) {
+		t.Fatalf("want no-plugin error at run, got %v", err)
 	}
 }

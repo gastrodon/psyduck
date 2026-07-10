@@ -901,38 +901,74 @@ func TestParseProduceFromRelease(t *testing.T) {
 	}
 }
 
-func TestParseProduceFromParallel(t *testing.T) {
+func TestParseProduceParallel(t *testing.T) {
 	entry, load := src(`
 	produce "constant" "p" { value = "x" }
 	consume "trash" "t" {}
 	pipeline "main" {
-		produce              = [produce.constant.p]
-		consume              = [trash.t]
-		produce-from-parallel = 3
+		produce          = [produce.constant.p]
+		consume          = [trash.t]
+		produce-parallel = 3
 	}
 	`)
 	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := result["main"].ProduceFromParallel; got != 3 {
-		t.Fatalf("ProduceFromParallel: got %d, want 3", got)
+	if got := result["main"].ProduceParallel; got != 3 {
+		t.Fatalf("ProduceParallel: got %d, want 3", got)
 	}
 }
 
-func TestParseProduceFromParallelNegative(t *testing.T) {
+// Absent, produce-parallel defaults to 1: producers run one at a time unless
+// the pipeline opts into more.
+func TestParseProduceParallelAbsent(t *testing.T) {
 	entry, load := src(`
 	produce "constant" "p" { value = "x" }
 	consume "trash" "t" {}
 	pipeline "main" {
-		produce              = [produce.constant.p]
-		consume              = [trash.t]
-		produce-from-parallel = -1
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result["main"].ProduceParallel; got != 1 {
+		t.Fatalf("ProduceParallel default: got %d, want 1", got)
+	}
+}
+
+func TestParseProduceParallelNegative(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce          = [produce.constant.p]
+		consume          = [trash.t]
+		produce-parallel = -1
 	}
 	`)
 	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
-	if err == nil || !strings.Contains(err.Error(), "produce-from-parallel") {
-		t.Fatalf("want produce-from-parallel error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "must be at least 1") {
+		t.Fatalf("want produce-parallel floor error, got: %v", err)
+	}
+}
+
+func TestParseProduceParallelZero(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce          = [produce.constant.p]
+		consume          = [trash.t]
+		produce-parallel = 0
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "must be at least 1") {
+		t.Fatalf("want produce-parallel floor error, got: %v", err)
 	}
 }
 
