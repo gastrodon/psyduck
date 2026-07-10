@@ -78,6 +78,42 @@ func TestProducer(t *testing.T) {
 	}
 }
 
+// A live-subscription-shaped producer: it sends until its ctx is
+// cancelled, then reports via done that ctx.Done fired. Without the
+// wrapper cancelling on stop-after, this loop would keep sending until
+// the outer ctx ends.
+func TestProducerCancelsInnerOnStopAfter(t *testing.T) {
+	done := make(chan struct{})
+	live := func(ctx context.Context, send chan<- []byte, _ chan<- error) {
+		defer close(done)
+		defer close(send)
+		for {
+			select {
+			case send <- []byte{0}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	send, errs := make(chan []byte), make(chan error)
+	go Producer(live, 0, 0, 3)(t.Context(), send, errs)
+
+	got := 0
+	for range send {
+		got++
+	}
+	if got != 3 {
+		t.Fatalf("stop-after: delivered %d, want 3", got)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("inner producer never observed ctx cancel after cutoff")
+	}
+}
+
 func TestConsumer(t *testing.T) {
 	run := func(perMinute, stopAfter, feed int) int {
 		count := 0
@@ -119,6 +155,48 @@ func TestConsumer(t *testing.T) {
 	if got := run(0, 3, 10); got != 3 {
 		t.Fatalf("stop-after: want 3, got %d", got)
 	}
+}
+
+// A consumer that would block on a slow external call unless its ctx
+// cancels: it signals ctx observation via ctxCancelled. Without the
+// wrapper cancelling on stop-after, this call would hang past cutoff.
+func TestConsumerCancelsInnerOnStopAfter(t *testing.T) {
+	ctxCancelled := make(chan struct{})
+	consume := func(ctx context.Context, recv <-chan []byte, _ chan<- error, done chan<- struct{}) {
+		defer close(done)
+		for {
+			select {
+			case _, ok := <-recv:
+				if !ok {
+					return
+				}
+			case <-ctx.Done():
+				close(ctxCancelled)
+				return
+			}
+		}
+	}
+
+	recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
+	go Consumer(consume, 0, 0, 3)(t.Context(), recv, errs, done)
+
+	go func() {
+		defer close(recv)
+		for i := 0; i < 10; i++ {
+			select {
+			case recv <- []byte{byte(i)}:
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-ctxCancelled:
+	case <-time.After(time.Second):
+		t.Fatal("inner consumer never observed ctx cancel after cutoff")
+	}
+	<-done
 }
 
 func TestGates(t *testing.T) {
