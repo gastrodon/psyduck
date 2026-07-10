@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -207,14 +206,14 @@ func Test_BuildPipeline_errors(t *testing.T) {
 		t.Fatalf("want no-consumers error, got %v", err)
 	}
 
-	// Producers bind lazily now: an empty producer stream builds fine but the
-	// run fails with ErrNoProducers regardless of exit-on-error.
+	// Producers bind lazily now: an empty producer stream builds fine and the
+	// run finishes normally, having delivered nothing.
 	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{Name: "x", Producers: empty, Consumers: mkConsumer(), Transformers: empty}, []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatalf("empty producers should build, got %v", err)
 	}
-	if err := RunPipeline(t.Context(), pipeline); !errors.Is(err, ErrNoProducers) {
-		t.Fatalf("want ErrNoProducers at run, got %v", err)
+	if err := RunPipeline(t.Context(), pipeline); err != nil {
+		t.Fatalf("empty producers should run to a clean finish, got %v", err)
 	}
 
 	// An unknown producer plugin also surfaces at run time, not build.

@@ -189,9 +189,11 @@ broken producer config surfaces as a run-time error, not a build failure.
 
 The run waits for the seed's first producers, bounded by
 `produce-from-timeout` (in seconds; default 10, `0` waits indefinitely).
-Messages that declare no producers don't satisfy that wait, and a seed that
-closes — or times out — without ever declaring a producer fails the run,
-regardless of `exit-on-error`.
+Messages that declare no producers don't satisfy that wait. A seed that
+closes — or times out — without ever declaring a producer surfaces an
+ordinary producer error: with `exit-on-error` set it fails the run, and
+without it the error is logged and the pipeline finishes normally, having
+delivered nothing.
 
 Once the seed closes or errors, the pipeline finishes when the producers
 already delivered are exhausted (with `exit-on-error` set, a seed error

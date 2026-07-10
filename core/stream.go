@@ -2,20 +2,11 @@ package core
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"iter"
 	"sync"
-	"sync/atomic"
 
 	"github.com/psyduck-etl/sdk"
 )
-
-// ErrNoProducers marks a run whose producer stream yielded nothing to run —
-// a produce-from seed that timed out or closed without ever declaring a
-// producer, or an otherwise empty stream. It is always fatal, independent of
-// exit-on-error: a pipeline that never produced anything did not run.
-var ErrNoProducers = errors.New("pipeline ran zero producers")
 
 // result carries one producer emission — a message or an error — through
 // the fan-in channel behind produce. It is transport only; the engine
@@ -48,16 +39,17 @@ func emit(ctx context.Context, out chan<- result, r result) bool {
 // pipeline would otherwise stall forever).
 //
 // feedErrs carries bind and stream errors from the feeder (see
-// producerSource); they are forwarded into the merged stream so the engine's
-// error reporting sees them. Draining feedErrs to its close also joins the
-// feeder — and with it the release of any produce-from seed — before the
-// stream ends.
+// producerSource) — including a produce-from seed that timed out or closed
+// without ever declaring a producer. They are forwarded into the merged stream
+// as ordinary errors, so the engine's error reporting (and exit-on-error)
+// treats them like any other producer error. Draining feedErrs to its close
+// also joins the feeder — and with it the release of any produce-from seed —
+// before the stream ends.
 //
-// If no producer was ever pulled by the time both the workers and the feeder
-// are done, the stream ends with ErrNoProducers (wrapping the last feeder
-// error, if any, as the cause). The stream also ends when ctx does or when
-// the caller breaks out of the loop; in every case all workers and the error
-// forwarder are released, not orphaned.
+// The stream ends when feed and feedErrs both close (the feeder is done), when
+// ctx does, or when the caller breaks out of the loop; in every case all
+// workers and the error forwarder are released, not orphaned. A stream that
+// yielded no producers simply ends without emitting anything.
 func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan error, parallel int) iter.Seq2[[]byte, error] {
 	return func(yield func([]byte, error) bool) {
 		ctx, cancel := context.WithCancel(ctx)
@@ -69,8 +61,6 @@ func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan erro
 
 		merged := make(chan result)
 		var workersWG, errFwdWG sync.WaitGroup
-		var got atomic.Int64
-		var lastFeedErr error // written by the forwarder, read after its Wait
 
 		for range parallel {
 			workersWG.Add(1)
@@ -82,7 +72,6 @@ func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan erro
 						if !ok {
 							return // stream exhausted
 						}
-						got.Add(1)
 						runProducer(ctx, p, merged)
 					case <-ctx.Done():
 						return
@@ -91,16 +80,15 @@ func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan erro
 			}()
 		}
 
-		// One forwarder relays feeder errors into the merged stream and
-		// records the last one seen. It drains feedErrs until close (not just
-		// until ctx ends) so its own return witnesses the feeder's teardown;
-		// once ctx is done it keeps draining but stops emitting.
+		// One forwarder relays feeder errors into the merged stream. It drains
+		// feedErrs until close (not just until ctx ends) so its own return
+		// witnesses the feeder's teardown; once ctx is done it keeps draining
+		// but stops emitting.
 		errFwdWG.Add(1)
 		go func() {
 			defer errFwdWG.Done()
 			for err := range feedErrs {
 				if err != nil {
-					lastFeedErr = err
 					emit(ctx, merged, result{err: err})
 				}
 			}
@@ -109,13 +97,6 @@ func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan erro
 		go func() {
 			workersWG.Wait() // every worker saw feed close or ctx end
 			errFwdWG.Wait()  // the feeder closed feedErrs; it has released
-			if got.Load() == 0 && ctx.Err() == nil {
-				err := error(ErrNoProducers)
-				if lastFeedErr != nil {
-					err = fmt.Errorf("%w: %w", ErrNoProducers, lastFeedErr)
-				}
-				emit(ctx, merged, result{err: err})
-			}
 			close(merged)
 		}()
 
