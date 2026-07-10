@@ -49,7 +49,7 @@ pipeline "demo" {
 // TestDispatchRunsToCompletion is the end-to-end proof the supervisor is
 // live: a dispatched .psy actually runs through core and its counters move.
 func TestDispatchRunsToCompletion(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 
 	created, err := s.Dispatch(server.DispatchRequest{Name: "demo", Source: constantToTrash})
 	if err != nil {
@@ -73,7 +73,7 @@ func TestDispatchRunsToCompletion(t *testing.T) {
 }
 
 func TestInstanceCountsReflectRuns(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	created, err := s.Dispatch(server.DispatchRequest{Source: constantToTrash})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -90,7 +90,7 @@ func TestInstanceCountsReflectRuns(t *testing.T) {
 }
 
 func TestDispatchRejectsBadHCL(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	_, err := s.Dispatch(server.DispatchRequest{Source: `this is not valid hcl {{{`})
 	if err == nil {
 		t.Fatal("expected a parse error for bad HCL")
@@ -98,7 +98,7 @@ func TestDispatchRejectsBadHCL(t *testing.T) {
 }
 
 func TestDispatchRejectsNoPipeline(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	_, err := s.Dispatch(server.DispatchRequest{Source: `produce "constant" "c" { value = "x" }`})
 	if err == nil {
 		t.Fatal("expected an error when the source declares no pipeline")
@@ -106,7 +106,7 @@ func TestDispatchRejectsNoPipeline(t *testing.T) {
 }
 
 func TestDispatchRejectsEmptySource(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	if _, err := s.Dispatch(server.DispatchRequest{}); err != server.ErrInvalidSource {
 		t.Fatalf("empty source: got %v, want ErrInvalidSource", err)
 	}
@@ -124,7 +124,7 @@ pipeline "loop" {
 `
 
 func TestCancelRunningPipeline(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	created, err := s.Dispatch(server.DispatchRequest{Name: "loop", Source: forever})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -146,7 +146,7 @@ func TestCancelRunningPipeline(t *testing.T) {
 }
 
 func TestCancelUnknown(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	if err := s.Cancel("nope"); err != server.ErrNotFound {
 		t.Errorf("cancel unknown: got %v, want ErrNotFound", err)
 	}
@@ -155,7 +155,7 @@ func TestCancelUnknown(t *testing.T) {
 // TestServesOverHTTP wires the live supervisor behind the real router and
 // exercises the dispatch→observe flow end to end through the HTTP layer.
 func TestServesOverHTTP(t *testing.T) {
-	s := newSupervisor(context.Background(), fixedClock())
+	s := newSupervisor(context.Background(), fixedClock(), t.TempDir())
 	created, err := s.Dispatch(server.DispatchRequest{Name: "demo", Source: constantToTrash})
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)

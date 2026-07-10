@@ -51,6 +51,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /api/v1/pipelines/{id}", s.handleCancelPipeline)
 	s.mux.HandleFunc("GET /api/v1/pipelines/{id}/stats", s.handlePipelineStats)
 
+	s.mux.HandleFunc("GET /api/v1/plugins", s.handleListPlugins)
+	s.mux.HandleFunc("POST /api/v1/plugins", s.handleAddPlugin)
+	s.mux.HandleFunc("GET /api/v1/plugins/{name}", s.handleGetPlugin)
+	s.mux.HandleFunc("PUT /api/v1/plugins/{name}", s.handleUpdatePlugin)
+	s.mux.HandleFunc("DELETE /api/v1/plugins/{name}", s.handleRemovePlugin)
+
 	// Stage 2 (peer-to-peer) is reserved but not implemented.
 	s.mux.HandleFunc("GET /api/v1/peers", s.handlePeers)
 }

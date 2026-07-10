@@ -92,6 +92,11 @@ Base path `/api/v1`. Everything is JSON except [`/metrics`](#metrics).
 | `GET` | `/api/v1/pipelines/{id}/stats` | Just the stats block, for cheap polling. |
 | `DELETE` | `/api/v1/pipelines/{id}` | Cancel a running/pending pipeline. |
 | `GET` | `/api/v1/graph` | Node/edge projection of everything running. |
+| `GET` | `/api/v1/plugins` | List the instance's plugin manifest. |
+| `POST` | `/api/v1/plugins` | **Register** a plugin (clone + compile into the store). `202 Accepted`. |
+| `GET` | `/api/v1/plugins/{name}` | One plugin's manifest: its resources and their options. |
+| `PUT` | `/api/v1/plugins/{name}` | **Update** a plugin's source/tag and rebuild. `202 Accepted`. |
+| `DELETE` | `/api/v1/plugins/{name}` | **Remove** a plugin from the manifest. |
 | `GET` | `/metrics` | Prometheus/OpenMetrics exposition. |
 | `GET` | `/api/v1/peers` | **Stage 2.** Returns `501` today. |
 
@@ -236,6 +241,103 @@ each edge carries the message count that has crossed it.
 }
 ```
 
+### Plugins
+
+An instance ships with the stdlib resources. To let dispatched jobs use an
+external plugin (amqp, mysql, ifunny, …), you register it with the instance —
+and this is deliberately a **store/manifest operation, not an in-process
+load**. A running node doesn't hold every plugin resident forever; instead it
+keeps a *manifest* (name → source, ref, hash) and the compiled `.so` in a
+content-addressed store, and a **job loads the plugins it needs at dispatch**.
+
+The model, in one breath: managing plugins edits what *future* jobs can use;
+a dispatched job must carry a `plugin {}` block that matches the manifest,
+exactly like a `.psy` file needs its lock for `psyduck run`; and editing the
+manifest never disturbs a pipeline already running (it holds the plugin
+snapshot it was dispatched with).
+
+**Register** — `POST /api/v1/plugins`, mirroring a `plugin {}` block:
+
+```json
+{ "name": "amqp", "source": "https://github.com/psyduck-etl/amqp", "tag": "v0.1.0" }
+```
+
+This clones + compiles the plugin and content-addresses the binary into the
+store (`--plugin-dir`, default `.psyduck/`) — a partial, on-demand `psyduck
+init` scoped to one plugin. It's slow (network + `go build`), so it's
+asynchronous: `202 Accepted`, status `loading`, then `ready` (built, in the
+store) or `failed` (with the build error). `ready` means *available to jobs*,
+not *resident in the process*.
+
+**List / manifest** — `GET /api/v1/plugins` returns every manifest entry with
+its status; `GET /api/v1/plugins/{name}` returns the full manifest — the
+resources the plugin offers and every option each accepts:
+
+```json
+{
+  "name": "amqp",
+  "source": "https://github.com/psyduck-etl/amqp",
+  "ref": "refs/tags/v0.1.0",
+  "status": "ready",
+  "resources": [
+    {
+      "name": "amqp-queue",
+      "kinds": ["produce", "consume"],
+      "options": [
+        {"name": "connection", "type": "string", "required": true},
+        {"name": "queue", "type": "string", "required": true}
+      ]
+    }
+  ]
+}
+```
+
+Reading the manifest is the one operation that *opens* the binary (a plugin's
+resources are only knowable from the loaded plugin) — so it's what first makes
+a plugin resident; the handle is then cached.
+
+**Update** — `PUT /api/v1/plugins/{name}` re-points a plugin at a new
+`source`/`tag` and rebuilds it into the store. **Delete** —
+`DELETE /api/v1/plugins/{name}` removes it from the manifest so new jobs can
+no longer declare it. Both are file/manifest operations; both leave running
+pipelines untouched.
+
+**Using it** — a dispatched job declares the plugin and uses its resources:
+
+```hcl
+plugin "amqp" {
+  source = "https://github.com/psyduck-etl/amqp"
+  tag    = "v0.1.0"
+}
+
+produce "amqp-queue" "in" {
+  connection = "amqp://guest:guest@localhost:5672/"
+  queue      = "work"
+}
+
+consume "file" "out" { location = "-" }
+
+pipeline "drain" {
+  produce = [produce.amqp-queue.in]
+  consume = [consume.file.out]
+}
+```
+
+At dispatch the instance resolves the `plugin {}` block against its manifest,
+loads that binary from the store, and builds the pipeline with it. A job that
+names a plugin the instance doesn't have — or whose source/tag doesn't match
+the manifest — is rejected with a clear error.
+
+> **The one hard constraint: Go plugins can't be unloaded or reloaded.** Once
+> a `.so` is opened it stays resident for the life of the process. So
+> *delete* frees the manifest, not the memory, and *update* can't hot-swap a
+> plugin a job has already loaded: the rebuilt binary lands in the store and
+> the record is flagged `restart_required`, taking effect for new jobs after
+> a restart. This is why registration is a store operation and loading is
+> per-job — it keeps the unavoidable residency scoped to what's actually been
+> used, and keeps add/list/update/delete honest as file operations. Freeing
+> orphaned store binaries (a `psyduck` store-GC) is a follow-up.
+
 ## Runtime shape
 
 `psyduck serve` is a long-running daemon. Its layers:
@@ -280,17 +382,30 @@ The API observes and runs real pipelines:
   pipeline and computes `in_flight`; `server` marshals it to JSON and
   `/metrics`.
 
+- **Plugin manifest.** The supervisor keeps a manifest of plugins (see
+  [Plugins](#plugins)). `AddPlugin`/`UpdatePlugin` build a spec into the
+  content-addressed `plugins.Store` (via `store.Build`) — asynchronously,
+  since it clones and compiles — and record the resolved ref/hash;
+  `RemovePlugin` drops the manifest entry. Dispatch extracts a job's
+  `plugin{}` blocks (`hcl…Plugins`), resolves them against the manifest, and
+  loads just those from the store (`store.Load`) for that job. Opened
+  binaries are cached by content hash, since Go can't unload them.
+
 `StubSupervisor` stays as the fixture the `server` package tests against —
 same interface, representative data, no runtime.
 
 ### Still to wire (follow-ups)
 
-- **External plugins over the wire.** Dispatched pipelines resolve against
-  `stdlib` only; a `plugin{}` block needs the clone/compile store flow
-  (`psyduck init`) the serve path doesn't run yet. A source that references
-  an external plugin fails at build with a clear "no plugin loaded" error.
-- **Persistence.** Terminal pipelines live in memory; a restart forgets them.
-- **Auth.** Still none — see [Open questions](#open-questions).
+- **Persistence.** The manifest and terminal pipelines live in memory; a
+  restart forgets them (the store's compiled binaries do persist on disk).
+  Persisting the manifest is what makes an update's `restart_required` fully
+  meaningful.
+- **Store GC.** `DELETE` removes a plugin from the manifest but leaves its
+  content-addressed binary in the store cache; a `psyduck` store-GC to reap
+  unreferenced binaries is a follow-up.
+- **Auth.** Still none — see [Open questions](#open-questions). Plugin
+  registration runs `git clone` + `go build`, so it needs auth at least as
+  much as dispatch.
 - **Per-resource stats.** Counters are per-pipeline; per-stage attribution
   (which transformer drops, which consumer errors) wants the counter keyed by
   resource ref.

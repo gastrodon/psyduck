@@ -209,3 +209,73 @@ func TestPeersNotImplemented(t *testing.T) {
 		t.Fatalf("peers: got %d, want 501", w.Code)
 	}
 }
+
+func TestPluginLifecycleOverHTTP(t *testing.T) {
+	srv := newTestServer()
+
+	// Empty to start.
+	w := do(t, srv, http.MethodGet, "/api/v1/plugins", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list: got %d", w.Code)
+	}
+
+	// Add (202).
+	body, _ := json.Marshal(PluginRequest{Name: "amqp", Source: "https://github.com/psyduck-etl/amqp", Tag: "v0.1.0"})
+	wa := do(t, srv, http.MethodPost, "/api/v1/plugins", body)
+	if wa.Code != http.StatusAccepted {
+		t.Fatalf("add: got %d, want 202", wa.Code)
+	}
+	if loc := wa.Header().Get("Location"); loc != "/api/v1/plugins/amqp" {
+		t.Errorf("location: %q", loc)
+	}
+
+	// Duplicate add is a conflict.
+	wd := do(t, srv, http.MethodPost, "/api/v1/plugins", body)
+	if wd.Code != http.StatusConflict {
+		t.Errorf("duplicate add: got %d, want 409", wd.Code)
+	}
+
+	// Manifest.
+	wm := do(t, srv, http.MethodGet, "/api/v1/plugins/amqp", nil)
+	if wm.Code != http.StatusOK {
+		t.Fatalf("manifest: got %d", wm.Code)
+	}
+	var man PluginManifest
+	if err := json.Unmarshal(wm.Body.Bytes(), &man); err != nil {
+		t.Fatalf("decode manifest: %v", err)
+	}
+	if man.Name != "amqp" || len(man.Resources) == 0 {
+		t.Errorf("manifest: %+v", man)
+	}
+
+	// Update (202).
+	upd, _ := json.Marshal(PluginRequest{Source: "https://github.com/psyduck-etl/amqp", Tag: "v0.2.0"})
+	wu := do(t, srv, http.MethodPut, "/api/v1/plugins/amqp", upd)
+	if wu.Code != http.StatusAccepted {
+		t.Errorf("update: got %d, want 202", wu.Code)
+	}
+
+	// Delete.
+	wdel := do(t, srv, http.MethodDelete, "/api/v1/plugins/amqp", nil)
+	if wdel.Code != http.StatusOK {
+		t.Errorf("delete: got %d, want 200", wdel.Code)
+	}
+	// Gone now.
+	if w := do(t, srv, http.MethodGet, "/api/v1/plugins/amqp", nil); w.Code != http.StatusNotFound {
+		t.Errorf("get after delete: got %d, want 404", w.Code)
+	}
+}
+
+func TestAddPluginRejectsMissingSource(t *testing.T) {
+	w := do(t, newTestServer(), http.MethodPost, "/api/v1/plugins", []byte(`{"name":"x"}`))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing source: got %d, want 400", w.Code)
+	}
+}
+
+func TestUpdateUnknownPlugin(t *testing.T) {
+	w := do(t, newTestServer(), http.MethodPut, "/api/v1/plugins/nope", []byte(`{"source":"x"}`))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("update unknown: got %d, want 404", w.Code)
+	}
+}

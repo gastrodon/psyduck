@@ -43,6 +43,32 @@ type Supervisor interface {
 	// Graph returns the node/edge projection of everything running, for a
 	// visualization board.
 	Graph() Graph
+
+	// Plugins lists every plugin the instance has been asked to load, with
+	// its status. Loading is asynchronous (clone + compile), so a plugin may
+	// be loading or failed as well as ready.
+	Plugins() []PluginInfo
+
+	// Plugin returns one plugin's full manifest — its resources and their
+	// config options. The bool is false if no such plugin exists.
+	Plugin(name string) (PluginManifest, bool)
+
+	// AddPlugin loads a new plugin from a plugin{}-style spec (a partial,
+	// on-demand `init`). It returns the freshly-created record (status
+	// loading) and does not block on the build. ErrPluginExists if the name
+	// is already loaded; ErrInvalidPlugin if name/source are missing.
+	AddPlugin(req PluginRequest) (PluginInfo, error)
+
+	// UpdatePlugin re-fetches an existing plugin at a new source/tag.
+	// ErrPluginNotFound if the name is unknown. Because a resident Go plugin
+	// cannot be reloaded in-process, updating one that is already loaded
+	// rebuilds the binary and sets RestartRequired rather than hot-swapping.
+	UpdatePlugin(name string, req PluginRequest) (PluginInfo, error)
+
+	// RemovePlugin deregisters a plugin so new dispatches no longer see it.
+	// ErrPluginNotFound if the name is unknown. The compiled binary stays
+	// resident until the process restarts (Go plugins cannot be unloaded).
+	RemovePlugin(name string) (PluginInfo, error)
 }
 
 // Supervisor error sentinels. Handlers map these onto HTTP status codes.
@@ -72,6 +98,10 @@ type StubSupervisor struct {
 	byID  map[string]*PipelineInfo
 	order []string // insertion order, for stable listing
 	nowFn func() time.Time
+
+	pmu       sync.Mutex
+	plugins   map[string]*PluginInfo
+	pluginOrd []string
 }
 
 var _ Supervisor = (*StubSupervisor)(nil)
@@ -90,6 +120,7 @@ func newStubSupervisor(now func() time.Time) *StubSupervisor {
 		startedAt: now(),
 		byID:      make(map[string]*PipelineInfo),
 		nowFn:     now,
+		plugins:   make(map[string]*PluginInfo),
 	}
 	s.seed()
 	return s
@@ -238,6 +269,93 @@ func (s *StubSupervisor) Cancel(id string) error {
 
 func (s *StubSupervisor) Graph() Graph {
 	return BuildGraph(s.List())
+}
+
+// The plugin methods below keep the stub self-consistent so the server
+// package can test the routes: AddPlugin records a plugin as immediately
+// "ready" with a canned one-resource manifest (no clone/build), and the
+// rest read/mutate that in-memory registry. A live instance does the real
+// clone/compile/load (see the supervise package).
+
+func (s *StubSupervisor) Plugins() []PluginInfo {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	out := make([]PluginInfo, 0, len(s.pluginOrd))
+	for _, name := range s.pluginOrd {
+		out = append(out, *s.plugins[name])
+	}
+	return out
+}
+
+func (s *StubSupervisor) Plugin(name string) (PluginManifest, bool) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	p, ok := s.plugins[name]
+	if !ok {
+		return PluginManifest{}, false
+	}
+	return PluginManifest{
+		Name:   p.Name,
+		Source: p.Source,
+		Ref:    p.Ref,
+		Status: p.Status,
+		Resources: []PluginResource{{
+			Name:    "example",
+			Kinds:   []string{"produce"},
+			Options: []PluginOption{{Name: "value", Type: "string", Description: "stubbed option"}},
+		}},
+	}, true
+}
+
+func (s *StubSupervisor) AddPlugin(req PluginRequest) (PluginInfo, error) {
+	if req.Name == "" || req.Source == "" {
+		return PluginInfo{}, ErrInvalidPlugin
+	}
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	if _, ok := s.plugins[req.Name]; ok {
+		return PluginInfo{}, ErrPluginExists
+	}
+	now := s.nowFn()
+	p := &PluginInfo{
+		Name: req.Name, Source: req.Source, Tag: req.Tag,
+		Status: PluginReady, Resources: 1, AddedAt: now, LoadedAt: &now,
+	}
+	s.plugins[req.Name] = p
+	s.pluginOrd = append(s.pluginOrd, req.Name)
+	return *p, nil
+}
+
+func (s *StubSupervisor) UpdatePlugin(name string, req PluginRequest) (PluginInfo, error) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	p, ok := s.plugins[name]
+	if !ok {
+		return PluginInfo{}, ErrPluginNotFound
+	}
+	if req.Source != "" {
+		p.Source = req.Source
+	}
+	p.Tag = req.Tag
+	p.RestartRequired = true
+	return *p, nil
+}
+
+func (s *StubSupervisor) RemovePlugin(name string) (PluginInfo, error) {
+	s.pmu.Lock()
+	defer s.pmu.Unlock()
+	p, ok := s.plugins[name]
+	if !ok {
+		return PluginInfo{}, ErrPluginNotFound
+	}
+	delete(s.plugins, name)
+	for i, n := range s.pluginOrd {
+		if n == name {
+			s.pluginOrd = append(s.pluginOrd[:i], s.pluginOrd[i+1:]...)
+			break
+		}
+	}
+	return *p, nil
 }
 
 // BuildGraph projects a set of pipelines into nodes and edges. It is pure

@@ -23,6 +23,7 @@ import (
 	"github.com/gastrodon/psyduck/core"
 	"github.com/gastrodon/psyduck/parse"
 	"github.com/gastrodon/psyduck/parse/hcl"
+	"github.com/gastrodon/psyduck/plugins"
 	"github.com/gastrodon/psyduck/server"
 	"github.com/gastrodon/psyduck/stdlib"
 )
@@ -31,15 +32,17 @@ import (
 // runs every dispatched pipeline under baseCtx, so canceling baseCtx (the
 // serve command's SIGINT/SIGTERM context) winds every pipeline down.
 //
-// Scope note: dispatched pipelines resolve against the plugins handed to New
-// — stdlib by default. A dispatched source that references an external
-// plugin{} fails at build with a clear "no plugin loaded" error, because the
-// clone/compile store flow (psyduck init) isn't part of the serve path yet.
-// That's a documented phase-1 limitation, not a design decision.
+// Plugins: an instance keeps a manifest of plugins (see plugins.go) that
+// operators add/update/remove over the API — a store/file operation that
+// clones and compiles each into the content-addressed store. A dispatched
+// job declares the plugins it needs with plugin{} blocks, exactly like a
+// .psy file for `psyduck run`; at dispatch those blocks are resolved against
+// the manifest and loaded from the store for that job. Editing the manifest
+// changes what future jobs can use and never disturbs a running pipeline.
 type Supervisor struct {
 	id      string
 	baseCtx context.Context
-	plugins []sdk.Plugin
+	base    []sdk.Plugin // always-available plugins (stdlib + any passed to New)
 	now     func() time.Time
 
 	startedAt time.Time
@@ -48,28 +51,73 @@ type Supervisor struct {
 	mu    sync.Mutex
 	byID  map[string]*managed
 	order []string
+
+	// Plugin registry: dynamically loaded plugins available to new
+	// dispatches. store holds the content-addressed binaries; buildPlugin
+	// and openPlugin are the fetch/compile and plugin.Open steps, split so
+	// an update can rebuild-for-restart (build only) without reopening. Both
+	// are injectable for tests.
+	store       *plugins.Store
+	buildPlugin func(spec parse.Plugin) (ref, hash string, err error)
+	openPlugin  func(spec parse.Plugin, ref, hash string) (sdk.Plugin, error)
+
+	pmu     sync.Mutex
+	pByName map[string]*pluginEntry
+	pOrder  []string
+	// openedPlugin caches every plugin binary this process has opened, keyed
+	// by content hash. Go's plugin.Open cannot unload, so an opened plugin
+	// stays here for the life of the process; the cache lets repeated jobs
+	// reuse it and lets an update detect that a prior version is resident.
+	openedPlugin map[string]sdk.Plugin
 }
 
 var _ server.Supervisor = (*Supervisor)(nil)
 
 // New builds a live supervisor. baseCtx bounds every pipeline it runs;
-// plugins are the resource plugins dispatched pipelines may use (stdlib is
-// always included, so passing none is fine).
-func New(baseCtx context.Context, plugins ...sdk.Plugin) *Supervisor {
-	return newSupervisor(baseCtx, time.Now, plugins...)
+// storeRoot is the directory (e.g. ".psyduck") where dynamically added
+// plugins are cloned, built, and content-addressed; base are always-present
+// plugins dispatched pipelines may use (stdlib is always included, so
+// passing none is fine).
+func New(baseCtx context.Context, storeRoot string, base ...sdk.Plugin) *Supervisor {
+	return newSupervisor(baseCtx, time.Now, storeRoot, base...)
 }
 
 // newSupervisor is the injectable-clock constructor for tests.
-func newSupervisor(baseCtx context.Context, now func() time.Time, plugins ...sdk.Plugin) *Supervisor {
-	loaded := append([]sdk.Plugin{stdlib.Plugin()}, plugins...)
-	return &Supervisor{
-		id:        "psyduck-local",
-		baseCtx:   baseCtx,
-		plugins:   loaded,
-		now:       now,
-		startedAt: now(),
-		byID:      make(map[string]*managed),
+func newSupervisor(baseCtx context.Context, now func() time.Time, storeRoot string, base ...sdk.Plugin) *Supervisor {
+	s := &Supervisor{
+		id:           "psyduck-local",
+		baseCtx:      baseCtx,
+		base:         append([]sdk.Plugin{stdlib.Plugin()}, base...),
+		now:          now,
+		startedAt:    now(),
+		byID:         make(map[string]*managed),
+		store:        plugins.NewStore(storeRoot),
+		pByName:      make(map[string]*pluginEntry),
+		openedPlugin: make(map[string]sdk.Plugin),
 	}
+	// Real fetch/compile/open, backed by the content-addressed store. Tests
+	// override these to avoid cloning and CGO.
+	s.buildPlugin = func(spec parse.Plugin) (string, string, error) {
+		locked, err := s.store.Build([]parse.Plugin{spec})
+		if err != nil {
+			return "", "", err
+		}
+		entry, ok := locked[spec.Name]
+		if !ok {
+			return "", "", fmt.Errorf("build produced no entry for %q", spec.Name)
+		}
+		return entry.Ref, entry.Hash, nil
+	}
+	s.openPlugin = func(spec parse.Plugin, ref, hash string) (sdk.Plugin, error) {
+		loaded, err := s.store.Load(map[string]plugins.LockedPlugin{
+			spec.Name: {Source: spec.Source, Ref: ref, Hash: hash},
+		})
+		if err != nil {
+			return nil, err
+		}
+		return loaded[0], nil
+	}
+	return s
 }
 
 // managed is one supervised pipeline: its immutable identity, its live core
@@ -82,6 +130,11 @@ type managed struct {
 	topology  server.Topology
 	createdAt time.Time
 	cancel    context.CancelFunc
+	// plugins is the set this pipeline was dispatched against (stdlib plus
+	// whatever its plugin{} blocks resolved to). It's captured at dispatch
+	// and used for its build, so plugin edits after dispatch never affect a
+	// running pipeline — only future jobs.
+	plugins []sdk.Plugin
 
 	mu         sync.Mutex
 	status     server.PipelineStatus
@@ -154,7 +207,23 @@ func (s *Supervisor) Dispatch(req server.DispatchRequest) (server.PipelineInfo, 
 	}
 
 	id := fmt.Sprintf("pipe-%06d", s.seq.Add(1))
-	pipe, err := s.parseOne(id, req.Source)
+	entry, loader := s.loaderFor(id, req.Source)
+
+	// The job declares which plugins it needs via plugin{} blocks, exactly
+	// like a .psy file for `psyduck run`. Resolve those against this
+	// instance's manifest and load them from the store (stdlib is always
+	// present). This snapshot is what the pipeline runs against for its whole
+	// life — later plugin edits change future jobs, never this one.
+	jobSpecs, err := hcl.NewParserHCL().Plugins(entry, loader)
+	if err != nil {
+		return server.PipelineInfo{}, fmt.Errorf("reading plugin blocks: %w", err)
+	}
+	loaded, err := s.loadForJob(jobSpecs)
+	if err != nil {
+		return server.PipelineInfo{}, err
+	}
+
+	pipe, err := parsePipeline(s.baseCtx, entry, loader, loaded)
 	if err != nil {
 		return server.PipelineInfo{}, err
 	}
@@ -176,6 +245,7 @@ func (s *Supervisor) Dispatch(req server.DispatchRequest) (server.PipelineInfo, 
 		createdAt: s.now(),
 		cancel:    cancel,
 		status:    server.StatusPending,
+		plugins:   loaded,
 	}
 
 	s.mu.Lock()
@@ -188,21 +258,25 @@ func (s *Supervisor) Dispatch(req server.DispatchRequest) (server.PipelineInfo, 
 	return m.snapshot(), nil
 }
 
-// parseOne parses one dispatched .psy document and requires it to declare
-// exactly one pipeline. The source is fed through an in-memory Loader keyed
-// by a synthetic entry name; imports are rejected (dispatched pipelines must
-// be self-contained).
-func (s *Supervisor) parseOne(id, source string) (parse.Pipeline, error) {
-	entry := "dispatch:" + id
+// loaderFor builds the in-memory entry name and Loader for a dispatched
+// source: the source is served under a synthetic entry name, and imports are
+// rejected (dispatched pipelines must be self-contained). The same loader
+// feeds both plugin-block extraction and the full parse, so they agree.
+func (s *Supervisor) loaderFor(id, source string) (entry string, load parse.Loader) {
+	entry = "dispatch:" + id
 	name := parse.ResolveImportPath("", entry) // Parse resolves the entry the same way
-	loader := func(path string) (parse.Source, error) {
+	return entry, func(path string) (parse.Source, error) {
 		if path == name {
 			return parse.Source{Name: name, Content: []byte(source)}, nil
 		}
 		return parse.Source{}, fmt.Errorf("dispatch %s: cannot import %q; dispatched pipelines must be self-contained", id, path)
 	}
+}
 
-	pipes, err := hcl.NewParserHCL().Parse(s.baseCtx, entry, loader, s.plugins)
+// parsePipeline parses a dispatched source against loaded plugins and
+// requires it to declare exactly one pipeline.
+func parsePipeline(ctx context.Context, entry string, loader parse.Loader, loaded []sdk.Plugin) (parse.Pipeline, error) {
+	pipes, err := hcl.NewParserHCL().Parse(ctx, entry, loader, loaded)
 	if err != nil {
 		return parse.Pipeline{}, fmt.Errorf("parsing dispatched pipeline: %w", err)
 	}
@@ -231,7 +305,7 @@ func (s *Supervisor) run(ctx context.Context, m *managed, pipe parse.Pipeline) {
 	m.startedAt = &started
 	m.mu.Unlock()
 
-	built, err := core.BuildPipeline(ctx, pipe, s.plugins)
+	built, err := core.BuildPipeline(ctx, pipe, m.plugins)
 	if err != nil {
 		s.finish(m, fmt.Errorf("building pipeline: %w", err))
 		return

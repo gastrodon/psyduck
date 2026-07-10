@@ -254,11 +254,10 @@ func show(ctx *cli.Context) error {
 // it's a long-running daemon that observes and dispatches pipelines over
 // HTTP. It runs against a live supervisor that parses, builds, and runs
 // dispatched .psy documents with core, sharing ctx.Context so SIGINT/SIGTERM
-// winds down both the server and every running pipeline. Dispatched
-// pipelines resolve against stdlib (external plugin{} loading over the wire
-// is a follow-up).
+// winds down both the server and every running pipeline. Plugins added over
+// the API are cloned/compiled into the --plugin-dir store and loaded per job.
 func serve(ctx *cli.Context) error {
-	sup := supervise.New(ctx.Context)
+	sup := supervise.New(ctx.Context, ctx.String("plugin-dir"))
 	addr := ctx.String("addr")
 	fmt.Printf("psyduck serve: listening on %s\n", addr)
 	return server.New(sup).ListenAndServe(ctx.Context, addr)
@@ -313,6 +312,11 @@ func main() {
 						Name:  "addr",
 						Value: ":8080",
 						Usage: "address to listen on",
+					},
+					&cli.StringFlag{
+						Name:  "plugin-dir",
+						Value: ".psyduck",
+						Usage: "content-addressed store dir for plugins added over the api",
 					},
 				},
 			},
