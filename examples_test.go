@@ -81,6 +81,17 @@ var examples = map[string]fixture{
 		tier:   tierRun,
 		expect: "HI_THERE",
 	},
+	"produce-from-file": {
+		tier: tierRun,
+		input: "produce \"constant\" \"a\" {\n  value      = \"alpha\"\n  stop-after = 1\n}" +
+			"\n\n" +
+			"produce \"constant\" \"b\" {\n  value      = \"beta\"\n  stop-after = 1\n}",
+		expect: "alpha\nbeta",
+	},
+	"fan-in": {
+		tier:   tierRun,
+		expect: "hello\n0\n1",
+	},
 	"http-request": {tier: tierBuild},
 	"http-listen":  {tier: tierBuild},
 	"config-gen":   {file: "meta-socket.psy", tier: tierParse},
