@@ -880,6 +880,65 @@ func TestParseProduceFromStream(t *testing.T) {
 	}
 }
 
+// A remote message is a self-contained config unit: it declares and uses its
+// own locals {} in one byte span, exactly like a .psy file, and non-produce
+// blocks are inert (warned, not fatal) rather than tearing the stream down.
+func TestParseProduceFromSelfContained(t *testing.T) {
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		send <- []byte(`
+		locals { v = "from-remote-local" }
+		consume "trash" "ignored" {}
+		produce "constant" "remote" { value = local.v }
+		`)
+		close(send)
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	if len(producers) != 1 {
+		t.Fatalf("want 1 remote producer (consume inert), got %d", len(producers))
+	}
+	opts := new(constantOpts)
+	if err := producers[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "from-remote-local" {
+		t.Fatalf("remote local not resolved against the message's own locals: %q", opts.Value)
+	}
+}
+
+// A remote unit has no access to the host file's scope: a message that reads
+// local.* the host declares must fail to evaluate, not silently borrow it.
+func TestParseProduceFromNoHostLocalLeak(t *testing.T) {
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		send <- []byte(`produce "constant" "remote" { value = local.hostonly }`)
+		close(send)
+	})
+
+	entry, load := src(`
+	locals { hostonly = "H" }
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from = produce.seed.s
+		consume      = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := result["main"].Producers(t.Context(), 4); err == nil {
+		t.Fatal("want an error: the host file's local.* must not leak into a remote unit")
+	}
+}
+
 // Messages that declare no producers are skipped, not treated as the
 // stream's first delivery — the bindings from a later message still arrive.
 func TestParseProduceFromEmptyMessage(t *testing.T) {

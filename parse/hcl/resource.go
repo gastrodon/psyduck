@@ -3,13 +3,13 @@ package hcl
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
@@ -245,7 +245,8 @@ func makePipeline(
 			}
 			timeout = time.Duration(secs) * time.Second
 		}
-		pipe.Producers = remoteBindings(seed, ix, localsCtx, timeout)
+		warn := func(msg string) { log.Printf("produce-from %s: %s", seed.Ref, msg) }
+		pipe.Producers = remoteBindings(seed, ix, timeout, warn)
 		pipe.Spec.RemoteSeed = &seed
 	default:
 		return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: produce or produce-from is required", name, origin)
@@ -338,7 +339,7 @@ type seedResult struct {
 // error, a dead per-call ctx, or an explicit max < 1 release — stops the
 // seed and joins its goroutine before returning, so no path leaves it
 // running unobserved.
-func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext, timeout time.Duration) parse.ResourceFunc {
+func remoteBindings(seed parse.Resource, ix *resourceIndex, timeout time.Duration, warn func(string)) parse.ResourceFunc {
 	var (
 		results chan seedResult
 		stop    context.CancelFunc
@@ -401,7 +402,7 @@ func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalC
 			var seedCtx context.Context
 			seedCtx, stop = context.WithCancel(ctx)
 			results = make(chan seedResult)
-			go runSeed(seedCtx, seed, ix, localsCtx, timeout, results)
+			go runSeed(seedCtx, seed, ix, timeout, warn, results)
 		}
 
 		for len(buf) == 0 {
@@ -446,7 +447,7 @@ func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalC
 // leave the guard armed; 0 disables the guard. As everywhere else, a seed
 // that ignores ctx can leak its own goroutine — but never runSeed itself,
 // whose every send and receive also selects on ctx.
-func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalContext, timeout time.Duration, out chan<- seedResult) {
+func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, timeout time.Duration, warn func(string), out chan<- seedResult) {
 	defer close(out)
 
 	deliver := func(r seedResult) bool {
@@ -526,7 +527,7 @@ func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, locals
 					}
 				}
 			}
-			bindings, err := parseRemoteProducers(seed.Ref, msg, ix, localsCtx)
+			bindings, err := parseRemoteUnit(seed.Ref, msg, ix, warn)
 			if err != nil {
 				deliver(seedResult{err: err})
 				return
@@ -542,27 +543,45 @@ func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, locals
 	}
 }
 
-// parseRemoteProducers parses producer definitions received from a dynamic
-// producer. The message is ordinary config; its origin names the remote.
-func parseRemoteProducers(ref string, msg []byte, ix *resourceIndex, localsCtx *hcl.EvalContext) ([]parse.Resource, error) {
-	file, diags := hclparse.NewParser().ParseHCL(msg, "remote://"+ref)
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("produce-from %s: failed to parse remote config: %w", ref, diags)
+// parseRemoteUnit parses one seed message as a self-contained config unit —
+// the same lexer (gatherOne) and evaluation a .psy file gets, scoped to its
+// own locals {} and the ambient environment, with no access to the host
+// file's local.* or imports.*. Only produce {} blocks are honoured; every
+// other known block type is inert and warned rather than rejected, so a
+// long-lived listener is never torn down by a single stray message. The
+// extracted produce bindings are all that flow on to the feeder.
+func parseRemoteUnit(ref string, msg []byte, ix *resourceIndex, warn func(string)) ([]parse.Resource, error) {
+	blocks, err := gatherOne(parse.Source{Name: "remote://" + ref, Content: msg})
+	if err != nil {
+		return nil, fmt.Errorf("produce-from %s: failed to parse remote config: %w", ref, err)
 	}
 
-	content, diags := file.Body.Content(&hcl.BodySchema{
-		Blocks: []hcl.BlockHeaderSchema{{Type: blockProduce, LabelNames: []string{"resource", "name"}}},
-	})
-	if diags.HasErrors() {
-		return nil, fmt.Errorf("produce-from %s: remote config: %w", ref, diags)
+	for _, b := range blocks.imports {
+		warn(fmt.Sprintf("ignoring import block at %s: a remote unit cannot import", rangeOf(b.DefRange)))
+	}
+	for _, b := range blocks.plugins {
+		warn(fmt.Sprintf("ignoring plugin %q at %s: a remote unit cannot declare plugins", b.Labels[0], rangeOf(b.DefRange)))
+	}
+	for _, b := range blocks.pipelines {
+		warn(fmt.Sprintf("ignoring pipeline %q at %s: a remote unit declares producers, not pipelines", b.Labels[0], rangeOf(b.DefRange)))
 	}
 
-	// the env.* object was built from a prescan of local sources; remote
-	// config may query env vars unseen there, so extend it
-	localsCtx = extendEnv(localsCtx, envNames([]hcl.Body{file.Body}, nil))
+	// A remote unit is self-contained: env.* is ambient (os.Getenv at parse
+	// time), locals {} are the message's own, and imports.* is empty — the
+	// host file's local.*/imports.* never leak in.
+	env := envVal(envNames(bodiesOf(blocks.locals, blocks.resources), nil))
+	localsCtx, err := makeLocalsCtx(blocks.locals, env, cty.EmptyObjectVal)
+	if err != nil {
+		return nil, fmt.Errorf("produce-from %s: %w", ref, err)
+	}
 
-	bindings := make([]parse.Resource, 0, len(content.Blocks))
-	for _, block := range content.Blocks {
+	bindings := make([]parse.Resource, 0, len(blocks.resources))
+	for _, block := range blocks.resources {
+		if block.Type != blockProduce {
+			warn(fmt.Sprintf("ignoring %s %q at %s: a remote unit honours only produce blocks",
+				block.Type, strings.Join(block.Labels, "."), rangeOf(block.DefRange)))
+			continue
+		}
 		b, err := makeBinding(block, ix, localsCtx)
 		if err != nil {
 			return nil, fmt.Errorf("produce-from %s: %w", ref, err)
