@@ -108,14 +108,14 @@ func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan erro
 // and errors into merged, and returns only once the producer is fully done.
 //
 // Two forwarders bridge the producer into merged: closing the data channel is
-// the producer's completion signal, and errors keep flowing until the
-// producer function itself returns. Plugins are not required to close their
-// errs channel, so the error forwarder instead watches for the producer's
-// return — once the function has returned no sender can exist, so a final
-// non-blocking drain of errs is race-free and no error sent before returning
-// is ever lost. A producer that ignores ctx may leak its own goroutine, but
-// both forwarders select on ctx.Done(), so runProducer itself always returns
-// on cancellation and the worker moves on.
+// the producer's completion signal, and errors flow until the producer
+// function returns. Plugins are not required to close their errs channel, so
+// the error forwarder also watches for the producer's return. errs is
+// unbuffered, so any error the producer sends is received before the producer
+// function can return — once returned is closed no un-received error can
+// remain, so the forwarder simply stops. A producer that ignores ctx may leak
+// its own goroutine, but both forwarders select on ctx.Done(), so runProducer
+// itself always returns on cancellation and the worker moves on.
 func runProducer(ctx context.Context, p sdk.Producer, merged chan<- result) {
 	data, errs := make(chan []byte), make(chan error)
 	returned := make(chan struct{}) // closed when the producer function returns
@@ -158,19 +158,7 @@ func runProducer(ctx context.Context, p sdk.Producer, merged chan<- result) {
 			case <-ctx.Done():
 				return
 			case <-returned:
-				for {
-					select {
-					case err, ok := <-errs:
-						if !ok {
-							return
-						}
-						if err != nil && !emit(ctx, merged, result{err: err}) {
-							return
-						}
-					default:
-						return
-					}
-				}
+				return
 			}
 		}
 	}()

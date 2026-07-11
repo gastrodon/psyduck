@@ -46,6 +46,22 @@ func (g *gate) await(ctx context.Context) {
 	}
 }
 
+// arrivedWithin reports whether a producer arrives at the gate within d. It is
+// a negative check: in a correctly-capped pool no producer may arrive while
+// every slot is full, and an over-admitted producer parks at the gate as a
+// durable blocked send — so a bounded wait surfaces it deterministically,
+// unlike maxSeen's peak-sampling which only catches a transient overlap.
+func (g *gate) arrivedWithin(ctx context.Context, d time.Duration) bool {
+	select {
+	case <-g.arrive:
+		return true
+	case <-time.After(d):
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // releaseOne frees exactly one parked producer (or gives up when ctx ends).
 func (g *gate) releaseOne(ctx context.Context) {
 	select {
@@ -145,7 +161,12 @@ func blockingStream(released *atomic.Int64, first []parse.Resource) parse.Resour
 // one slot must start the third while the second is still parked. A wave
 // engine would refuse to start the third until both originals exhausted, so
 // reaching the third's arrival with the second parked deadlocks it into
-// panicSafeRun's timeout. maxSeen proves the cap is never exceeded.
+// panicSafeRun's timeout.
+//
+// The cap is proven from both sides: while both slots are full no third
+// producer may start (arrivedWithin — an over-admitted producer would park at
+// the gate as a durable blocked send, caught deterministically), and once a
+// slot frees the third starts at once.
 func Test_produce_ReplaceOnExhaustion(t *testing.T) {
 	const total, parallel = 3, 2
 
@@ -173,6 +194,11 @@ func Test_produce_ReplaceOnExhaustion(t *testing.T) {
 		ctx := t.Context()
 		g.await(ctx) // both original producers fill the two slots
 		g.await(ctx)
+		// Both slots are full: no third producer may start. An over-admitted
+		// one would already be parked at the gate, so this wait catches it.
+		if g.arrivedWithin(ctx, 100*time.Millisecond) {
+			t.Errorf("a third producer started while both slots were full: cap %d exceeded", parallel)
+		}
 		g.releaseOne(ctx) // free one slot; its replacement must start now
 		g.await(ctx)      // third producer arrived — replace-on-exhaustion proven
 		g.releaseOne(ctx) // let the remaining two finish
