@@ -1,0 +1,19 @@
+# produce-from reads producer descriptors from a file (env.PSYDUCK_IN), each a
+# full HCL produce block separated by a blank line, and runs each as its own
+# producer. This is the produce-from path end to end: a file seed streams
+# descriptors -> they parse into producers -> the run-time worker pool runs
+# them -> their output reaches the consumer. produce-parallel defaults to 1, so
+# the descriptors run in file order and the output is deterministic.
+import {
+  shared = "shared.psy"
+}
+
+produce "file" "descriptors" {
+  sep      = "\n\n"
+  location = env.PSYDUCK_IN
+}
+
+pipeline "produce-from-file" {
+  produce-from = produce.file.descriptors
+  consume      = [imports.shared.consume.file.out]
+}

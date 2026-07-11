@@ -1,0 +1,22 @@
+# Two producers of different resource kinds (constant + sequence) fan in to a
+# single consumer. With produce-parallel defaulting to 1 the static list runs
+# in declared order, so the merged output is deterministic: the constant's one
+# message, then the sequence's two.
+import {
+  shared = "shared.psy"
+}
+
+produce "constant" "greeting" {
+  value      = "hello"
+  stop-after = 1
+}
+
+produce "sequence" "counter" {
+  start      = 0
+  stop-after = 2
+}
+
+pipeline "fan-in" {
+  produce = [produce.constant.greeting, produce.sequence.counter]
+  consume = [imports.shared.consume.file.out]
+}
