@@ -806,6 +806,48 @@ func TestParseProduceFromCancel(t *testing.T) {
 	}
 }
 
+// The produce-from ResourceFunc holds unsynchronized state and is safe only
+// because the run-time feeder drives it from one goroutine. It is not
+// reentrant: a second concurrent call must panic rather than race the state.
+// Here one pull parks inside the stream (holding the guard) while a second
+// races in and is refused.
+func TestParseProduceFromNotReentrant(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	seed := seedPlugin(func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		close(entered) // the first pull is now parked waiting for a message
+		<-release
+		close(send)
+	})
+
+	entry, load := src(seedEntry)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	produce := result["main"].Producers
+
+	// First pull: parks waiting for the seed's first message, holding the
+	// reentrancy guard. It unwinds once we release the seed at the end.
+	go produce(t.Context(), 4)
+	<-entered
+
+	panicked := make(chan any, 1)
+	go func() {
+		defer func() { panicked <- recover() }()
+		produce(t.Context(), 4)
+	}()
+
+	got := <-panicked
+	if got == nil {
+		t.Fatal("want a panic on a concurrent (reentrant) call, got none")
+	}
+	if msg, _ := got.(string); !strings.Contains(msg, "not reentrant") {
+		t.Fatalf("want a not-reentrant panic, got %v", got)
+	}
+	close(release)
+}
+
 func TestParseProduceFromStream(t *testing.T) {
 	// a seed that emits multiple messages, each defining new produce
 	// blocks. Every message should surface on the Producers stream.
