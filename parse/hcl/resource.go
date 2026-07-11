@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -346,6 +347,16 @@ func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalC
 		gotAny  bool // at least one message arrived; see closed-without-sending below
 	)
 
+	// The state above is captured by reference and mutated without locks: it
+	// is safe only because the run-time feeder (core.producerSource) is the
+	// sole caller and drives every pull from one goroutine. This is a plain
+	// func, though, so nothing structurally enforces that. inflight makes the
+	// single-caller contract executable — a concurrent call would be a data
+	// race on buf/done/results, and a serialized-but-interleaved one would
+	// scramble the ordered chunk stream, so we refuse it loudly rather than
+	// corrupt state silently.
+	var inflight atomic.Bool
+
 	// finish tears the stream down: cancel the seed's ctx and join runSeed
 	// by draining results until it closes. Idempotent; a no-op if the seed
 	// never started.
@@ -361,6 +372,11 @@ func remoteBindings(seed parse.Resource, ix *resourceIndex, localsCtx *hcl.EvalC
 	}
 
 	return func(ctx context.Context, max int) ([]parse.Resource, error) {
+		if !inflight.CompareAndSwap(false, true) {
+			panic(fmt.Sprintf("produce-from %s: ResourceFunc is not reentrant — called concurrently", seed.Ref))
+		}
+		defer inflight.Store(false)
+
 		if max < 1 {
 			finish()
 			buf = nil
