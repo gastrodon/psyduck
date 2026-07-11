@@ -1,0 +1,66 @@
+# produce-from over a unix socket, two pipelines running at once. This is the
+# full socket -> meta-producer round trip that meta-socket.psy only describes
+# (it is parse-only): TestProduceFromSocket runs both pipelines concurrently.
+#
+#   emit:  [prod-1, prod-2] -> render -> socket   (writes producer descriptors)
+#   run:   socket (listen)  -> produce-from -> file (runs them, writes output)
+#
+# emit turns two constant producers into `produce "generate"` HCL descriptors
+# and writes them to a unix socket, framed by a NUL byte (sep-byte = 0) so a
+# descriptor may span lines without the separator ever colliding with its
+# content. run listens on that socket, uses the stream as its produce-from
+# description, and runs each received producer. With produce-parallel defaulting
+# to 1 on both sides the order is preserved end to end, so the file output is
+# "alpha\nbeta". run's listen producer never exhausts on its own, so stop-after
+# bounds it to the two messages it expects.
+import {
+  shared = "shared.psy"
+}
+
+produce "constant" "prod-1" {
+  value      = "alpha"
+  stop-after = 1
+}
+
+produce "constant" "prod-2" {
+  value      = "beta"
+  stop-after = 1
+}
+
+# Each incoming value becomes a produce block. NUL framing lets it span lines;
+# generate emits its one value and exhausts, letting the worker pool advance to
+# the next descriptor.
+transform "render" "descriptor" {
+  engine = "template"
+  decode = "bytes"
+  format = <<-EOF
+  produce "generate" "remote" {
+    values = ["{{.}}"]
+  }
+  EOF
+}
+
+# Dials the socket the listener binds below; no create, or it would remove the
+# listener's socket before dialing. NUL-framed to match the listener.
+consume "socket" "meta" {
+  sep-byte = 0
+  location = "unix:///tmp/psyduck-e2e.sock"
+}
+
+pipeline "emit" {
+  produce   = [produce.constant.prod-1, produce.constant.prod-2]
+  transform = [transform.render.descriptor]
+  consume   = [consume.socket.meta]
+}
+
+produce "listen" "meta-in" {
+  sep-byte = 0
+  location = "unix:///tmp/psyduck-e2e.sock"
+  create   = true
+}
+
+pipeline "run" {
+  produce-from = produce.listen.meta-in
+  consume      = [imports.shared.consume.file.out]
+  stop-after   = 2
+}
