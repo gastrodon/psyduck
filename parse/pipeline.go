@@ -58,9 +58,9 @@ func LiteralResourceFunc(resources ...Resource) ResourceFunc {
 // when the attribute is absent. A written 0 means "run them all at once":
 // with a static produce list it resolves to the producer count, and with
 // produce-from (no fixed count) it is rejected. A negative value is always
-// rejected; core additionally clamps any sub-1 value up to 1 defensively for
-// hand-built structs. A finished producer's slot is refilled immediately from
-// the next one in arrival order.
+// rejected. The parser is the single source of truth for the value the core
+// runs with — there is no runtime clamp. A finished producer's slot is
+// refilled immediately from the next one in arrival order.
 type Pipeline struct {
 	Name            string
 	Origin          sdk.SourceRange
