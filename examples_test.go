@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/psyduck-etl/sdk"
 
@@ -80,13 +82,6 @@ var examples = map[string]fixture{
 	"text": {
 		tier:   tierRun,
 		expect: "HI_THERE",
-	},
-	"produce-from-file": {
-		tier: tierRun,
-		input: "produce \"constant\" \"a\" {\n  value      = \"alpha\"\n  stop-after = 1\n}" +
-			"\n\n" +
-			"produce \"constant\" \"b\" {\n  value      = \"beta\"\n  stop-after = 1\n}",
-		expect: "alpha\nbeta",
 	},
 	"fan-in": {
 		tier:   tierRun,
@@ -192,6 +187,87 @@ pipeline "check" {
 	if err := core.RunPipeline(t.Context(), bp); err == nil {
 		t.Error("expected a false assert to error the pipeline")
 	}
+}
+
+// TestProduceFromSocket runs the two produce-from-socket.psy pipelines at the
+// same time: "emit" renders two constant producers into produce descriptors
+// and writes them to a unix socket; "run" listens on that socket and executes
+// each received producer via produce-from. It is the full socket -> meta-
+// producer round trip end to end, where meta-socket.psy only parses.
+//
+// "run" binds the socket, so it starts first; once bound, "emit" dials and
+// writes. "run"'s listen producer never exhausts on its own — stop-after = 2
+// ends it after both descriptors have been run — so a stuck run shows up as
+// the timeout below, and the output order (alpha then beta) proves framing and
+// produce-parallel=1 preserve order across the socket.
+func TestProduceFromSocket(t *testing.T) {
+	const sockPath = "/tmp/psyduck-e2e.sock"
+	_ = os.Remove(sockPath) // clear a stale socket from a crashed run
+	t.Cleanup(func() { _ = os.Remove(sockPath) })
+
+	plugins := []sdk.Plugin{stdlib.Plugin()}
+
+	outPath := filepath.Join(t.TempDir(), "out")
+	t.Setenv("PSYDUCK_OUT", outPath)
+
+	entry := filepath.Join("examples", "produce-from-socket.psy")
+	pipelines, err := hcl.NewParserHCL().Parse(t.Context(), entry, parse.FileLoader, plugins)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	emit, err := core.BuildPipeline(t.Context(), pipelines["emit"], plugins)
+	if err != nil {
+		t.Fatalf("build emit: %v", err)
+	}
+	run, err := core.BuildPipeline(t.Context(), pipelines["run"], plugins)
+	if err != nil {
+		t.Fatalf("build run: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	// run binds and listens; start it first so emit has something to dial.
+	runErr := make(chan error, 1)
+	go func() { runErr <- core.RunPipeline(ctx, run) }()
+
+	waitForFile(t, sockPath, 5*time.Second)
+
+	// emit connects, writes both descriptors, and returns once done.
+	if err := core.RunPipeline(ctx, emit); err != nil {
+		t.Fatalf("run emit: %v", err)
+	}
+
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("run: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("run pipeline did not finish after emit completed")
+	}
+
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	if want := "alpha\nbeta"; normalize(got) != want {
+		t.Errorf("output mismatch\n got: %q\nwant: %q", normalize(got), want)
+	}
+}
+
+// waitForFile blocks until path exists or the deadline passes.
+func waitForFile(t *testing.T, path string, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("socket %s not bound within %s", path, within)
 }
 
 func normalize(b []byte) string { return strings.TrimRight(string(b), "\n") }
