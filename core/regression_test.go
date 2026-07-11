@@ -118,6 +118,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 	start := time.Now()
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   staticSource(producer),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		ExitOnError: true,
@@ -147,6 +148,7 @@ func Test_ConsumerStopAfter_NoDeadlock(t *testing.T) {
 	var got atomic.Int64
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   staticSource(emitN(100, []byte("x"), nil)),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{flow.Consumer(countAll(&got), 0, 0, 3)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 	})
@@ -279,6 +281,7 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 	var got atomic.Int64
 	if err := panicSafeRun(t, &Pipeline{
 		Producers:   staticSource(blockForever),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		StopAfter:   3,
@@ -324,6 +327,7 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 	var got atomic.Int64
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   staticSource(producer),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		ExitOnError: true,
@@ -348,6 +352,7 @@ func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 	var got atomic.Int64
 	if err := panicSafeRun(t, &Pipeline{
 		Producers:   staticSource(misbehaving),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		StopAfter:   3,

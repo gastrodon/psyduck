@@ -150,11 +150,12 @@ func Test_BuildPipeline(t *testing.T) {
 	// ResourceFunc streams are one-shot; build a fresh description per run
 	mksrc := func(producerMeta sdk.BlockMeta) parse.Pipeline {
 		return parse.Pipeline{
-			Name:         "main",
-			Producers:    parse.LiteralResourceFunc(testResource("p", "emit", sdk.PRODUCER, producerMeta)),
-			Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-			Transformers: parse.LiteralResourceFunc(testResource("p", "suffix", sdk.TRANSFORMER, sdk.BlockMeta{})),
-			ExitOnError:  true,
+			Name:            "main",
+			Producers:       parse.LiteralResourceFunc(testResource("p", "emit", sdk.PRODUCER, producerMeta)),
+			Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+			Transformers:    parse.LiteralResourceFunc(testResource("p", "suffix", sdk.TRANSFORMER, sdk.BlockMeta{})),
+			ExitOnError:     true,
+			ProduceParallel: 1,
 		}
 	}
 

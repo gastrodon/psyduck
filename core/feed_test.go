@@ -212,10 +212,11 @@ func Test_feed_StreamedProducersAllRun(t *testing.T) {
 	}
 
 	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
-		Name:         "streamed",
-		Producers:    streamOf(&released, stream...),
-		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-		Transformers: parse.LiteralResourceFunc(),
+		Name:            "streamed",
+		Producers:       streamOf(&released, stream...),
+		Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers:    parse.LiteralResourceFunc(),
+		ProduceParallel: 1,
 	}, []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
@@ -247,9 +248,10 @@ func Test_feed_BindErrorMidStream(t *testing.T) {
 			[]parse.Resource{testResource("p", "emit", sdk.PRODUCER, sdk.BlockMeta{})},
 			[]parse.Resource{testResource("ghost", "emit", sdk.PRODUCER, sdk.BlockMeta{})},
 		),
-		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-		Transformers: parse.LiteralResourceFunc(),
-		ExitOnError:  true,
+		Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers:    parse.LiteralResourceFunc(),
+		ExitOnError:     true,
+		ProduceParallel: 1,
 	}, []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
@@ -302,11 +304,12 @@ func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 
 	var released atomic.Int64
 	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
-		Name:         "early-stop",
-		Producers:    blockingStream(&released, []parse.Resource{testResource("f", "forever", sdk.PRODUCER, sdk.BlockMeta{})}),
-		Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-		Transformers: parse.LiteralResourceFunc(),
-		StopAfter:    5,
+		Name:            "early-stop",
+		Producers:       blockingStream(&released, []parse.Resource{testResource("f", "forever", sdk.PRODUCER, sdk.BlockMeta{})}),
+		Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers:    parse.LiteralResourceFunc(),
+		StopAfter:       5,
+		ProduceParallel: 1,
 	}, plugins)
 	if err != nil {
 		t.Fatal(err)
@@ -398,11 +401,12 @@ func Test_feed_StreamError(t *testing.T) {
 
 			var released atomic.Int64
 			pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
-				Name:         "stream-error",
-				Producers:    errAfterFirst(&released),
-				Consumers:    parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
-				Transformers: parse.LiteralResourceFunc(),
-				ExitOnError:  tc.exitOnError,
+				Name:            "stream-error",
+				Producers:       errAfterFirst(&released),
+				Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+				Transformers:    parse.LiteralResourceFunc(),
+				ExitOnError:     tc.exitOnError,
+				ProduceParallel: 1,
 			}, []sdk.Plugin{plugin})
 			if err != nil {
 				t.Fatal(err)

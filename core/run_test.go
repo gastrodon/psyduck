@@ -161,6 +161,7 @@ func Test_RunPipeline_filtering(t *testing.T) {
 				send <- []byte{byte(i)}
 			}
 		}),
+		Parallel:  1,
 		Consumers: []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) {
 			if msg[0]%2 == 0 {
@@ -182,6 +183,7 @@ func Test_RunPipeline_stopAfter(t *testing.T) {
 	var got atomic.Int64
 	err := mustRun(t, t.Context(), &Pipeline{
 		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		StopAfter:   5,
@@ -205,6 +207,7 @@ func Test_RunPipeline_cancel(t *testing.T) {
 	var got atomic.Int64
 	err := mustRun(t, ctx, &Pipeline{
 		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 	})
@@ -229,6 +232,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		var got atomic.Int64
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   staticSource(erroring("producer")),
+			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
 			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 			ExitOnError: true,
@@ -245,6 +249,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		var got atomic.Int64
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   staticSource(erroring("producer")),
+			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
 			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 		})
@@ -260,6 +265,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		var got atomic.Int64
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   staticSource(emitN(10, []byte("x"), nil)),
+			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
 			Transformer: func(msg []byte) ([]byte, error) { return nil, boom },
 			ExitOnError: true,
@@ -279,6 +285,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 		}
 		err := mustRun(t, t.Context(), &Pipeline{
 			Producers:   staticSource(emitN(10, []byte("x"), nil)),
+			Parallel:    1,
 			Consumers:   []sdk.Consumer{consume},
 			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 			ExitOnError: true,
