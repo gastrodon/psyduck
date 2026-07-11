@@ -65,33 +65,6 @@ func objOrEmpty(m map[string]cty.Value) cty.Value {
 	return cty.ObjectVal(m)
 }
 
-// extendEnv returns a context whose env.* object additionally contains the
-// given names (unset → ""). Names already present keep their values.
-func extendEnv(ctx *hcl.EvalContext, names map[string]bool) *hcl.EvalContext {
-	if len(names) == 0 {
-		return ctx
-	}
-
-	merged := map[string]cty.Value{}
-	if env, ok := ctx.Variables[nsEnv]; ok && env.Type().IsObjectType() {
-		for k, v := range env.AsValueMap() { // AsValueMap returns nil for the empty object
-			merged[k] = v
-		}
-	}
-	for name := range names {
-		if _, ok := merged[name]; !ok {
-			merged[name] = cty.StringVal(os.Getenv(name))
-		}
-	}
-
-	variables := make(map[string]cty.Value, len(ctx.Variables))
-	for k, v := range ctx.Variables {
-		variables[k] = v
-	}
-	variables[nsEnv] = objOrEmpty(merged)
-	return &hcl.EvalContext{Variables: variables}
-}
-
 // makeLocalsCtx merges all locals {} blocks across sources (duplicate keys
 // error) and returns the eval context exposing local.*, env.*, and
 // imports.* (the resolved import{} closure for this file, built by the
