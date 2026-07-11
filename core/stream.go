@@ -35,8 +35,8 @@ func emit(ctx context.Context, out chan<- result, r result) bool {
 // exhaustion, so a finished producer's slot refills immediately from the
 // next arrival. There are no waves and no ordering guarantee across
 // producers: a long-lived producer occupies one slot without blocking the
-// others. parallel is clamped up to 1 (a zero value from a hand-built
-// pipeline would otherwise stall forever).
+// others. parallel must be >= 1 — the parser guarantees a positive value, so
+// callers pass it straight through. A zero would start no workers and stall.
 //
 // feedErrs carries bind and stream errors from the feeder (see
 // producerSource) — including a produce-from seed that timed out or closed
@@ -54,10 +54,6 @@ func produce(ctx context.Context, feed <-chan sdk.Producer, feedErrs <-chan erro
 	return func(yield func([]byte, error) bool) {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-
-		if parallel < 1 {
-			parallel = 1
-		}
 
 		merged := make(chan result)
 		var workersWG, errFwdWG sync.WaitGroup
