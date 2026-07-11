@@ -41,16 +41,21 @@ func Limiter(perMinute, perSecond int) func() {
 }
 
 // Producer wraps p with rate limiting and a stop-after cutoff. With all limits
-// unset it returns p unchanged. p receives the same ctx as the wrapper — the
-// sdk contract requires it to select on ctx.Done() on its own — and the
-// wrapper's own relay to send also honors ctx, so an abandoned wrapped
-// producer never blocks past cancellation.
+// unset it returns p unchanged. The wrapper derives an inner ctx that is
+// cancelled on any exit path (cutoff, cancellation, inner-close), so p —
+// which the sdk contract requires to select on ctx.Done() — exits promptly
+// at the cutoff rather than parking on a send into the abandoned inner
+// channel until the whole pipeline ends. Live-subscription producers
+// (websocket listeners, long-poll loops) then get their teardown for free
+// from block-level stop-after.
 func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer {
 	if perMinute <= 0 && perSecond <= 0 && stopAfter <= 0 {
 		return p
 	}
 	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 		inner := make(chan []byte)
 		go p(ctx, inner, errs)
 
@@ -79,8 +84,9 @@ func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer 
 }
 
 // Consumer wraps c with rate limiting and a stop-after cutoff. With all limits
-// unset it returns c unchanged. c receives the same ctx as the wrapper, and
-// the wrapper's own relay from recv also honors ctx.
+// unset it returns c unchanged. The wrapper derives an inner ctx that is
+// cancelled on any exit path so c exits promptly at the cutoff even if it
+// was mid-fetch on an external system.
 //
 // At the cutoff (or on cancellation) the wrapper stops receiving and closes
 // the inner stream; c flushes and closes done. The wrapper deliberately does
@@ -93,8 +99,10 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 	}
 	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		inner := make(chan []byte)
-		go c(ctx, inner, errs, done)
 		defer close(inner)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go c(ctx, inner, errs, done)
 
 		wait, count := Limiter(perMinute, perSecond), 0
 		for {
