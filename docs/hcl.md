@@ -182,13 +182,20 @@ pipeline "dynamic" {
 ```
 
 The *seed* producer is started when the pipeline runs. Each message it emits
-is parsed as HCL `produce {}` blocks — same syntax, same `env.*` resolution,
-same strict attribute checking — and the resulting producers run as if they
-had been declared literally. The seed keeps running alongside the pipeline:
-every further message yields a fresh batch of producers, so a long-lived seed
-(a queue listener, a socket) can keep feeding the pipeline new work for as
-long as it runs. Because binding happens at run time, an unknown plugin or a
-broken producer config surfaces as a run-time error, not a build failure.
+is parsed as its own self-contained config unit — the same lexer and
+evaluation a `.psy` file gets, with the same strict attribute checking, but
+scoped to only that message: it may declare its own `locals {}`, and
+`env.*` is ambient (read fresh per message), but it never sees the host
+file's `local.*` or `imports.*`. Only `produce {}` blocks are honoured;
+`import`, `plugin`, `pipeline`, `consume`, and `transform` blocks in a
+message are inert — warned, not rejected — so one stray or malformed block
+from a long-lived listener never tears the stream down. The resulting
+producers run as if they had been declared literally. The seed keeps
+running alongside the pipeline: every further message yields a fresh batch
+of producers, so a long-lived seed (a queue listener, a socket) can keep
+feeding the pipeline new work for as long as it runs. Because binding
+happens at run time, an unknown plugin or a broken producer config surfaces
+as a run-time error, not a build failure.
 
 The run waits for the seed's first producers, bounded by
 `produce-from-timeout` (in seconds; default 10, `0` waits indefinitely).
