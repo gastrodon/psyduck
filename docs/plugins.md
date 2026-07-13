@@ -14,7 +14,11 @@ the plugin only meet through the SDK.
 ```go
 package main
 
-import "github.com/psyduck-etl/sdk"
+import (
+    "context"
+
+    "github.com/psyduck-etl/sdk"
+)
 
 func Plugin() sdk.Plugin {
     return sdk.NewInProc("hello",
@@ -40,11 +44,15 @@ func greet(parse sdk.Parser) (sdk.Producer, error) {
     }
 
     msg := []byte("hello " + cfg.Name)
-    return func(send chan<- []byte, errs chan<- error) {
+    return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
         defer close(send)
         defer close(errs)
         for {
-            send <- msg
+            select {
+            case send <- msg:
+            case <-ctx.Done():
+                return
+            }
         }
     }, nil
 }
@@ -157,18 +165,26 @@ starts pumping data through, it should be a live pipeline stage.
 ### The three roles
 
 ```go
-type Producer    func(send chan<- []byte, errs chan<- error)
-type Consumer    func(recv <-chan []byte, errs chan<- error, done chan<- struct{})
+type Producer    func(ctx context.Context, send chan<- []byte, errs chan<- error)
+type Consumer    func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{})
 type Transformer func(in []byte) ([]byte, error)
 ```
 
 **Producer.** Emit bytes on `send`. Close `send` and `errs` when done. If you
 have nothing else to say, closing `send` is the only signal the host needs —
-it will not read more. Errors go on `errs` before you stop.
+it will not read more. Errors go on `errs` before you stop. `ctx` is the
+pipeline's run context: select on `ctx.Done()` alongside every send, or an
+abandoned producer (the host stopped reading — cancellation, `exit-on-error`,
+or a consumer finishing early) leaks its own goroutine, parked forever on a
+channel nobody drains.
 
 **Consumer.** Read from `recv` until it closes. Close `errs` and `done` on
-exit. `done` is the host's cue that draining finished; do not close it early
-or the host will race you.
+exit. `done` is the host's cue that draining finished. Closing `done` while
+`recv` could still receive is fine — it's how a consumer finishes early on
+its own (e.g. a count cutoff); the host stops sending to it from that point
+on, at the cost of at most one message already in flight landing after
+`done` closes. Select on `ctx.Done()` here too, for the same reason as
+`Producer`.
 
 **Transformer.** One in, one out. If you need to drop a message, return
 `(nil, nil)`. If you need to signal an error, return `(nil, err)` — the host
