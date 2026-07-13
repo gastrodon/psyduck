@@ -203,9 +203,8 @@ pipeline "check" {
 // beta) proves framing and produce-parallel=1 preserve order across the
 // socket.
 func TestProduceFromSocket(t *testing.T) {
-	const sockPath = "/tmp/psyduck-e2e.sock"
-	_ = os.Remove(sockPath) // clear a stale socket from a crashed run
-	t.Cleanup(func() { _ = os.Remove(sockPath) })
+	sockPath := filepath.Join(t.TempDir(), "psyduck-e2e.sock")
+	t.Setenv("PSYDUCK_SOCK", "unix://"+sockPath)
 
 	plugins := []sdk.Plugin{stdlib.Plugin()}
 
