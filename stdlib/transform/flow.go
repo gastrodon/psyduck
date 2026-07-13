@@ -8,7 +8,9 @@ import (
 
 // These mid-pipeline flow-control transformers are thin config wrappers over
 // the shared stdlib/flow combinators — the same code the core engine applies
-// for host-owned per-minute / stop-after meta.
+// for host-owned per-minute meta (producers and consumers) and stop-after
+// (producers only). Transform blocks accept no host-owned meta of their own;
+// a pipeline wanting these behaviors mid-stream declares them explicitly here.
 
 type waitConfig struct {
 	Milliseconds int `psy:"milliseconds"`

@@ -67,7 +67,6 @@ type Pipeline struct {
 	Producers       ResourceFunc
 	Consumers       ResourceFunc
 	Transformers    ResourceFunc
-	StopAfter       int
 	ExitOnError     bool
 	ProduceParallel int
 	Spec            PipelineSpec

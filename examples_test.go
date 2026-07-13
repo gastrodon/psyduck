@@ -196,10 +196,12 @@ pipeline "check" {
 // producer round trip end to end, where meta-socket.psy only parses.
 //
 // "run" binds the socket, so it starts first; once bound, "emit" dials and
-// writes. "run"'s listen producer never exhausts on its own — stop-after = 2
-// ends it after both descriptors have been run — so a stuck run shows up as
-// the timeout below, and the output order (alpha then beta) proves framing and
-// produce-parallel=1 preserve order across the socket.
+// writes. "run"'s listen producer never exhausts on its own — its own
+// stop-after = 2 meta (produce-only; produce-from seeds honor it the same as
+// any other producer) ends it after both descriptors have been run — so a
+// stuck run shows up as the timeout below, and the output order (alpha then
+// beta) proves framing and produce-parallel=1 preserve order across the
+// socket.
 func TestProduceFromSocket(t *testing.T) {
 	const sockPath = "/tmp/psyduck-e2e.sock"
 	_ = os.Remove(sockPath) // clear a stale socket from a crashed run

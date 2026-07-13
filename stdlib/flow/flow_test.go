@@ -79,7 +79,7 @@ func TestProducer(t *testing.T) {
 }
 
 func TestConsumer(t *testing.T) {
-	run := func(perMinute, stopAfter, feed int) int {
+	run := func(perMinute, feed int) (int, time.Duration) {
 		count := 0
 		consume := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 			for range recv {
@@ -89,18 +89,13 @@ func TestConsumer(t *testing.T) {
 		}
 
 		recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
-		go Consumer(consume, perMinute, 0, stopAfter)(t.Context(), recv, errs, done)
+		go Consumer(consume, perMinute, 0)(t.Context(), recv, errs, done)
 
-		stop := make(chan struct{})
+		start := time.Now()
 		go func() {
 			defer close(recv)
 			for i := 0; i < feed; i++ {
-				select {
-				case recv <- []byte{byte(i)}:
-					continue
-				case <-stop:
-					return
-				}
+				recv <- []byte{byte(i)}
 			}
 		}()
 
@@ -109,15 +104,18 @@ func TestConsumer(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("consumer never signalled done")
 		}
-		close(stop)
-		return count
+		return count, time.Since(start)
 	}
 
-	if got := run(0, 0, 10); got != 10 {
+	if got, _ := run(0, 10); got != 10 {
 		t.Fatalf("passthrough: want 10, got %d", got)
 	}
-	if got := run(0, 3, 10); got != 3 {
-		t.Fatalf("stop-after: want 3, got %d", got)
+
+	// per-minute paces messages: 6000/min = 10ms period, 5 msgs >= ~40ms
+	if got, elapsed := run(6000, 5); got != 5 {
+		t.Fatalf("per-minute: want 5, got %d", got)
+	} else if elapsed < 40*time.Millisecond {
+		t.Fatalf("per-minute: not throttled, took %s", elapsed)
 	}
 }
 

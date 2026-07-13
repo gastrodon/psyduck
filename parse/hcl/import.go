@@ -262,7 +262,7 @@ func cloneResourceMap(m map[string]parse.Resource) map[string]parse.Resource {
 // plugin-qualified — imports mirror whatever qualification the imported
 // file itself used, same as its own local refs) and
 // imports.<alias>.pipeline.<name>.{produce,consume,transform,
-// stop-after,exit-on-error} for that file's pipeline{} blocks.
+// exit-on-error} for that file's pipeline{} blocks.
 func buildImportsValue(results map[string]*fileResult) (cty.Value, error) {
 	imports := refTree{}
 	for alias, r := range results {
@@ -291,7 +291,6 @@ func buildImportsValue(results map[string]*fileResult) (cty.Value, error) {
 		pipelineTree := refTree{}
 		for pname, pipe := range r.pipelines {
 			slot := refTree{
-				"stop-after":    cty.NumberIntVal(int64(pipe.StopAfter)),
 				"exit-on-error": cty.BoolVal(pipe.ExitOnError),
 			}
 			for _, s := range pipelineSlots(pipe) {

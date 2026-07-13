@@ -56,7 +56,6 @@ var pipelineSchema = &hcl.BodySchema{
 		{Name: "produce-from"},
 		{Name: "consume", Required: true},
 		{Name: "transform"},
-		{Name: "stop-after"},
 		{Name: "exit-on-error"},
 		{Name: "produce-parallel"},
 		{Name: "produce-from-timeout"},

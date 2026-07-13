@@ -60,13 +60,17 @@ attribute is an error, missing required attributes are errors, and every
 value is evaluated and type-checked at parse time. Expressions may use
 `local.*` and `env.*`.
 
-Two **meta attributes** are host-owned and accepted on every resource block
-(a plugin never declares them):
+Two **meta attributes** are host-owned (a plugin never declares them), each
+accepted only on the verbs where it means something:
 
-| Attribute | Type | Meaning |
-|---|---|---|
-| `stop-after` | int | stop this resource after n items (0 = unrestricted) |
-| `per-minute` | int | rate limit, items per minute (0 = unrestricted) |
+| Attribute | Type | Meaning | Accepted on |
+|---|---|---|---|
+| `stop-after` | int | stop this producer after n items (0 = unrestricted) | `produce` only |
+| `per-minute` | int | rate limit, items per minute (0 = unrestricted) | `produce`, `consume` |
+
+`transform` blocks accept neither — a transformer's throughput is bounded by
+its producers and consumers, not itself — and declaring either there is a
+parse error, same as any other unknown attribute.
 
 Declaring the same `(verb, resource, name)` triple twice in the same file is
 an error.
@@ -87,7 +91,6 @@ pipeline "hello" {
 | `produce-from` | ref | derive producers from a seed producer's output (see below) |
 | `consume` | list of refs | consumers to fan out to (required) |
 | `transform` | list of refs | transformers, applied in order |
-| `stop-after` | int | pipeline-level stop count |
 | `exit-on-error` | bool | stop the pipeline on the first error |
 | `produce-parallel` | int | cap on concurrently-running producers, for `produce` and `produce-from` alike (default 1). With a static `produce` list, `0` means "all at once" (resolves to the producer count); with `produce-from` it must be ≥ 1 (`0` is rejected — no fixed count to expand to) |
 | `produce-from-timeout` | int | seconds to wait for the `produce-from` seed's first producers (0 = wait indefinitely, default 10) |
@@ -236,7 +239,6 @@ imports.<alias>.transform.<kind>.<name>
 imports.<alias>.pipeline.<name>.produce         # that file's pipeline "<name>" {}, as ordered ref lists
 imports.<alias>.pipeline.<name>.consume
 imports.<alias>.pipeline.<name>.transform
-imports.<alias>.pipeline.<name>.stop-after
 imports.<alias>.pipeline.<name>.exit-on-error
 ```
 

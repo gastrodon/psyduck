@@ -168,7 +168,6 @@ func TestParse(t *testing.T) {
 		produce       = [produce.constant.v, test.constant.e]
 		consume       = [trash.t]
 		transform     = [transform.echo.x]
-		stop-after    = 9
 		exit-on-error = true
 	}
 	`)
@@ -179,7 +178,7 @@ func TestParse(t *testing.T) {
 
 	pipe := result["main"]
 
-	if pipe.StopAfter != 9 || !pipe.ExitOnError {
+	if !pipe.ExitOnError {
 		t.Fatalf("bad pipeline flags: %#v", pipe)
 	}
 
@@ -220,6 +219,63 @@ func TestParse(t *testing.T) {
 	}
 	if got := drainAll(t, pipe.Transformers); len(got) != 1 || got[0].Kind != sdk.TRANSFORMER {
 		t.Fatalf("bad transformers: %#v", got)
+	}
+}
+
+func TestParseStopAfterProducerOnly(t *testing.T) {
+	// stop-after is a producer-only flow governor: consume, transform, and
+	// pipeline blocks all reject it as an unknown attribute.
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"consume", `
+		produce "constant" "p" {}
+		consume "trash" "t" { stop-after = 3 }
+		pipeline "main" {
+			produce = [produce.constant.p]
+			consume = [trash.t]
+		}
+		`},
+		{"transform", `
+		produce "constant" "p" {}
+		consume "trash" "t" {}
+		transform "echo" "x" { stop-after = 3 }
+		pipeline "main" {
+			produce   = [produce.constant.p]
+			consume   = [trash.t]
+			transform = [transform.echo.x]
+		}
+		`},
+		{"transform-per-minute", `
+		produce "constant" "p" {}
+		consume "trash" "t" {}
+		transform "echo" "x" { per-minute = 60 }
+		pipeline "main" {
+			produce   = [produce.constant.p]
+			consume   = [trash.t]
+			transform = [transform.echo.x]
+		}
+		`},
+		{"pipeline", `
+		produce "constant" "p" {}
+		consume "trash" "t" {}
+		pipeline "main" {
+			produce    = [produce.constant.p]
+			consume    = [trash.t]
+			stop-after = 3
+		}
+		`},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			entry, load := src(c.body)
+			_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+			if err == nil || !strings.Contains(err.Error(), "Unsupported argument") {
+				t.Fatalf("want unsupported argument error, got: %v", err)
+			}
+		})
 	}
 }
 

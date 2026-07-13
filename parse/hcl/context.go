@@ -107,7 +107,7 @@ func makeLocalsCtx(blocks []*hcl.Block, env cty.Value, imports cty.Value) (*hcl.
 // a plain string (auto-wrapped as cty.StringVal — the common case, a
 // resource ref) or an already-built cty.Value (used for imports.* leaves
 // that carry lists or scalars, e.g. imports.alias.pipeline.name.produce or
-// .stop-after).
+// .exit-on-error).
 type refTree map[string]any // string | cty.Value | refTree
 
 func (t refTree) insert(path []string, leaf any) error {

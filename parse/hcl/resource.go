@@ -79,9 +79,10 @@ func (ix *resourceIndex) lookup(ref string) (string, sdk.ResourceDescriptor, err
 
 // makeBinding turns one produce/consume/transform block into a
 // parse.Resource. All config evaluation is eager: the body is checked
-// strictly against the plugin spec + metaSpec (unknown attributes error),
-// and every attribute is evaluated, defaulted, and converted here. Only
-// the final decode into the plugin's struct is deferred to Bind time.
+// strictly against the plugin spec plus this verb's metaSpecs entry (unknown
+// attributes error), and every attribute is evaluated, defaulted, and
+// converted here. Only the final decode into the plugin's struct is
+// deferred to Bind time.
 func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext) (parse.Resource, error) {
 	resRef, name := block.Labels[0], block.Labels[1]
 	origin := rangeOf(block.DefRange)
@@ -91,12 +92,13 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext
 		return parse.Resource{}, fmt.Errorf("%s %s.%s at %s: %w", block.Type, resRef, name, origin, err)
 	}
 
-	content, diags := block.Body.Content(blockSchema(desc.Spec))
+	metaSpec := metaSpecs[block.Type]
+	content, diags := block.Body.Content(blockSchema(desc.Spec, metaSpec))
 	if diags.HasErrors() {
 		return parse.Resource{}, fmt.Errorf("%s %s.%s: %w", block.Type, resRef, name, diags)
 	}
 
-	metaVals, err := evalValues(metaSpec, content.Attributes, localsCtx, origin)
+	metaVals, err := evalValues(blockMetaSpec, content.Attributes, localsCtx, origin)
 	if err != nil {
 		return parse.Resource{}, fmt.Errorf("%s %s.%s: failed to decode meta: %w", block.Type, resRef, name, err)
 	}
@@ -248,19 +250,6 @@ func makePipeline(
 		pipe.Spec.RemoteSeed = &seed
 	default:
 		return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: produce or produce-from is required", name, origin)
-	}
-
-	if attr, ok := content.Attributes["stop-after"]; ok {
-		v, diags := attr.Expr.Value(localsCtx)
-		if diags.HasErrors() {
-			return parse.Pipeline{}, diags
-		}
-		converted, err := convert.Convert(v, cty.Number)
-		if err != nil {
-			return parse.Pipeline{}, fmt.Errorf("pipeline %q: stop-after: %w", name, err)
-		}
-		stopAfter, _ := converted.AsBigFloat().Int64()
-		pipe.StopAfter = int(stopAfter)
 	}
 
 	if attr, ok := content.Attributes["exit-on-error"]; ok {
