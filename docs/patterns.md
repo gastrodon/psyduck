@@ -249,14 +249,14 @@ message-scoped: it counts inputs, regardless of their shape.
 Rate and count controls sit at two levels. Prefer the block-level ones
 when they express what you mean — they're free at the resource site:
 
-- On any resource block: `stop-after = N` (host-owned, works everywhere).
-- On any resource block: `per-minute = N` (host-owned rate limit).
+- On `produce` blocks: `stop-after = N` (host-owned, producer-only).
+- On `produce`/`consume` blocks: `per-minute = N` (host-owned rate limit).
 - As transformers: `head`, `tail`, `sample`, `throttle`, `wait`.
 
-Rule of thumb: use `stop-after` and `per-minute` to bound *sources* and
-*sinks*; use the transformer forms mid-pipeline where the shape of the
-stream matters (e.g. `throttle` before a downstream API, `head` to trim
-after a filter).
+Rule of thumb: use `stop-after` to bound *sources*, `per-minute` to bound
+*sources and sinks*; use the transformer forms mid-pipeline where the shape
+of the stream matters (e.g. `throttle` before a downstream API, `head` to
+trim after a filter).
 
 ## Text pipelines stack
 

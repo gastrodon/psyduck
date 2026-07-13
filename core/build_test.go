@@ -160,12 +160,11 @@ func Test_BuildPipeline(t *testing.T) {
 	}
 
 	src := mksrc(sdk.BlockMeta{})
-	src.StopAfter = 7
 	pipeline, err := BuildPipeline(t.Context(), src, []sdk.Plugin{plugin})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pipeline.StopAfter != 7 || !pipeline.ExitOnError {
+	if !pipeline.ExitOnError {
 		t.Fatalf("pipeline flags not propagated: %#v", pipeline)
 	}
 	if err := RunPipeline(t.Context(), pipeline); err != nil {

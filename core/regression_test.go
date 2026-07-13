@@ -32,11 +32,11 @@ import (
 //     forwarder blocks because RunPipeline already returned and stopped
 //     reading errs, then panics the instant the data-forwarding goroutine
 //     closes that same channel out from under it.
-//   - the #10 scenario in Test_ConsumerStopAfter_NoDeadlock hung the old
-//     engine indefinitely (confirmed blocked past a 3s bound): the
-//     stop-after wrapper stopped reading its recv channel without
-//     draining it, so RunPipeline's forward loop blocked forever on a send
-//     nobody would ever read again.
+//   - the #10 scenario in Test_ConsumerEarlyFinish_NoDeadlock hung the old
+//     engine indefinitely (confirmed blocked past a 3s bound): a consumer
+//     that stopped reading its recv channel early (closing done itself,
+//     without draining the rest) left RunPipeline's forward loop blocked
+//     forever on a send nobody would ever read again.
 //   - the #12 scenario in Test_NilMessage_DoesNotTruncateStream silently
 //     dropped every message after the nil — including ones from producers
 //     that hadn't even sent it — because old joinProducers used msg == nil
@@ -139,17 +139,27 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 	t.Log("survived the late error without panicking")
 }
 
-// Regression for #10: a consumer whose stop-after cutoff is smaller than
-// what the producer sends used to deadlock the pipeline permanently — the
-// stop-after wrapper broke out of its receive loop without draining the
+// Regression for #10: a consumer that finishes early on its own — closing
+// done well before the producer runs out — used to deadlock the pipeline
+// permanently if it broke out of its receive loop without draining the
 // rest, so whatever kept sending into it blocked forever on a send nobody
-// would ever read again.
-func Test_ConsumerStopAfter_NoDeadlock(t *testing.T) {
+// would ever read again. The sink must stop sending to a finished consumer
+// instead of blocking the pipeline on it.
+func Test_ConsumerEarlyFinish_NoDeadlock(t *testing.T) {
 	var got atomic.Int64
+	consumer := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(errs)
+		for range recv {
+			if got.Add(1) >= 3 {
+				close(done)
+				return
+			}
+		}
+	}
 	err := panicSafeRun(t, &Pipeline{
 		Producers:   staticSource(emitN(100, []byte("x"), nil)),
 		Parallel:    1,
-		Consumers:   []sdk.Consumer{flow.Consumer(countAll(&got), 0, 0, 3)},
+		Consumers:   []sdk.Consumer{consumer},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
 	})
 	if err != nil {
@@ -261,8 +271,8 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 // Consumer specifically so a plugin abandoned mid-send has a way to exit
 // instead of parking forever — the one leak PR #20's rewrite documented as
 // unavoidable ("the sdk contract has no context"). A producer that actually
-// selects on ctx.Done() alongside its send, cut off mid-stream by
-// StopAfter, must leave no goroutine behind at all.
+// selects on ctx.Done() alongside its send, cut off mid-stream by a
+// flow.Producer stop-after wrap, must leave no goroutine behind at all.
 func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 	blockForever := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 		defer close(send)
@@ -280,11 +290,10 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 	var got atomic.Int64
 	if err := panicSafeRun(t, &Pipeline{
-		Producers:   staticSource(blockForever),
+		Producers:   staticSource(flow.Producer(blockForever, 0, 0, 3)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-		StopAfter:   3,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +350,8 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 // (no select on ctx.Done) violates the sdk contract and leaks its own
 // goroutine when abandoned — the engine can't prevent that. What the engine
 // must still guarantee is that RunPipeline itself returns: the abandoned
-// plugin parks, the pipeline doesn't.
+// plugin parks, the pipeline doesn't. The flow.Producer stop-after wrap is
+// what actually cuts the stream here — the misbehaving producer never would.
 func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 	misbehaving := func(_ context.Context, send chan<- []byte, errs chan<- error) {
 		for {
@@ -351,11 +361,10 @@ func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 
 	var got atomic.Int64
 	if err := panicSafeRun(t, &Pipeline{
-		Producers:   staticSource(misbehaving),
+		Producers:   staticSource(flow.Producer(misbehaving, 0, 0, 3)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
 		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-		StopAfter:   3,
 	}); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/gastrodon/psyduck/parse"
+	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
 // remoteFirstMessageTimeout guards how long we wait for a seed producer to
@@ -151,6 +152,11 @@ func remoteBindings(seed parse.Resource, ix *resourceIndex, timeout time.Duratio
 // leave the guard armed; 0 disables the guard. As everywhere else, a seed
 // that ignores ctx can leak its own goroutine — but never runSeed itself,
 // whose every send and receive also selects on ctx.
+//
+// The seed is a producer like any other, so its own host-owned meta
+// (per-minute, stop-after) applies here via the same flow.Producer gate
+// core's ordinary producer path uses — a listener that never exhausts on
+// its own still respects a stop-after bound on the seed block.
 func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, timeout time.Duration, warn func(string), out chan<- seedResult) {
 	defer close(out)
 
@@ -176,11 +182,13 @@ func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, timeou
 	}
 	defer instance.Close()
 
+	produce := flow.Producer(instance.Produce, seed.Meta.PerMinute, 0, seed.Meta.StopAfter)
+
 	send, errs := make(chan []byte), make(chan error)
 	returned := make(chan struct{}) // closed when the seed function returns
 	go func() {
 		defer close(returned)
-		instance.Produce(ctx, send, errs)
+		produce(ctx, send, errs)
 	}()
 
 	var deadline <-chan time.Time

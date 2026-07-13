@@ -300,11 +300,15 @@ func Test_feed_BindErrorMidStream(t *testing.T) {
 	t.Fatalf("stream not released after a failed run: released %d times", released.Load())
 }
 
-// A produce-from run cut short mid-stream (StopAfter here; a caller's cancel
-// is the same path) must leave nothing behind: the running producer is
-// unwound, the feeder parked in the quiet stream is released by its ctx, and
-// the stream itself — and with it the seed — is released on the way out.
-// Follows the baseline-poll idiom from regression_test.go.
+// A produce-from run cut short mid-stream — a consumer finishing early on
+// its own, the same as a caller's cancel — must leave nothing behind: the
+// running producer is unwound, the feeder parked in the quiet stream is
+// released by its ctx, and the stream itself — and with it the seed — is
+// released on the way out. A producer's own stop-after meta only bounds
+// that one producer's output, not the pool's decision to keep pulling
+// replacements, so the cutoff here has to come from the consumer closing
+// done itself (the plugin-owned early-finish path). Follows the
+// baseline-poll idiom from regression_test.go.
 func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 	forever := sdk.NewInProc("f", &sdk.Resource{
 		Name:  "forever",
@@ -324,7 +328,23 @@ func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 		},
 	})
 	consumed := 0
-	plugins := []sdk.Plugin{forever, corePlugin("p", nil, 0, &consumed, "")}
+	stopAt5 := sdk.NewInProc("p", &sdk.Resource{
+		Name:  "count-early",
+		Kinds: sdk.CONSUMER,
+		ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
+			return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+				defer close(errs)
+				for range recv {
+					consumed++
+					if consumed >= 5 {
+						close(done)
+						return
+					}
+				}
+			}, nil
+		},
+	})
+	plugins := []sdk.Plugin{forever, stopAt5}
 
 	baseline := runtime.NumGoroutine()
 
@@ -332,9 +352,8 @@ func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 	pipeline, err := BuildPipeline(t.Context(), parse.Pipeline{
 		Name:            "early-stop",
 		Producers:       blockingStream(&released, []parse.Resource{testResource("f", "forever", sdk.PRODUCER, sdk.BlockMeta{})}),
-		Consumers:       parse.LiteralResourceFunc(testResource("p", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Consumers:       parse.LiteralResourceFunc(testResource("p", "count-early", sdk.CONSUMER, sdk.BlockMeta{})),
 		Transformers:    parse.LiteralResourceFunc(),
-		StopAfter:       5,
 		ProduceParallel: 1,
 	}, plugins)
 	if err != nil {

@@ -25,7 +25,6 @@ type Pipeline struct {
 	Consumers   []sdk.Consumer
 	Transformer sdk.Transformer
 	logger      *logrus.Logger
-	StopAfter   int
 	ExitOnError bool
 }
 
@@ -132,7 +131,7 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 
 	consumers := make([]sdk.Consumer, 0)
 	if err := drain(ctx, src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		consumers = append(consumers, flow.Consumer(instance.Consume, b.Meta.PerMinute, 0, b.Meta.StopAfter))
+		consumers = append(consumers, flow.Consumer(instance.Consume, b.Meta.PerMinute, 0))
 	}); err != nil {
 		return nil, err
 	}
@@ -153,7 +152,6 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 		Consumers:   consumers,
 		Transformer: stackTransform(transformers),
 		logger:      logger,
-		StopAfter:   src.StopAfter,
 		ExitOnError: src.ExitOnError,
 	}, nil
 }

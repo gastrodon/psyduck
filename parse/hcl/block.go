@@ -60,12 +60,14 @@ func renderValue(v cty.Value) string {
 }
 
 // blockSchema is the exact schema for one resource block: the plugin's spec
-// plus the host-owned metaSpec. Used with Content (not PartialContent) so
-// unknown attributes error at parse time.
-func blockSchema(spec []*sdk.Spec) *hcl.BodySchema {
-	schema := &hcl.BodySchema{Attributes: make([]hcl.AttributeSchema, 0, len(spec)+len(metaSpec))}
-	seen := make(map[string]bool, len(spec)+len(metaSpec))
-	for _, group := range [][]*sdk.Spec{spec, metaSpec} {
+// plus its verb's host-owned meta attributes (see metaSpecs). Used with
+// Content (not PartialContent) so unknown attributes error at parse time —
+// a meta attribute unsupported by this verb (e.g. stop-after on a consume
+// block) is rejected the same way an unknown plugin attribute is.
+func blockSchema(spec []*sdk.Spec, meta []*sdk.Spec) *hcl.BodySchema {
+	schema := &hcl.BodySchema{Attributes: make([]hcl.AttributeSchema, 0, len(spec)+len(meta))}
+	seen := make(map[string]bool, len(spec)+len(meta))
+	for _, group := range [][]*sdk.Spec{spec, meta} {
 		for _, s := range group {
 			if seen[s.Name] {
 				continue
@@ -174,9 +176,29 @@ func defaultVal(spec *sdk.Spec, want cty.Type) (cty.Value, error) {
 	return gocty.ToCtyValue(spec.Default, want)
 }
 
-// metaSpec drives decoding of host-owned attributes (sdk.BlockMeta) from
-// resource blocks. Plugins never declare these.
-var metaSpec = []*sdk.Spec{
-	{Name: "per-minute", Description: "rate limit: items per minute (0 = unrestricted)", Type: sdk.TypeInt, Default: 0},
-	{Name: "stop-after", Description: "stop after n items (0 = unrestricted)", Type: sdk.TypeInt, Default: 0},
+var (
+	perMinuteSpec = &sdk.Spec{Name: "per-minute", Description: "rate limit: items per minute (0 = unrestricted)", Type: sdk.TypeInt, Default: 0}
+	stopAfterSpec = &sdk.Spec{Name: "stop-after", Description: "stop after n items (0 = unrestricted)", Type: sdk.TypeInt, Default: 0}
+)
+
+// metaSpecs drives which host-owned attributes (sdk.BlockMeta) a block's
+// source may set, keyed by verb. Plugins never declare these. stop-after is
+// a producer-only flow governor — accepting it on consume or transform would
+// silently do nothing (nothing wraps a transformer, and a consumer's own
+// completion is its own to decide), so those verbs simply don't offer it.
+// per-minute paces both producers and consumers.
+var metaSpecs = map[string][]*sdk.Spec{
+	blockProduce:   {perMinuteSpec, stopAfterSpec},
+	blockConsume:   {perMinuteSpec},
+	blockTransform: {},
 }
+
+// blockMetaSpec is the full sdk.BlockMeta shape, independent of verb. Every
+// field sdk.BlockMeta declares must be present (possibly at its zero
+// default) for hclBlock.Decode's strict gocty conversion to succeed, so
+// makeBinding evaluates meta values against this rather than metaSpecs —
+// blockSchema (built from metaSpecs) is what actually rejects an attribute
+// a verb doesn't offer; by the time evalValues runs, an unauthorized
+// attribute has already errored and a permitted one is simply absent from
+// content.Attributes, so it defaults to zero here either way.
+var blockMetaSpec = []*sdk.Spec{perMinuteSpec, stopAfterSpec}

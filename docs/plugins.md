@@ -132,6 +132,12 @@ resource's `sdk.BlockMeta`), and it enforces both behaviors independently of
 the plugin. Do not declare them in your `Spec`, and do not try to read them
 from your config struct — they will not be there.
 
+Both are verb-restricted: `stop-after` is accepted only on `produce`
+resources (it's a producer-only flow governor); `per-minute` is accepted on
+`produce` and `consume` resources. Declaring either on a `transform` block,
+or `stop-after` on a `consume` block, is a parse-time error — the host
+rejects it as an unknown attribute before your plugin is ever bound.
+
 ### `sdk.Provider[T]`
 
 ```go
@@ -182,7 +188,10 @@ type BlockMeta struct {
 
 These are host-owned. They are decoded before `Bind` runs and enforced by the
 host wrapping your `Producer`/`Consumer`/`Transformer`. Nothing plugin-side
-touches them.
+touches them. `StopAfter` only ever bounds a `Producer` — the host has no
+`Consumer`/`Transformer` gate for it, so a config that tried to set it
+there would never have reached your plugin in the first place (rejected at
+parse time). `PerMinute` bounds both `Producer` and `Consumer`.
 
 ## Data model
 

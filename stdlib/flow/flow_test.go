@@ -115,7 +115,7 @@ func TestProducerCancelsInnerOnStopAfter(t *testing.T) {
 }
 
 func TestConsumer(t *testing.T) {
-	run := func(perMinute, stopAfter, feed int) int {
+	run := func(perMinute, feed int) (int, time.Duration) {
 		count := 0
 		consume := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 			for range recv {
@@ -125,18 +125,13 @@ func TestConsumer(t *testing.T) {
 		}
 
 		recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
-		go Consumer(consume, perMinute, 0, stopAfter)(t.Context(), recv, errs, done)
+		go Consumer(consume, perMinute, 0)(t.Context(), recv, errs, done)
 
-		stop := make(chan struct{})
+		start := time.Now()
 		go func() {
 			defer close(recv)
 			for i := 0; i < feed; i++ {
-				select {
-				case recv <- []byte{byte(i)}:
-					continue
-				case <-stop:
-					return
-				}
+				recv <- []byte{byte(i)}
 			}
 		}()
 
@@ -145,24 +140,27 @@ func TestConsumer(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("consumer never signalled done")
 		}
-		close(stop)
-		return count
+		return count, time.Since(start)
 	}
 
-	if got := run(0, 0, 10); got != 10 {
+	if got, _ := run(0, 10); got != 10 {
 		t.Fatalf("passthrough: want 10, got %d", got)
 	}
-	if got := run(0, 3, 10); got != 3 {
-		t.Fatalf("stop-after: want 3, got %d", got)
+
+	// per-minute paces messages: 6000/min = 10ms period, 5 msgs >= ~40ms
+	if got, elapsed := run(6000, 5); got != 5 {
+		t.Fatalf("per-minute: want 5, got %d", got)
+	} else if elapsed < 40*time.Millisecond {
+		t.Fatalf("per-minute: not throttled, took %s", elapsed)
 	}
 }
 
 // A consumer that reads one message then blocks doing simulated external
-// work — the realistic "consumer is mid-fetch when the cutoff hits"
-// scenario. Only ctx.Done can unblock it: without the wrapper cancelling
-// its ctx on cutoff, close(inner) alone doesn't help (the consumer isn't
-// waiting on inner anymore), and the test times out.
-func TestConsumerCancelsInnerOnStopAfter(t *testing.T) {
+// work — the realistic "consumer is mid-fetch when upstream ends" scenario.
+// Only ctx.Done can unblock it: without the wrapper cancelling its ctx on
+// exit, close(inner) alone doesn't help (the consumer isn't waiting on
+// inner anymore), and the test times out.
+func TestConsumerCancelsInnerOnRecvClose(t *testing.T) {
 	ctxCancelled := make(chan struct{})
 	consume := func(ctx context.Context, recv <-chan []byte, _ chan<- error, done chan<- struct{}) {
 		defer close(done)
@@ -175,7 +173,7 @@ func TestConsumerCancelsInnerOnStopAfter(t *testing.T) {
 	}
 
 	recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
-	go Consumer(consume, 0, 0, 1)(t.Context(), recv, errs, done)
+	go Consumer(consume, 0, 1000000)(t.Context(), recv, errs, done)
 
 	recv <- []byte{0}
 	close(recv)
@@ -183,7 +181,7 @@ func TestConsumerCancelsInnerOnStopAfter(t *testing.T) {
 	select {
 	case <-ctxCancelled:
 	case <-time.After(time.Second):
-		t.Fatal("inner consumer never observed ctx cancel after cutoff")
+		t.Fatal("inner consumer never observed ctx cancel after recv close")
 	}
 	<-done
 }

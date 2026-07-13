@@ -47,8 +47,8 @@ func emitN(count int, payload []byte, sent *atomic.Int64) sdk.Producer {
 // emitForever produces payload until nothing receives anymore. It closes
 // neither channel and deliberately ignores ctx — it never finishes on its
 // own, unlike a well-behaved plugin. Tests use it to prove RunPipeline
-// itself bounds StopAfter/cancellation rather than relying on plugin
-// cooperation with the sdk's context contract.
+// itself bounds cancellation rather than relying on plugin cooperation with
+// the sdk's context contract.
 func emitForever(payload []byte) sdk.Producer {
 	return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 		for {
@@ -175,24 +175,6 @@ func Test_RunPipeline_filtering(t *testing.T) {
 	}
 	if n := got.Load(); n != 50 {
 		t.Fatalf("want 50 messages past the filter, got %d", n)
-	}
-}
-
-// Pipeline-level stop-after must terminate even an infinite producer.
-func Test_RunPipeline_stopAfter(t *testing.T) {
-	var got atomic.Int64
-	err := mustRun(t, t.Context(), &Pipeline{
-		Producers:   staticSource(emitForever([]byte("x"))),
-		Parallel:    1,
-		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-		StopAfter:   5,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := got.Load(); n != 5 {
-		t.Fatalf("want exactly 5 consumed, got %d", n)
 	}
 }
 

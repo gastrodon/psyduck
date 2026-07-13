@@ -11,8 +11,8 @@
 # content. run listens on that socket, uses the stream as its produce-from
 # description, and runs each received producer. With produce-parallel defaulting
 # to 1 on both sides the order is preserved end to end, so the file output is
-# "alpha\nbeta". run's listen producer never exhausts on its own, so stop-after
-# bounds it to the two messages it expects.
+# "alpha\nbeta". run's listen producer never exhausts on its own, so its
+# stop-after meta bounds it to the two messages it expects.
 import {
   shared = "shared.psy"
 }
@@ -54,13 +54,13 @@ pipeline "emit" {
 }
 
 produce "listen" "meta-in" {
-  sep-byte = 0
-  location = "unix:///tmp/psyduck-e2e.sock"
-  create   = true
+  sep-byte   = 0
+  location   = "unix:///tmp/psyduck-e2e.sock"
+  create     = true
+  stop-after = 2
 }
 
 pipeline "run" {
   produce-from = produce.listen.meta-in
   consume      = [imports.shared.consume.file.out]
-  stop-after   = 2
 }

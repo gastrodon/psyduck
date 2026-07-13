@@ -11,8 +11,8 @@ import (
 // sink fans messages out to a set of running consumers and tracks which of
 // them are still accepting. A consumer signals completion by closing its
 // done channel — usually after the sink closes its input, but a consumer
-// may finish early on its own (a stop-after wrapper, for example), and the
-// sink simply stops sending to it rather than blocking the pipeline.
+// may finish early on its own (its own count/condition, plugin-owned), and
+// the sink simply stops sending to it rather than blocking the pipeline.
 type sink struct {
 	ins      []chan []byte
 	dones    []chan struct{}

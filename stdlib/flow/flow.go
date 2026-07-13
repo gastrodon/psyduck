@@ -1,9 +1,10 @@
-// Package flow holds the pipeline flow-control combinators: rate limiting,
-// stop-after cutoffs, and the head/tail/sample/throttle/wait gates. It is the
-// single home for pacing and pruning a message stream — the core engine applies
-// host-owned BlockMeta (per-minute, stop-after) through Producer/Consumer, and
-// the stdlib flow transformers wrap the same gate helpers, so both paths share
-// one implementation.
+// Package flow holds the pipeline flow-control combinators: rate limiting, a
+// producer-only stop-after cutoff, and the head/tail/sample/throttle/wait
+// gates. It is the single home for pacing and pruning a message stream — the
+// core engine applies host-owned BlockMeta (per-minute on both verbs,
+// stop-after on producers only) through Producer/Consumer, and the stdlib
+// flow transformers wrap the same gate helpers, so both paths share one
+// implementation.
 package flow
 
 import (
@@ -83,18 +84,16 @@ func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer 
 	}
 }
 
-// Consumer wraps c with rate limiting and a stop-after cutoff. With all limits
-// unset it returns c unchanged. The wrapper derives an inner ctx that is
-// cancelled on any exit path so c exits promptly at the cutoff even if it
-// was mid-fetch on an external system.
+// Consumer wraps c with rate limiting. With no limit set it returns c
+// unchanged. The wrapper derives an inner ctx that is cancelled on any
+// exit path so c exits promptly even if it was mid-fetch on an external
+// system.
 //
-// At the cutoff (or on cancellation) the wrapper stops receiving and closes
-// the inner stream; c flushes and closes done. The wrapper deliberately does
-// not drain recv — done is the host's signal to stop sending (core's sink
-// honors it), and silently discarding messages would hide the cutoff from
-// the host and keep upstream producing into the void.
-func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer {
-	if perMinute <= 0 && perSecond <= 0 && stopAfter <= 0 {
+// Consumers have no stop-after cutoff: a consumer's own completion is its
+// own to decide, and it signals early finish by closing done itself (core's
+// sink honors it) — a host-imposed cutoff has nothing to add there.
+func Consumer(c sdk.Consumer, perMinute, perSecond int) sdk.Consumer {
+	if perMinute <= 0 && perSecond <= 0 {
 		return c
 	}
 	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
@@ -104,7 +103,7 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 		defer cancel()
 		go c(ctx, inner, errs, done)
 
-		wait, count := Limiter(perMinute, perSecond), 0
+		wait := Limiter(perMinute, perSecond)
 		for {
 			select {
 			case msg, ok := <-recv:
@@ -115,10 +114,6 @@ func Consumer(c sdk.Consumer, perMinute, perSecond, stopAfter int) sdk.Consumer 
 				select {
 				case inner <- msg:
 				case <-ctx.Done():
-					return
-				}
-				count++
-				if stopAfter > 0 && count >= stopAfter {
 					return
 				}
 			case <-ctx.Done():

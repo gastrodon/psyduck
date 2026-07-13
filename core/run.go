@@ -8,7 +8,7 @@ import (
 
 /*
 RunPipeline drives a built pipeline until its producers are exhausted, all
-of its consumers finish, StopAfter is reached, or ctx ends.
+of its consumers finish, or ctx ends.
 
 Producers are bound at run time by the pipeline's ProducerSource and run
 through a worker pool that merges their output into one iter.Seq2 stream
@@ -65,7 +65,6 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 
 	feed, feedErrs := pipeline.Producers(ctx)
 
-	delivered := 0
 	for msg, err := range produce(ctx, feed, feedErrs, pipeline.Parallel) {
 		if err != nil {
 			report(fmt.Errorf("producer supplied error: %w", err))
@@ -83,11 +82,6 @@ func RunPipeline(outer context.Context, pipeline *Pipeline) error {
 
 		if !consumers.send(ctx, transformed) {
 			break // every consumer finished, or ctx ended
-		}
-
-		delivered++
-		if pipeline.StopAfter > 0 && delivered >= pipeline.StopAfter {
-			break
 		}
 	}
 
