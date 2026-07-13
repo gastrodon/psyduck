@@ -44,7 +44,7 @@ transform "render" "descriptor" {
 # listener's socket before dialing. NUL-framed to match the listener.
 consume "socket" "meta" {
   sep-byte = 0
-  location = "unix:///tmp/psyduck-e2e.sock"
+  location = env.PSYDUCK_SOCK
 }
 
 pipeline "emit" {
@@ -55,7 +55,7 @@ pipeline "emit" {
 
 produce "listen" "meta-in" {
   sep-byte   = 0
-  location   = "unix:///tmp/psyduck-e2e.sock"
+  location   = env.PSYDUCK_SOCK
   create     = true
   stop-after = 2
 }
