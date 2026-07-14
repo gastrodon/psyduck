@@ -21,6 +21,12 @@ import (
 type jsonBlock struct{ data []byte }
 
 func (b jsonBlock) Origin() sdk.SourceRange { return sdk.SourceRange{SourceName: "test"} }
+func (b jsonBlock) Encode() ([]byte, error) {
+	if len(b.data) == 0 {
+		return []byte("{}"), nil
+	}
+	return b.data, nil
+}
 func (b jsonBlock) Decode(dst any) error {
 	if len(b.data) == 0 {
 		return nil
@@ -51,6 +57,7 @@ func TestLoad_Integration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
+	t.Cleanup(store.Close)
 	if len(plugins) != 1 {
 		t.Fatalf("loaded %d plugins, want 1", len(plugins))
 	}
@@ -115,7 +122,7 @@ Loop:
 
 func TestBuild_DedupesSharedHash(t *testing.T) {
 	// Two different plugin names built from the same source dir produce
-	// byte-identical .so files and should collapse to one stored binary.
+	// byte-identical binaries and should collapse to one stored binary.
 	store := NewStore(t.TempDir())
 
 	locked, err := store.Build([]parse.Plugin{

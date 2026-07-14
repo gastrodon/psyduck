@@ -19,17 +19,16 @@
           version = self.shortRev or self.dirtyShortRev or "dev";
 
           src = self;
-          vendorHash = "sha256-pUYDsfJMTZEfLcY001Dlc9djCfy+keH60SXmEkiWOe8=";
+          vendorHash = "sha256-CL6mFL5Qzi3WNhTsE3E7FrgSH5+xtoXBlpZogw49J5I=";
 
           # Only the root command builds a runnable binary; the rest of the
           # module is libraries (and stdlib/integration, which is test-only
           # and has no buildable package of its own).
           subPackages = [ "." ];
 
-          # plugins/store.go loads compiled plugins through the standard
-          # library's `plugin` package, which needs cgo -- matches the
-          # project's own Dockerfile, which builds the same way.
-          env.CGO_ENABLED = 1;
+          # Plugins run as gRPC subprocesses (sdk/rpc), not `plugin.Open`
+          # .so loads, so nothing here needs cgo anymore.
+          env.CGO_ENABLED = 0;
 
           ldflags = [
             "-s" # omit the symbol table

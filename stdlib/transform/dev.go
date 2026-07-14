@@ -6,8 +6,7 @@ import (
 	"sync"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 type assertConfig struct {

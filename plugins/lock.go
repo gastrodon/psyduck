@@ -10,8 +10,8 @@ import (
 
 // LockedPlugin is one plugin's resolved, content-addressed entry in a
 // lock file: where it came from, the git ref that was actually checked
-// out (empty for local, non-git sources), and the hash of the exact .so
-// bytes that were built from it.
+// out (empty for local, non-git sources), and the hash of the exact
+// binary bytes that were built from it.
 //
 // Ref is always the *actual* ref init resolved at build time — a branch
 // (refs/heads/<name>), a tag (refs/tags/<name>), or, if neither applies,

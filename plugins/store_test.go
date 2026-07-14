@@ -27,7 +27,7 @@ func TestStorePaths(t *testing.T) {
 		got, want string
 	}{
 		{"pluginsDir", store.pluginsDir(), filepath.Join(root, "plugins")},
-		{"hashPath", store.hashPath("deadbeef"), filepath.Join(root, "plugins", "deadbeef.so")},
+		{"hashPath", store.hashPath("deadbeef"), filepath.Join(root, "plugins", "deadbeef")},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

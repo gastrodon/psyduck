@@ -12,8 +12,7 @@ import (
 	"strings"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 // Text transformers operate in the string domain. `decode` chooses how bytes

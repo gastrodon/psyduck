@@ -4,8 +4,7 @@ import (
 	"fmt"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 // keyer computes a string key from a message using the domain-matched selector:

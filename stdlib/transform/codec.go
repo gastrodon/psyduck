@@ -2,8 +2,7 @@ package transform
 
 import (
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 // codecTransformer is the shared skeleton for every codec-aware transformer.

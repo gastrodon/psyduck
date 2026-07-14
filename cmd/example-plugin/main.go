@@ -4,12 +4,13 @@ import (
 	"context"
 
 	"github.com/psyduck-etl/sdk"
+	"github.com/psyduck-etl/sdk/rpc"
 )
 
-// main is a no-op — required because -buildmode=plugin still needs package main.
-func main() {}
+// main serves the plugin over gRPC to the psyduck host that launched it.
+func main() { rpc.Serve(Plugin()) }
 
-// Plugin is the symbol plugins.loadBinary looks up after opening the .so.
+// Plugin builds the sdk.Plugin this binary serves.
 func Plugin() sdk.Plugin {
 	return sdk.NewInProc("example-plugin",
 		&sdk.Resource{

@@ -1,9 +1,11 @@
 # Writing psyduck plugins
 
-A plugin is a Go module that exports `func Plugin() sdk.Plugin`. psyduck
-clones the module at `psyduck init`, compiles it with `go build -buildmode=plugin`,
-and opens the resulting `.so` at run time. Once loaded, every resource the
-plugin declares becomes usable from `.psy` files just like a stdlib resource.
+A plugin is a Go `main` module whose `main` serves an `sdk.Plugin` over
+gRPC via `rpc.Serve`. psyduck clones the module at `psyduck init`, compiles
+it with a plain `go build`, and launches the resulting executable as a
+subprocess at run time (hashicorp/go-plugin style — the same model
+Terraform providers use). Once loaded, every resource the plugin declares
+becomes usable from `.psy` files just like a stdlib resource.
 
 The public interface is the `github.com/psyduck-etl/sdk` package. Nothing in
 `github.com/gastrodon/psyduck` is imported by plugin authors — the host and
@@ -18,7 +20,10 @@ import (
     "context"
 
     "github.com/psyduck-etl/sdk"
+    "github.com/psyduck-etl/sdk/rpc"
 )
+
+func main() { rpc.Serve(Plugin()) }
 
 func Plugin() sdk.Plugin {
     return sdk.NewInProc("hello",
@@ -69,13 +74,16 @@ produce "greet" "hi" {
 }
 ```
 
-Requirements — enforced by `go build -buildmode=plugin`:
+Requirements:
 
-- Package must be `main`.
-- The exported symbol must be `Plugin` with signature `func() sdk.Plugin`.
-- The plugin's `go.mod` should require the same versions of the SDK, HCL,
-  logrus, and any other host-shared modules as the host binary. Mismatched
-  versions cause `plugin.Open` to fail at load time.
+- Package must be `main`, and `main` must call `rpc.Serve` with the
+  `sdk.Plugin` — that's the whole entrypoint.
+- Because the plugin is a separate process that only shares the wire
+  contract with the host, its `go.mod` does **not** need to match the
+  host's dependency graph, toolchain, or even SDK patch version. The only
+  compatibility surface is `rpc.Handshake.ProtocolVersion`, which the SDK
+  bumps when the wire contract changes incompatibly — a mismatch fails
+  loudly at launch.
 
 ## The SDK interfaces
 
@@ -225,15 +233,15 @@ psyduck fetches plugins via `git clone` and builds them with the host's Go
 toolchain. Two consequences:
 
 - `plugin.source` can be any `git clone`-able URL (`https://`, `git@`,
-  or a local path or `.so`).
+  or a local path — a source directory to build, or a prebuilt plugin
+  executable to store as-is).
 - `plugin.tag` selects a git ref. Omit it to build from the default branch
   each time `psyduck init` runs. Pin it in shared workspaces.
 
-Because `plugin.Open` requires matching module graphs, a plugin published
-without careful version pins will start failing when the host's SDK version
-moves. The safest release surface is: `main` tracks a specific psyduck
-version and pins its `go.mod` accordingly; new psyduck releases get a
-matching plugin tag.
+Plugins are separate processes, so the host's SDK version moving does not
+break them — host and plugin only meet at the gRPC wire contract, which is
+versioned independently by `rpc.Handshake.ProtocolVersion`. Pin
+`plugin.tag` for reproducibility, not for toolchain parity.
 
 ## Reference: the stdlib as an example
 
@@ -247,6 +255,8 @@ examples worth reading:
 | `stdlib/transform/dev.go` (`Count`) | Transformer with per-instance mutable state. |
 | `stdlib/plugin.go` | Assembling many `Resource`s under one `sdk.NewInProc` plugin. |
 
-The one thing the stdlib does *not* demonstrate is being an external
-`plugin.Open` target: it is linked in directly by `main.go`. Any Git-based
-plugin is otherwise structurally identical.
+The one thing the stdlib does *not* demonstrate is running as a
+subprocess: it is linked in directly by `main.go` and never crosses the
+gRPC boundary. `cmd/example-plugin` is the minimal external plugin — an
+`rpc.Serve` main around one producer resource. Any Git-based plugin is
+structurally identical.

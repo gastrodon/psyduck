@@ -5,8 +5,7 @@ import (
 	"math"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 func asContinuous(v data.Value, who string) (data.Continuous, error) {

@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"plugin"
 
+	"github.com/hashicorp/go-hclog"
 	"github.com/psyduck-etl/sdk"
+	"github.com/psyduck-etl/sdk/rpc"
 
 	"github.com/gastrodon/psyduck/parse"
 )
@@ -20,6 +21,10 @@ import (
 // binaries by hash, so the same store can back any number of lock files.
 type Store struct {
 	root string
+
+	// clients tracks the plugin subprocesses Load has launched, so Close
+	// can tear them down with the store instead of leaking them.
+	clients []*rpc.Client
 }
 
 func NewStore(root string) *Store {
@@ -39,11 +44,11 @@ func (s *Store) pluginsDir() string {
 }
 
 func (s *Store) hashPath(hash string) string {
-	return filepath.Join(s.pluginsDir(), hash+".so")
+	return filepath.Join(s.pluginsDir(), hash)
 }
 
 // storeBinary content-addresses the file at path into the store: hashes
-// its bytes and writes them to <hash>.so. It always writes, even if a
+// its bytes and writes them to <hash>. It always writes, even if a
 // file already exists at that hash path — the expensive work (build or
 // clone) already happened by the time storeBinary is called, so skipping
 // the write would only save one cheap copy at the cost of never
@@ -64,7 +69,8 @@ func (s *Store) storeBinary(path string) (string, error) {
 	if err := os.MkdirAll(s.pluginsDir(), os.ModeDir|os.ModePerm); err != nil {
 		return "", fmt.Errorf("failed to create plugins dir: %w", err)
 	}
-	if err := os.WriteFile(dest, data, 0o644); err != nil {
+	// 0o755: plugins are executables now, launched as subprocesses at Load.
+	if err := os.WriteFile(dest, data, 0o755); err != nil {
 		return "", fmt.Errorf("failed to store plugin binary: %w", err)
 	}
 	return hash, nil
@@ -94,24 +100,65 @@ func (s *Store) Build(specs []parse.Plugin) (map[string]LockedPlugin, error) {
 	return locked, nil
 }
 
-// Load opens every plugin recorded in locked, verifying each binary's
-// content still matches its locked hash before opening it — catching a
-// store that's missing, corrupted, or drifted out of sync with the lock
-// file it's supposed to satisfy.
+// Load launches every plugin recorded in locked as a subprocess (see
+// sdk/rpc), verifying each binary's content still matches its locked hash
+// before launching it — catching a store that's missing, corrupted, or
+// drifted out of sync with the lock file it's supposed to satisfy.
+//
+// The subprocesses stay alive behind the returned sdk.Plugins until Close;
+// a partial failure tears down whatever was already launched.
 func (s *Store) Load(locked map[string]LockedPlugin) ([]sdk.Plugin, error) {
 	loaded := make([]sdk.Plugin, 0, len(locked))
 	for name, entry := range locked {
-		soPath := s.hashPath(entry.Hash)
-		if err := verifyHash(soPath, entry.Hash); err != nil {
+		binPath := s.hashPath(entry.Hash)
+		if err := verifyHash(binPath, entry.Hash); err != nil {
 			return nil, fmt.Errorf("plugin %s: %w", name, err)
 		}
-		p, err := loadBinary(name, soPath)
+		client, err := rpc.Dial(binPath, pluginLogger(name))
 		if err != nil {
+			s.Close()
 			return nil, fmt.Errorf("failed to load plugin %s: %w", name, err)
 		}
-		loaded = append(loaded, p)
+		s.clients = append(s.clients, client)
+		loaded = append(loaded, client.Plugin)
 	}
 	return loaded, nil
+}
+
+// Close tears down every plugin subprocess this store has launched,
+// invalidating the sdk.Plugins Load returned. Safe to call more than once.
+func (s *Store) Close() {
+	for _, c := range s.clients {
+		c.Kill()
+	}
+	s.clients = nil
+}
+
+// CleanupClients kills every plugin subprocess launched in this process,
+// regardless of which store launched it. Hosts call it once on the way
+// out so no plugin outlives its run.
+func CleanupClients() { rpc.CleanupClients() }
+
+// pluginLogger builds the logger plugin-subprocess machinery (launch,
+// handshake, forwarded plugin stderr) logs through. It honors
+// PSYDUCK_LOG_LEVEL like core's pipeline logger, but defaults to Warn
+// rather than Info: go-plugin's Info output is per-run lifecycle noise
+// (started/exited lines), not something a pipeline user asked for.
+func pluginLogger(name string) hclog.Logger {
+	level := hclog.Warn
+	switch os.Getenv("PSYDUCK_LOG_LEVEL") {
+	case "trace":
+		level = hclog.Trace
+	case "debug":
+		level = hclog.Debug
+	case "error", "fatal", "panic":
+		level = hclog.Error
+	}
+	return hclog.New(&hclog.LoggerOptions{
+		Name:   "plugin." + name,
+		Level:  level,
+		Output: os.Stderr,
+	})
 }
 
 // verifyHash confirms the file at path still hashes to want.
@@ -125,25 +172,4 @@ func verifyHash(path, want string) error {
 		return fmt.Errorf("hash mismatch at %s: locked %s, found %s (run init again)", path, want, got)
 	}
 	return nil
-}
-
-// loadBinary opens the shared object at soPath and returns the sdk.Plugin
-// from its exported `func Plugin() sdk.Plugin` symbol.
-func loadBinary(name, soPath string) (sdk.Plugin, error) {
-	p, err := plugin.Open(soPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open plugin %s at %s: %w", name, soPath, err)
-	}
-
-	sym, err := p.Lookup("Plugin")
-	if err != nil {
-		return nil, fmt.Errorf("failed to lookup Plugin symbol for %s: %w", name, err)
-	}
-
-	makePlugin, ok := sym.(func() sdk.Plugin)
-	if !ok {
-		return nil, fmt.Errorf("plugin %s: Plugin symbol is not func() sdk.Plugin: %T", name, sym)
-	}
-
-	return makePlugin(), nil
 }

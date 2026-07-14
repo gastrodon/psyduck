@@ -16,6 +16,7 @@ type nopBlock struct{}
 
 func (nopBlock) Origin() sdk.SourceRange { return sdk.SourceRange{SourceName: "test"} }
 func (nopBlock) Decode(any) error        { return nil }
+func (nopBlock) Encode() ([]byte, error) { return []byte("{}"), nil }
 
 // corePlugin returns an in-proc plugin with one resource of each kind:
 // a producer emitting `count` copies of `payload`, a counting consumer,
