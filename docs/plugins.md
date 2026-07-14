@@ -245,18 +245,18 @@ func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error
 }
 ```
 
-Most stdlib transformers are plain per-message mappings, but there is no
-shared helper anywhere in stdlib — not even a stdlib-internal one — that
-adapts a `func(in []byte) ([]byte, error)` into this contract. Every
-transformer, in stdlib and out, writes the raw loop above (or its own
-equivalent skeleton) directly: see `stdlib/transform/codec.go`'s
-`codecTransformer` or `stdlib/flow/flow.go`'s `Wait`/`Head`/`Tail` for
-examples of the plain per-message shape written out in full. The SDK
-deliberately ships no Map/Filter adapter, and stdlib holds itself to the same
-rule, so reading any stdlib transformer shows exactly the loop a plugin
-author is expected to write. For a stateful example that flushes on stream
-end, see `stdlib/transform/keyed.go`'s `Batch`, which buffers messages into
-fixed-size groups and emits a final partial group when `in` closes.
+For the common case — a plain per-message mapping — the SDK ships
+`sdk.Map(fn func([]byte) ([]byte, error)) Transformer`, which lifts `fn`
+onto this contract: a `(nil, nil)` return filters the message out, an error
+is reported on `errs` and that message dropped, and the stage keeps running.
+If `fn` is all your transformer needs, use `sdk.Map` and skip the loop above
+entirely. Stdlib's own transformers write the raw loop directly (see
+`stdlib/transform/codec.go`'s `codecTransformer` or `stdlib/flow/flow.go`'s
+`Wait`/`Head`/`Tail`), so reading any of them shows exactly the loop a
+plugin author writes when they need more than 1-to-1. For a stateful example
+that flushes on stream end, see `stdlib/transform/keyed.go`'s `Batch`, which
+buffers messages into fixed-size groups and emits a final partial group when
+`in` closes.
 
 ### `sdk.BlockMeta`
 
