@@ -2,3 +2,5 @@
 coverage.*
 psyduck
 *.lock
+!flake.lock
+result

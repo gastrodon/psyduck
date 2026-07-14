@@ -29,9 +29,22 @@ jobs:
         token: ${{ secrets.CODECOV_TOKEN }}
         slug: gastrodon/psyduck
 
+  test-flake:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v2
+
+    - name: Install Nix
+      uses: cachix/install-nix-action@v27
+
+    - name: Build flake
+      run: nix build . -L
+
   release-docker:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs: [test, test-flake]
     runs-on: ubuntu-latest
 
     steps:
@@ -53,7 +66,7 @@ jobs:
 
   release-binary:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs: [test, test-flake]
     runs-on: ubuntu-latest
 
     steps:
