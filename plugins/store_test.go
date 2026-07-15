@@ -3,6 +3,7 @@ package plugins
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -95,6 +96,21 @@ func TestStoreBinary_SameNameOverwrites(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Errorf("want exactly 1 stored binary for same name, got %d", len(entries))
+	}
+}
+
+// TestLoad_ShortHash feeds Load a lock entry whose hash is shorter than
+// the 7 chars binPath slices off. A hand-edited or truncated lock file can
+// produce this; Load should surface a clean error, not crash.
+func TestLoad_ShortHash(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	_, err := store.Load(map[string]LockedPlugin{"stubby": {Hash: "abc"}})
+	if err == nil {
+		t.Fatal("Load succeeded on a short hash, want error")
+	}
+	if !strings.Contains(err.Error(), "stubby") {
+		t.Errorf("error should mention plugin name, got: %v", err)
 	}
 }
 

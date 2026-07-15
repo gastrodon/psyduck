@@ -48,9 +48,17 @@ func (s *Store) pluginsDir() string {
 
 // binPath is the on-disk location for a plugin's binary: one file per
 // plugin name, suffixed with the first 7 hex chars of its full sha256 so
-// running processes are easy to pick out in `ps` / `top`.
+// running processes are easy to pick out in `ps` / `top`. The suffix is
+// cosmetic — the full hash in the lock is what Load verifies against the
+// file's bytes — so a malformed short hash (truncated/hand-edited lock)
+// just uses whatever's there rather than panicking; verifyHash then
+// rejects it with a clean error.
 func (s *Store) binPath(name, hash string) string {
-	return filepath.Join(s.pluginsDir(), name+"-psyduck-"+hash[:7])
+	suffix := hash
+	if len(hash) > 7 {
+		suffix = hash[:7]
+	}
+	return filepath.Join(s.pluginsDir(), name+"-psyduck-"+suffix)
 }
 
 // storeBinary writes the file at path to `<name>-psyduck-<sha7>`, where
