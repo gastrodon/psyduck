@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,4 +108,66 @@ func TestResolveRef(t *testing.T) {
 			t.Errorf("ref = %q, want %q", ref, secondSHA)
 		}
 	})
+}
+
+// TestBuild_RemoteSource covers the whole remote plugin path: clone,
+// resolveRef, go build, storeBinary. The repo holds a dep-free main package —
+// Build never dials the binary, so it doesn't need to be a real psyduck
+// plugin, and a module with no requirements builds with no network or module
+// cache.
+//
+// pluginKind only treats git@/https:// sources as remote, so the test clones
+// a fake https URL that a git insteadOf rewrite (scoped to a throwaway
+// GIT_CONFIG_GLOBAL) redirects to the local repo.
+func TestBuild_RemoteSource(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: shells out to git commit, which invokes ambient pre-commit hook")
+	}
+
+	repo := t.TempDir()
+	mustGit(t, repo, "init", "-q", "-b", "main")
+	mustGit(t, repo, "config", "user.email", "test@test.com")
+	mustGit(t, repo, "config", "user.name", "test")
+	mustGit(t, repo, "config", "core.hooksPath", "/dev/null")
+
+	writeFile := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile("go.mod", "module dummyplugin\n\ngo 1.21\n")
+	writeFile("main.go", "package main\n\nfunc main() {}\n")
+	mustGit(t, repo, "add", ".")
+	mustGit(t, repo, "commit", "-q", "-m", "dummy plugin")
+
+	const source = "https://psyduck.invalid/dummy.git"
+	gitConfig := filepath.Join(t.TempDir(), "gitconfig")
+	rewrite := fmt.Sprintf("[url %q]\n\tinsteadOf = %s\n", "file://"+repo, source)
+	if err := os.WriteFile(gitConfig, []byte(rewrite), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", gitConfig)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	store := NewStore(t.TempDir())
+	locked, err := store.Build([]parse.Plugin{{Name: "dummy", Source: source}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	entry, ok := locked["dummy"]
+	if !ok {
+		t.Fatalf("no lock entry for dummy: %#v", locked)
+	}
+	if entry.Ref != "refs/heads/main" {
+		t.Errorf("resolved ref = %q, want refs/heads/main", entry.Ref)
+	}
+	stat, err := os.Stat(store.binPath("dummy", entry.Hash))
+	if err != nil {
+		t.Fatalf("stored binary: %v", err)
+	}
+	if !stat.Mode().IsRegular() {
+		t.Errorf("stored binary mode = %v, want a regular file", stat.Mode())
+	}
 }

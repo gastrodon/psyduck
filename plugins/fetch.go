@@ -55,7 +55,11 @@ func (f *fetcher) cleanup() {
 // hash. Plugins run as subprocesses (see sdk/rpc), so this is a plain
 // `go build`: no -buildmode=plugin, no toolchain/race parity with the host.
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
-	tmpOut := filepath.Join(f.tmpDir, spec.Name)
+	// The ".bin" suffix keeps the output distinct from cloneDir: a remote
+	// plugin's clone already sits at <tmpDir>/<name>, and `go build -o`
+	// pointed at an existing directory doesn't fail — it silently writes
+	// the binary inside it, leaving nothing at the path we hand back.
+	tmpOut := filepath.Join(f.tmpDir, spec.Name+".bin")
 	args := []string{"build", "-C", codePath, "-o", tmpOut}
 	if out, err := exec.Command("go", args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
