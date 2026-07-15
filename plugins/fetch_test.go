@@ -50,10 +50,14 @@ func mustGit(t *testing.T, dir string, args ...string) string {
 // against a real local repo: HEAD on a branch, HEAD exactly at a tag, and
 // detached at a bare commit (what checking out a raw SHA leaves you at).
 func TestResolveRef(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: shells out to git commit, which invokes ambient pre-commit hook")
+	}
 	dir := t.TempDir()
 	mustGit(t, dir, "init", "-q", "-b", "main")
 	mustGit(t, dir, "config", "user.email", "test@test.com")
 	mustGit(t, dir, "config", "user.name", "test")
+	mustGit(t, dir, "config", "core.hooksPath", "/dev/null")
 
 	write := func(content string) {
 		if err := os.WriteFile(filepath.Join(dir, "f"), []byte(content), 0o644); err != nil {

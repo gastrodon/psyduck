@@ -60,6 +60,19 @@
         apps.default = flake-utils.lib.mkApp {
           drv = self.packages.${system}.default;
         };
+
+        devShells.default = pkgs.mkShell {
+          packages = [ pkgs.go pkgs.git ];
+
+          # Point git at the tracked .githooks/ dir so contributors get the
+          # same pre-commit checks CI runs (gofmt, go test, nix build)
+          # without needing to symlink anything by hand.
+          shellHook = ''
+            if git rev-parse --show-toplevel >/dev/null 2>&1; then
+              git config core.hooksPath "$(git rev-parse --show-toplevel)/.githooks"
+            fi
+          '';
+        };
       }
     );
 }
