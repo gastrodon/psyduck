@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gastrodon/psyduck/stdlib/flow"
 	"github.com/psyduck-etl/sdk"
 )
 
@@ -309,5 +310,104 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
 		t.Fatalf("late error was dropped: got %v", err)
+	}
+}
+
+// stream.go's error forwarder stops the moment the producer *function*
+// returns, relying on the documented invariant (stream.go:114-116) that an
+// unbuffered errs send is received before the function can return.
+// flow.Producer breaks that invariant: at the stop-after cutoff the wrapper
+// returns immediately, cancelling the derived ctx to tell the inner plugin —
+// which shares the same errs channel — to wind down. A plugin that reports
+// why it stopped (failed close handshake, flush error) sends into an errs
+// channel nobody reads anymore.
+//
+// The inner producer below is contrived to hit the window deterministically
+// rather than by luck: it waits for the cutoff cancel, then gives the
+// engine's forwarder every chance to observe the wrapper's return before
+// reporting (same trick as Test_ErrorAfterDataClose_IsDelivered above).
+func Test_StopAfterTeardownError_IsDelivered(t *testing.T) {
+	t.Skip("gastrodon/psyduck#37: joining the inner producer before flow.Producer " +
+		"returns deadlocks against producers that don't select on ctx.Done() " +
+		"(e.g. a blind `send <- msg` loop) — needs a design that doesn't assume " +
+		"ctx-cooperative producers; see issue for the goroutine-dump writeup")
+	inner := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
+		for i := 0; i < 3; i++ {
+			select {
+			case send <- []byte("x"):
+			case <-ctx.Done():
+				return
+			}
+		}
+		// The wrapper cancels this ctx as it returns at the cutoff.
+		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond)
+		select {
+		case errs <- errors.New("teardown failure at stop-after cutoff"):
+		case <-time.After(time.Second):
+			// nobody is listening anymore — this timeout firing IS the bug;
+			// the assertion below reports it as the missing pipeline error.
+		}
+	}
+
+	var got atomic.Int64
+	err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(flow.Producer(inner, 0, 0, 3)),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+		ExitOnError: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "teardown failure at stop-after cutoff") {
+		t.Fatalf("stop-after teardown error was dropped: got %v", err)
+	}
+}
+
+// BuildPipeline wraps every per-minute consumer in flow.Consumer
+// (core/build.go). That wrapper's deferred cancel() runs before its deferred
+// close(inner) — defers are LIFO, and flow.go registers close(inner) first —
+// so when the pipeline's stream ends cleanly, the inner consumer observes
+// ctx.Done() before (or racing) the close of its recv channel. Per the sdk
+// contract those are opposite signals: recv closing means "upstream done,
+// finish up and flush", ctx.Done means "abandoned, stop now". The inner
+// consumer here follows the contract exactly and still gets told it was
+// abandoned. The unit-level mechanism test is
+// stdlib/flow/flow_test.go:TestConsumerCleanEndIsNotAbandonment.
+func Test_RateLimitedConsumer_FinalFlushSurvivesCleanShutdown(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		var flushed atomic.Int64
+		buffering := func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer close(done)
+			defer close(errs)
+			buf := 0
+			for {
+				select {
+				case _, ok := <-recv:
+					if !ok {
+						flushed.Store(int64(buf)) // clean end: final flush
+						return
+					}
+					buf++
+				case <-ctx.Done():
+					return // abandoned: buffered work is dropped
+				}
+			}
+		}
+
+		// 6_000_000/min = 10µs period: the limiter is active (so the
+		// flow.Consumer wrap is real, exactly as BuildPipeline applies it)
+		// without slowing the test.
+		if err := panicSafeRun(t, &Pipeline{
+			Producers:   staticSource(emitN(3, []byte("x"), nil)),
+			Parallel:    1,
+			Consumers:   []sdk.Consumer{flow.Consumer(buffering, 6_000_000, 0)},
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n := flushed.Load(); n != 3 {
+			t.Fatalf("run %d: clean shutdown dropped the final flush: flushed %d, want 3", i, n)
+		}
 	}
 }

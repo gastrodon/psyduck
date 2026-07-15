@@ -155,6 +155,51 @@ func TestConsumer(t *testing.T) {
 	}
 }
 
+// A clean end of stream must be delivered to the inner consumer as a clean
+// end of stream. The sdk contract distinguishes recv closing (upstream done:
+// flush buffered work, finish up) from ctx cancellation (abandonment: stop
+// now). Consumer's deferred cancel() runs before its deferred close(inner)
+// (LIFO), so on a clean upstream close the inner consumer observes ctx.Done()
+// before — or racing — the close of its recv, and takes the abandonment path.
+// Any buffering consumer wrapped with a rate limit loses its final flush on
+// every clean pipeline shutdown. This is a live bug, not a fixed regression:
+// this test FAILS at the commit that introduces it.
+func TestConsumerCleanEndIsNotAbandonment(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		path := make(chan string, 1)
+		inner := func(ctx context.Context, recv <-chan []byte, _ chan<- error, done chan<- struct{}) {
+			defer close(done)
+			for {
+				select {
+				case _, ok := <-recv:
+					if !ok {
+						path <- "clean" // where a final flush would happen
+						return
+					}
+				case <-ctx.Done():
+					path <- "cancelled" // buffered work dropped
+					return
+				}
+			}
+		}
+
+		recv, errs, done := make(chan []byte), make(chan error), make(chan struct{})
+		go Consumer(inner, 0, 1000000)(t.Context(), recv, errs, done)
+
+		recv <- []byte{0}
+		close(recv)
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("inner consumer never finished")
+		}
+		if got := <-path; got != "clean" {
+			t.Fatalf("run %d: clean upstream close delivered to inner consumer as %s", i, got)
+		}
+	}
+}
+
 // A consumer that reads one message then blocks doing simulated external
 // work — the realistic "consumer is mid-fetch when upstream ends" scenario.
 // Only ctx.Done can unblock it: without the wrapper cancelling its ctx on
