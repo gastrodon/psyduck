@@ -14,11 +14,14 @@ import (
 	"github.com/gastrodon/psyduck/parse"
 )
 
-// Store represents the .psyduck/ directory: content-addressed storage for
-// built plugin binaries, keyed by the sha256 of their own bytes. The
-// mapping from plugin name to hash lives in a separate per-file lock file
-// (see lock.go) — the store itself only knows how to place and retrieve
-// binaries by hash, so the same store can back any number of lock files.
+// Store represents the .psyduck/ directory: on-disk storage for built
+// plugin binaries. Each binary is written to `<plugin>-psyduck-<sha7>`,
+// where the 7-char sha is a prefix of the sha256 over the file's bytes.
+// The short-hash suffix makes plugin subprocesses recognizable in `ps` /
+// `top` while still tying each file to specific bytes; the full sha256
+// stays in the lock file (see lock.go) and is what Load verifies against.
+// The store itself is stateless — the same store can back any number of
+// lock files.
 type Store struct {
 	root string
 
@@ -43,20 +46,22 @@ func (s *Store) pluginsDir() string {
 	return filepath.Join(s.root, "plugins")
 }
 
-func (s *Store) hashPath(hash string) string {
-	return filepath.Join(s.pluginsDir(), hash)
+// binPath is the on-disk location for a plugin's binary: one file per
+// plugin name, suffixed with the first 7 hex chars of its full sha256 so
+// running processes are easy to pick out in `ps` / `top`.
+func (s *Store) binPath(name, hash string) string {
+	return filepath.Join(s.pluginsDir(), name+"-psyduck-"+hash[:7])
 }
 
-// storeBinary content-addresses the file at path into the store: hashes
-// its bytes and writes them to <hash>. It always writes, even if a
-// file already exists at that hash path — the expensive work (build or
-// clone) already happened by the time storeBinary is called, so skipping
-// the write would only save one cheap copy at the cost of never
-// self-healing a hash slot whose on-disk content has drifted (e.g. been
-// tampered with, or corrupted) from what its filename promises. Two specs
-// that build to identical bytes still dedupe, since they land on the same
-// hash path with the same (correct) content either way. Returns the hash.
-func (s *Store) storeBinary(path string) (string, error) {
+// storeBinary writes the file at path to `<name>-psyduck-<sha7>`, where
+// the sha is computed from the file's bytes. It always writes, even if a
+// file already exists at that path — the expensive work (build or clone)
+// already happened by the time storeBinary is called, so skipping the
+// write would only save one cheap copy at the cost of never self-healing
+// a slot whose on-disk content has drifted (e.g. been tampered with, or
+// corrupted) from what its filename promises. Returns the full sha256
+// hex, which is what the lock records.
+func (s *Store) storeBinary(path, name string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to read plugin binary: %w", err)
@@ -64,7 +69,7 @@ func (s *Store) storeBinary(path string) (string, error) {
 
 	sum := sha256.Sum256(data)
 	hash := hex.EncodeToString(sum[:])
-	dest := s.hashPath(hash)
+	dest := s.binPath(name, hash)
 
 	if err := os.MkdirAll(s.pluginsDir(), os.ModeDir|os.ModePerm); err != nil {
 		return "", fmt.Errorf("failed to create plugins dir: %w", err)
@@ -110,7 +115,7 @@ func (s *Store) Build(specs []parse.Plugin) (map[string]LockedPlugin, error) {
 func (s *Store) Load(locked map[string]LockedPlugin) ([]sdk.Plugin, error) {
 	loaded := make([]sdk.Plugin, 0, len(locked))
 	for name, entry := range locked {
-		binPath := s.hashPath(entry.Hash)
+		binPath := s.binPath(name, entry.Hash)
 		if err := verifyHash(binPath, entry.Hash); err != nil {
 			return nil, fmt.Errorf("plugin %s: %w", name, err)
 		}

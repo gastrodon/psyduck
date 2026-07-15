@@ -27,7 +27,7 @@ func TestStorePaths(t *testing.T) {
 		got, want string
 	}{
 		{"pluginsDir", store.pluginsDir(), filepath.Join(root, "plugins")},
-		{"hashPath", store.hashPath("deadbeef"), filepath.Join(root, "plugins", "deadbeef")},
+		{"binPath", store.binPath("myplug", "deadbeefdeadbeef"), filepath.Join(root, "plugins", "myplug-psyduck-deadbee")},
 	}
 	for _, c := range cases {
 		if c.got != c.want {
@@ -39,12 +39,12 @@ func TestStorePaths(t *testing.T) {
 func TestStoreBinary_ContentAddressed(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	src := filepath.Join(t.TempDir(), "plugin.so")
+	src := filepath.Join(t.TempDir(), "plugin.bin")
 	if err := os.WriteFile(src, []byte("fake plugin bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	hash, err := store.storeBinary(src)
+	hash, err := store.storeBinary(src, "example")
 	if err != nil {
 		t.Fatalf("storeBinary: %v", err)
 	}
@@ -52,21 +52,24 @@ func TestStoreBinary_ContentAddressed(t *testing.T) {
 		t.Fatal("storeBinary returned empty hash")
 	}
 
-	got, err := os.ReadFile(store.hashPath(hash))
+	got, err := os.ReadFile(store.binPath("example", hash))
 	if err != nil {
-		t.Fatalf("stored binary not found at hash path: %v", err)
+		t.Fatalf("stored binary not found at bin path: %v", err)
 	}
 	if string(got) != "fake plugin bytes" {
 		t.Errorf("stored content = %q, want %q", got, "fake plugin bytes")
 	}
 }
 
-func TestStoreBinary_DedupesIdenticalContent(t *testing.T) {
+// storeBinary self-heals: writing the same (name, content) twice leaves
+// one file, so a drifted/tampered slot gets restored to correct bytes on
+// the next init instead of being skipped.
+func TestStoreBinary_SameNameOverwrites(t *testing.T) {
 	store := NewStore(t.TempDir())
 
 	dir := t.TempDir()
-	a := filepath.Join(dir, "a.so")
-	b := filepath.Join(dir, "b.so")
+	a := filepath.Join(dir, "a.bin")
+	b := filepath.Join(dir, "b.bin")
 	if err := os.WriteFile(a, []byte("same bytes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +77,11 @@ func TestStoreBinary_DedupesIdenticalContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hashA, err := store.storeBinary(a)
+	hashA, err := store.storeBinary(a, "same")
 	if err != nil {
 		t.Fatal(err)
 	}
-	hashB, err := store.storeBinary(b)
+	hashB, err := store.storeBinary(b, "same")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +94,7 @@ func TestStoreBinary_DedupesIdenticalContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(entries) != 1 {
-		t.Errorf("want exactly 1 stored binary after dedup, got %d", len(entries))
+		t.Errorf("want exactly 1 stored binary for same name, got %d", len(entries))
 	}
 }
 

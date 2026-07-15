@@ -120,9 +120,11 @@ Loop:
 	}
 }
 
-func TestBuild_DedupesSharedHash(t *testing.T) {
+func TestBuild_PerNameFile(t *testing.T) {
 	// Two different plugin names built from the same source dir produce
-	// byte-identical binaries and should collapse to one stored binary.
+	// byte-identical binaries — the lock records the same hash for both,
+	// but each lands on its own `<name>-psyduck-<sha7>` file on disk so
+	// their subprocesses show up separately in ps.
 	store := NewStore(t.TempDir())
 
 	locked, err := store.Build([]parse.Plugin{
@@ -140,8 +142,8 @@ func TestBuild_DedupesSharedHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 1 {
-		t.Errorf("want exactly 1 stored binary, got %d", len(entries))
+	if len(entries) != 2 {
+		t.Errorf("want 2 stored binaries (one per plugin name), got %d", len(entries))
 	}
 }
 
@@ -160,7 +162,7 @@ func TestLoad_MissingPlugin(t *testing.T) {
 func TestLoad_InvalidPluginFile(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	hash, err := store.storeBinary(mustWriteTemp(t, "not a real plugin"))
+	hash, err := store.storeBinary(mustWriteTemp(t, "not a real plugin"), "bad-plugin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,14 +179,14 @@ func TestLoad_InvalidPluginFile(t *testing.T) {
 func TestLoad_HashMismatch(t *testing.T) {
 	store := NewStore(t.TempDir())
 
-	hash, err := store.storeBinary(mustWriteTemp(t, "original content"))
+	hash, err := store.storeBinary(mustWriteTemp(t, "original content"), "corrupted")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Corrupt the stored binary after the fact — Load must catch the drift
 	// rather than silently opening whatever's on disk.
-	if err := os.WriteFile(store.hashPath(hash), []byte("tampered"), 0o644); err != nil {
+	if err := os.WriteFile(store.binPath("corrupted", hash), []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

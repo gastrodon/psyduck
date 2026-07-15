@@ -118,10 +118,10 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 			if err != nil {
 				return "", "", err
 			}
-			hash, err := f.store.storeBinary(built)
+			hash, err := f.store.storeBinary(built, spec.Name)
 			return hash, "", err
 		}
-		hash, err := f.store.storeBinary(spec.Source)
+		hash, err := f.store.storeBinary(spec.Source, spec.Name)
 		return hash, "", err
 	case pluginRemote:
 		cloneDir, err := f.clone(spec)
@@ -136,7 +136,7 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		hash, err := f.store.storeBinary(built)
+		hash, err := f.store.storeBinary(built, spec.Name)
 		return hash, resolve, err
 	default:
 		return "", "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)
