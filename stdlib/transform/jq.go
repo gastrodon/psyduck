@@ -86,26 +86,6 @@ func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 	}, nil
 }
 
-// runJQ runs a jq expression and returns its first output value (or nil if the
-// expression yields nothing). Used by predicate callers like Filter that only
-// care about a single result; Jq itself drains the whole iterator inline.
-func runJQ(query *gojq.Query, in []byte) (interface{}, error) {
-	var input interface{}
-	if err := json.Unmarshal(in, &input); err != nil {
-		return nil, fmt.Errorf("jq: parse input JSON: %w", err)
-	}
-
-	iter := query.Run(input)
-	v, ok := iter.Next()
-	if !ok {
-		return nil, nil
-	}
-	if err, ok := v.(error); ok {
-		return nil, fmt.Errorf("jq: %w", err)
-	}
-	return v, nil
-}
-
 // marshalJQ converts a jq output value back to bytes.
 func marshalJQ(v interface{}) ([]byte, error) {
 	if v == nil {
