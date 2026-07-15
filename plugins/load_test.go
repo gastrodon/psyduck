@@ -120,6 +120,50 @@ Loop:
 	}
 }
 
+// TestLoad_PartialFailureTearsDown checks Load's teardown promise: when
+// one entry launches but a later one fails verification, the launched
+// subprocess must not leak. The failure is a hash mismatch (a drifted
+// store) — the branch that used to return without tearing down. Map order
+// is random, so this asserts the post-condition that holds either way:
+// after a failed Load, the store holds no live clients.
+func TestLoad_PartialFailureTearsDown(t *testing.T) {
+	root := t.TempDir()
+
+	build := NewStore(root)
+	locked, err := build.Build([]parse.Plugin{{Name: "example-plugin", Source: examplePluginDir(t)}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// A second entry whose stored bytes don't match its locked hash.
+	badHash, err := build.storeBinary(mustWriteTemp(t, "original"), "bad")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(build.binPath("bad", badHash), []byte("tampered"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	lock := map[string]LockedPlugin{
+		"example-plugin": locked["example-plugin"],
+		"bad":            {Hash: badHash},
+	}
+
+	// Run a handful of times so both map orderings (good-first, which is the
+	// leak-prone path, and bad-first) are exercised.
+	for range 10 {
+		s := NewStore(root)
+		if _, err := s.Load(lock); err == nil {
+			s.Close()
+			t.Fatal("Load succeeded over a tampered binary, want error")
+		}
+		if n := len(s.clients); n != 0 {
+			s.Close()
+			t.Fatalf("Load left %d subprocess(es) running after a partial failure", n)
+		}
+	}
+}
+
 func TestBuild_PerNameFile(t *testing.T) {
 	// Two different plugin names built from the same source dir produce
 	// byte-identical binaries — the lock records the same hash for both,

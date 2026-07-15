@@ -125,6 +125,7 @@ func (s *Store) Load(locked map[string]LockedPlugin) ([]sdk.Plugin, error) {
 	for name, entry := range locked {
 		binPath := s.binPath(name, entry.Hash)
 		if err := verifyHash(binPath, entry.Hash); err != nil {
+			s.Close()
 			return nil, fmt.Errorf("plugin %s: %w", name, err)
 		}
 		client, err := rpc.Dial(binPath, pluginLogger(name))
