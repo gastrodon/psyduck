@@ -120,7 +120,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 		Producers:   staticSource(producer),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	elapsed := time.Since(start)
@@ -160,7 +160,7 @@ func Test_ConsumerEarlyFinish_NoDeadlock(t *testing.T) {
 		Producers:   staticSource(emitN(100, []byte("x"), nil)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 		Producers:   staticSource(producers...),
 		Parallel:    2,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +246,7 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 			),
 			Parallel:    2,
 			Consumers:   []sdk.Consumer{countAll(&got), countAll(&got)},
-			Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		}
 	}
 
@@ -293,7 +293,7 @@ func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
 		Producers:   staticSource(flow.Producer(blockForever, 0, 0, 3)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 		Producers:   staticSource(producer),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
@@ -364,7 +364,7 @@ func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
 		Producers:   staticSource(flow.Producer(misbehaving, 0, 0, 3)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: testMapTransform(func(msg []byte) ([]byte, error) { return msg, nil }),
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	}); err != nil {
 		t.Fatal(err)
 	}
