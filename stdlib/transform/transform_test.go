@@ -763,9 +763,10 @@ func TestCancelReleases(t *testing.T) {
 	}
 }
 
-// TestCodecErrSendCancelReleases covers reportErr's other cancellation branch:
-// a transformer parked trying to forward an error (unbuffered, undrained errs)
-// must still return when ctx is cancelled, rather than leaking on the err send.
+// TestCodecErrSendCancelReleases covers the codec err-forward cancellation
+// branch: a transformer parked trying to forward an error (unbuffered,
+// undrained errs) must still return when ctx is cancelled, rather than leaking
+// on the err send.
 func TestCodecErrSendCancelReleases(t *testing.T) {
 	fn := build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "raise"})
 

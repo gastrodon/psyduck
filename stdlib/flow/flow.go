@@ -124,55 +124,27 @@ func Consumer(c sdk.Consumer, perMinute, perSecond int) sdk.Consumer {
 
 // ── transformer gates (the stdlib flow transformers) ────────────────────────
 //
-// Each of these owns its raw channel loop directly, same as every other
-// stdlib transformer — no shared map/filter adapter underneath them.
+// The stateless gates (Wait, Throttle) lift a per-message func onto the
+// contract with sdk.Map. Head/Tail/Sample keep their raw channel loops: each
+// carries a counter that must stay invocation-local, which a shared sdk.Map
+// closure cannot express.
 
 // Wait sleeps a fixed duration before passing each message through.
 func Wait(ms int) sdk.Transformer {
 	d := time.Duration(ms) * time.Millisecond
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				time.Sleep(d)
-				select {
-				case out <- msg:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		time.Sleep(d)
+		return msg, nil
+	})
 }
 
 // Throttle rate-limits the stream to perSecond messages, blocking as needed.
 func Throttle(perSecond int) sdk.Transformer {
 	wait := Limiter(0, perSecond)
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				wait()
-				select {
-				case out <- msg:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		wait()
+		return msg, nil
+	})
 }
 
 // Head passes the first count messages through and drops the rest.

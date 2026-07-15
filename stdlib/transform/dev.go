@@ -1,7 +1,6 @@
 package transform
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"sync/atomic"
@@ -32,7 +31,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 		msg = "assertion failed"
 	}
 
-	assertOnce := func(in []byte) ([]byte, error) {
+	return sdk.Map(func(in []byte) ([]byte, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
 			return nil, err
@@ -45,35 +44,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 			return nil, fmt.Errorf("%s: %s", msg, config.Expression)
 		}
 		return in, nil
-	}
-
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case m, ok := <-in:
-				if !ok {
-					return
-				}
-				b, err := assertOnce(m)
-				if err != nil {
-					select {
-					case errs <- err:
-					case <-ctx.Done():
-						return
-					}
-					continue
-				}
-				select {
-				case out <- b:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}, nil
+	}), nil
 }
 
 func falsey(v data.Value) bool {
@@ -111,27 +82,11 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 	// is cheaper than a mutex for a bare counter.
 	var n atomic.Uint64
 
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				cur := n.Add(1)
-				b := msg
-				if cur%uint64(every) == 0 {
-					b = []byte(config.Prefix + strconv.FormatUint(cur, 10))
-				}
-				select {
-				case out <- b:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		cur := n.Add(1)
+		if cur%uint64(every) == 0 {
+			return []byte(config.Prefix + strconv.FormatUint(cur, 10)), nil
 		}
-	}, nil
+		return msg, nil
+	}), nil
 }

@@ -1,7 +1,6 @@
 package transform
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/itchyny/gojq"
@@ -39,34 +38,16 @@ func Filter(parse sdk.Parser) (sdk.Transformer, error) {
 		return true, nil
 	}
 
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				pass, err := keep(msg)
-				if err != nil {
-					select {
-					case errs <- err:
-					case <-ctx.Done():
-						return
-					}
-					continue
-				}
-				if !pass {
-					continue
-				}
-				select {
-				case out <- msg:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
+	// A gate emits the original message unchanged when keep passes, and a
+	// nil return tells sdk.Map to drop it.
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		pass, err := keep(msg)
+		if err != nil {
+			return nil, err
 		}
-	}, nil
+		if !pass {
+			return nil, nil
+		}
+		return msg, nil
+	}), nil
 }

@@ -81,47 +81,27 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 	seen := make(map[string]struct{}, window)
 	ring := make([]string, 0, window)
 
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				key, keyOK, err := k.key(msg)
-				if err != nil {
-					select {
-					case errs <- err:
-					case <-ctx.Done():
-						return
-					}
-					continue
-				}
-				if keyOK {
-					mu.Lock()
-					if _, dup := seen[key]; dup {
-						mu.Unlock()
-						continue
-					}
-					if len(ring) >= window {
-						delete(seen, ring[0])
-						ring = ring[1:]
-					}
-					seen[key] = struct{}{}
-					ring = append(ring, key)
-					mu.Unlock()
-				}
-				select {
-				case out <- msg:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		key, keyOK, err := k.key(msg)
+		if err != nil {
+			return nil, err
 		}
-	}, nil
+		if keyOK {
+			mu.Lock()
+			if _, dup := seen[key]; dup {
+				mu.Unlock()
+				return nil, nil
+			}
+			if len(ring) >= window {
+				delete(seen, ring[0])
+				ring = ring[1:]
+			}
+			seen[key] = struct{}{}
+			ring = append(ring, key)
+			mu.Unlock()
+		}
+		return msg, nil
+	}), nil
 }
 
 // ── uniq ───────────────────────────────────────────────────────────────────
@@ -151,42 +131,22 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 	var last string
 	var have bool
 
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				key, keyOK, err := k.key(msg)
-				if err != nil {
-					select {
-					case errs <- err:
-					case <-ctx.Done():
-						return
-					}
-					continue
-				}
-				if keyOK {
-					mu.Lock()
-					if have && key == last {
-						mu.Unlock()
-						continue
-					}
-					last, have = key, true
-					mu.Unlock()
-				}
-				select {
-				case out <- msg:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		key, keyOK, err := k.key(msg)
+		if err != nil {
+			return nil, err
 		}
-	}, nil
+		if keyOK {
+			mu.Lock()
+			if have && key == last {
+				mu.Unlock()
+				return nil, nil
+			}
+			last, have = key, true
+			mu.Unlock()
+		}
+		return msg, nil
+	}), nil
 }
 
 // ── batch ──────────────────────────────────────────────────────────────────

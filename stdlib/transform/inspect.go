@@ -1,7 +1,6 @@
 package transform
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -26,23 +25,8 @@ func Inspect(parse sdk.Parser) (sdk.Transformer, error) {
 		out = os.Stderr
 	}
 
-	return func(ctx context.Context, in <-chan []byte, o chan<- []byte, errs chan<- error) {
-		defer close(o)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				fmt.Fprintf(out, "%s%s\n", config.Prefix, msg)
-				select {
-				case o <- msg:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}, nil
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		fmt.Fprintf(out, "%s%s\n", config.Prefix, msg)
+		return msg, nil
+	}), nil
 }

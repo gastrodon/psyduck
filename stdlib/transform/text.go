@@ -1,7 +1,6 @@
 package transform
 
 import (
-	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -35,63 +34,26 @@ func textString(in []byte, decode string) (string, error) {
 }
 
 // stringTransformer wraps a string→(Value) op with decode + on-error handling.
-// A nil onError defaults to data.Raise. It owns its raw channel loop directly,
-// same as every other stdlib transformer.
+// A nil onError defaults to data.Raise.
 func stringTransformer(decode string, onError data.OnError, op func(string) (data.Value, error)) sdk.Transformer {
 	if decode == "" {
 		decode = "utf-8"
 	}
-	if onError == nil {
-		onError = data.Raise
-	}
 
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		reportErr := func(err error) (stop bool) {
-			if err = onError(err); err == nil {
-				return false
-			}
-			select {
-			case errs <- err:
-				return false
-			case <-ctx.Done():
-				return true
-			}
+	return mapErr(onError, func(msg []byte) ([]byte, error) {
+		s, err := textString(msg, decode)
+		if err != nil {
+			return nil, err
 		}
-
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				s, err := textString(msg, decode)
-				if err != nil {
-					if reportErr(err) {
-						return
-					}
-					continue
-				}
-				result, err := op(s)
-				if err != nil {
-					if reportErr(err) {
-						return
-					}
-					continue
-				}
-				if result == nil {
-					continue
-				}
-				select {
-				case out <- result.Bytes():
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
+		result, err := op(s)
+		if err != nil {
+			return nil, err
 		}
-	}
+		if result == nil {
+			return nil, nil
+		}
+		return result.Bytes(), nil
+	})
 }
 
 type splitConfig struct {
@@ -141,7 +103,7 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, err
 	}
-	joinOnce := func(msg []byte) ([]byte, error) {
+	return mapErr(onError, func(msg []byte) ([]byte, error) {
 		v, err := data.Decode(msg, "json")
 		if err != nil {
 			return nil, err
@@ -155,37 +117,7 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 			parts[i] = e.String()
 		}
 		return []byte(strings.Join(parts, config.Delimiter)), nil
-	}
-
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				b, err := joinOnce(msg)
-				if err != nil {
-					if err = onError(err); err != nil {
-						select {
-						case errs <- err:
-						case <-ctx.Done():
-							return
-						}
-					}
-					continue
-				}
-				select {
-				case out <- b:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}, nil
+	}), nil
 }
 
 type replaceConfig struct {
@@ -347,7 +279,7 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("hash: unknown algorithm %q", config.Algorithm)
 	}
 
-	hashOnce := func(msg []byte) ([]byte, error) {
+	return sdk.Map(func(msg []byte) ([]byte, error) {
 		h := newHash()
 		h.Write(msg)
 		sum := h.Sum(nil)
@@ -359,33 +291,5 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		default:
 			return nil, fmt.Errorf("hash: unknown output %q", config.Output)
 		}
-	}
-
-	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-		defer close(out)
-		for {
-			select {
-			case msg, ok := <-in:
-				if !ok {
-					return
-				}
-				b, err := hashOnce(msg)
-				if err != nil {
-					select {
-					case errs <- err:
-					case <-ctx.Done():
-						return
-					}
-					continue
-				}
-				select {
-				case out <- b:
-				case <-ctx.Done():
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}, nil
+	}), nil
 }
