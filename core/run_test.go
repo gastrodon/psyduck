@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
+
+	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
 // runTimeout guards every RunPipeline call in this file: the old engine's
@@ -505,4 +508,125 @@ func Test_RunPipeline_ChainMiddleErrorExit(t *testing.T) {
 	if !errors.Is(err, boom) {
 		t.Fatalf("want boom from the middle stage, got %v", err)
 	}
+}
+
+// ── engine invariants under misbehaving / new-capability plugins ────────────
+//
+// These are capability/invariant tests, not regressions: they exercise
+// behavior the rewrite introduced (the ctx-aware exit path, the transformer
+// channel stage) rather than reproducing a bug in the deleted engine, so they
+// live here with the other RunPipeline behavior tests rather than in
+// regression_test.go.
+
+// Capability test: sdk v0.5.1 added ctx to Producer and Consumer specifically
+// so a plugin abandoned mid-send has a way to exit instead of parking forever
+// — the one leak PR #20's rewrite documented as unavoidable ("the sdk contract
+// has no context"). A producer that actually selects on ctx.Done() alongside
+// its send, cut off mid-stream by a flow.Producer stop-after wrap, must leave
+// no goroutine behind at all.
+func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
+	blockForever := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
+		defer close(errs)
+		for {
+			select {
+			case send <- []byte("x"):
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	baseline := runtime.NumGoroutine()
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(flow.Producer(blockForever, 0, 0, 3)),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= baseline {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	buf := make([]byte, 1<<16)
+	t.Fatalf("ctx-aware producer still leaked a goroutine on abandon: %d -> %d\n%s",
+		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
+}
+
+// A producer that ignores ctx entirely and sends forever with a bare send (no
+// select on ctx.Done) violates the sdk contract and leaks its own goroutine
+// when abandoned — the engine can't prevent that. What the engine must still
+// guarantee is that RunPipeline itself returns: the abandoned plugin parks,
+// the pipeline doesn't. The flow.Producer stop-after wrap is what actually cuts
+// the stream here — the misbehaving producer never would.
+func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
+	misbehaving := func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		for {
+			send <- []byte("x") // bare send: parks forever once abandoned
+		}
+	}
+
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(flow.Producer(misbehaving, 0, 0, 3)),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 3 {
+		t.Fatalf("want 3 delivered, got %d", n)
+	}
+	// Note: this test intentionally leaks the misbehaving producer's
+	// goroutine — that's the documented cost of violating the contract.
+}
+
+// Same class as Test_ContractViolatingProducer_EngineStillReturns, but for the
+// transformer stage the channel-contract rewrite introduced: a transformer
+// that ignores ctx and blocks on a bare receive/send loop leaks its own
+// goroutine when abandoned, but RunPipeline itself must still return —
+// startTransform's fire-and-forget launch (see core/transformstage.go) exists
+// specifically so this can't hang the engine.
+func Test_ContractViolatingTransformer_EngineStillReturns(t *testing.T) {
+	misbehaving := func(_ context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		for msg := range in {
+			out <- msg // bare send: parks forever once abandoned
+		}
+	}
+
+	// The consumer finishing early is what abandons the transformer: the run
+	// loop stops draining stage.out, and the misbehaving transformer parks on
+	// its bare send.
+	var got atomic.Int64
+	consumer := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(errs)
+		for range recv {
+			if got.Add(1) >= 3 {
+				close(done)
+				return
+			}
+		}
+	}
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{consumer},
+		Transformer: misbehaving,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 3 {
+		t.Fatalf("want 3 delivered, got %d", n)
+	}
+	// Note: this test intentionally leaks the misbehaving transformer's
+	// goroutine — that's the documented cost of violating the contract.
 }
