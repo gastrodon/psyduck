@@ -238,3 +238,39 @@ func TestGates(t *testing.T) {
 		t.Errorf("sample kept %d, want 2", got)
 	}
 }
+
+// TestGatesCancelRelease checks the send-side ctx.Done branch each flow gate
+// grew in the channel-contract rewrite: a gate parked trying to emit must
+// return when ctx is cancelled instead of leaking. runTransformer only ever
+// exercises the clean close-of-in path.
+func TestGatesCancelRelease(t *testing.T) {
+	gates := map[string]sdk.Transformer{
+		"wait":     Wait(0),
+		"throttle": Throttle(1000),
+		"head":     Head(10),
+		"tail":     Tail(0),
+		"sample":   Sample(1),
+	}
+	for name, tx := range gates {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			in := make(chan []byte)
+			out := make(chan []byte) // never drained
+			errs := make(chan error, 1)
+			done := make(chan struct{})
+
+			go func() {
+				defer close(done)
+				tx(ctx, in, out, errs)
+			}()
+			in <- []byte("x") // accepted; gate then blocks trying to emit
+			cancel()
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("gate did not return after ctx cancel: parked on blocked send")
+			}
+		})
+	}
+}

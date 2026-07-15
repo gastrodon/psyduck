@@ -90,6 +90,51 @@ func staticSource(ps ...sdk.Producer) ProducerSource {
 	}
 }
 
+// Test_RunPipeline_noTransformer covers RunPipeline's Transformer==nil fast
+// path — the bypass loop that forwards producers straight to the sink with no
+// transform stage. It is the common zero-transformer pipeline
+// (composeTransformers returns nil for an empty stack), yet every other
+// RunPipeline test injects a non-nil transformer, so nothing else runs it.
+func Test_RunPipeline_noTransformer(t *testing.T) {
+	t.Run("passes every message straight through", func(t *testing.T) {
+		const n = 1000
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   staticSource(emitN(n, []byte("x"), nil)),
+			Parallel:    1,
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: nil,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Load() != n {
+			t.Fatalf("want %d delivered, got %d", n, got.Load())
+		}
+	})
+
+	t.Run("producer error is attributed, exit-on-error", func(t *testing.T) {
+		boom := errors.New("boom")
+		erroring := func(_ context.Context, send chan<- []byte, errs chan<- error) {
+			defer close(send)
+			defer close(errs)
+			send <- []byte("one")
+			errs <- boom
+		}
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   staticSource(erroring),
+			Parallel:    1,
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: nil,
+			ExitOnError: true,
+		})
+		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "producer supplied error") {
+			t.Fatalf("want attributed producer error, got %v", err)
+		}
+	})
+}
+
 func Test_RunPipeline(t *testing.T) {
 	cases := []struct {
 		name                 string

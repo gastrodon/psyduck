@@ -128,6 +128,72 @@ func runAll(t *testing.T, fn sdk.Transformer, ins ...string) []string {
 	return got
 }
 
+// runAllErrs is runAll that also drains errs after the stream ends, for
+// transformers whose per-message failures are forwarded on errs (filter, jq,
+// codec on-error=raise) while the message is dropped and the stream keeps
+// going — runAll alone can't observe those.
+func runAllErrs(t *testing.T, fn sdk.Transformer, ins ...string) ([]string, []error) {
+	t.Helper()
+	inCh := make(chan []byte)
+	outCh := make(chan []byte)
+	errs := make(chan error, len(ins)+1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(context.Background(), inCh, outCh, errs)
+	}()
+	go func() {
+		defer close(inCh)
+		for _, in := range ins {
+			inCh <- []byte(in)
+		}
+	}()
+
+	var got []string
+	for msg := range outCh {
+		got = append(got, string(msg))
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not finish: hung after closing out")
+	}
+	close(errs)
+	var errsGot []error
+	for e := range errs {
+		errsGot = append(errsGot, e)
+	}
+	return got, errsGot
+}
+
+// assertCancelReleases starts fn, feeds it one message, never reads out, then
+// cancels ctx — fn must return promptly instead of parking forever on its
+// blocked send. Covers the `case <-ctx.Done()` send-side branch that every
+// stdlib transformer grew in the channel-contract rewrite; runOne/runAll only
+// ever exercise the clean close-of-in path.
+func assertCancelReleases(t *testing.T, fn sdk.Transformer) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	in := make(chan []byte)
+	out := make(chan []byte) // deliberately never drained
+	errs := make(chan error, 1)
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(ctx, in, out, errs)
+	}()
+	in <- []byte(`{"a":1}`) // accepted; fn then blocks trying to emit
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not return after ctx cancel: parked on blocked send")
+	}
+}
+
 func TestRecode(t *testing.T) {
 	fn := build(t, Recode, map[string]any{"decode": "bytes", "encode": "base64", "on-error": "raise"})
 	out, _ := run(t, fn, "hello")
@@ -340,5 +406,160 @@ func TestAssertCount(t *testing.T) {
 	out, _ := run(t, c, "b")
 	if out != "n=2" {
 		t.Errorf("count = %q", out)
+	}
+}
+
+// Batch flushes a short trailing batch when the stream ends, rather than
+// dropping the unfilled remainder — the behavior the channel-contract rewrite
+// added (a transformer now sees end-of-stream via in closing). TestKeyed only
+// covers the exact-size flush; these cover the close-driven paths.
+func TestBatchFlush(t *testing.T) {
+	// fewer than size: the partial batch still flushes on close
+	fn := build(t, Batch, map[string]any{"size": 3})
+	if got := runAll(t, fn, `1`, `2`); len(got) != 1 || got[0] != "[1,2]" {
+		t.Errorf("partial flush = %v, want [[1,2]]", got)
+	}
+
+	// empty stream: nothing to flush, no empty array emitted
+	fn = build(t, Batch, map[string]any{"size": 3})
+	if got := runAll(t, fn); len(got) != 0 {
+		t.Errorf("empty stream = %v, want nothing", got)
+	}
+
+	// full batch then a short trailing one, both emitted in order
+	fn = build(t, Batch, map[string]any{"size": 2})
+	got := runAll(t, fn, `1`, `2`, `3`)
+	if len(got) != 2 || got[0] != "[1,2]" || got[1] != "[3]" {
+		t.Errorf("full + trailing = %v, want [[1,2] [3]]", got)
+	}
+}
+
+func TestFilter(t *testing.T) {
+	// a true predicate passes the original message through unchanged
+	fn := build(t, Filter, map[string]any{"expression": ".keep"})
+	if out, ok := run(t, fn, `{"keep":true}`); !ok || out != `{"keep":true}` {
+		t.Errorf("true predicate = %q ok=%v, want original passed", out, ok)
+	}
+	// false drops
+	if _, ok := run(t, fn, `{"keep":false}`); ok {
+		t.Error("false predicate should drop")
+	}
+	// null result (missing field) drops
+	if _, ok := run(t, fn, `{"other":1}`); ok {
+		t.Error("null predicate should drop")
+	}
+	// a non-bool truthy result passes the original through
+	fn = build(t, Filter, map[string]any{"expression": ".user"})
+	if out, ok := run(t, fn, `{"user":{"n":1}}`); !ok || out != `{"user":{"n":1}}` {
+		t.Errorf("non-bool predicate = %q ok=%v, want original passed", out, ok)
+	}
+
+	// an unparseable expression is a construction error
+	if _, err := Filter(psyParser(map[string]any{"expression": "["})); err == nil {
+		t.Error("expected parse error for bad expression")
+	}
+
+	// a mid-stream runtime error (non-JSON input) is forwarded on errs and the
+	// message dropped, but the stream keeps running for later messages
+	fn = build(t, Filter, map[string]any{"expression": ".keep"})
+	got, errs := runAllErrs(t, fn, `notjson`, `{"keep":true}`)
+	if len(got) != 1 || got[0] != `{"keep":true}` {
+		t.Errorf("stream after error = %v, want the good message", got)
+	}
+	if len(errs) != 1 {
+		t.Errorf("want 1 forwarded error, got %v", errs)
+	}
+}
+
+func TestJq(t *testing.T) {
+	// a mapping expression emits the transformed value
+	fn := build(t, Jq, map[string]any{"expression": ".a + 1"})
+	if out, ok := run(t, fn, `{"a":4}`); !ok || out != "5" {
+		t.Errorf("jq map = %q ok=%v, want 5", out, ok)
+	}
+	// an expression that yields no output drops the message
+	fn = build(t, Jq, map[string]any{"expression": "empty"})
+	if _, ok := run(t, fn, `{"a":1}`); ok {
+		t.Error("empty output should drop")
+	}
+
+	// unparseable expression is a construction error
+	if _, err := Jq(psyParser(map[string]any{"expression": "{"})); err == nil {
+		t.Error("expected parse error for bad expression")
+	}
+
+	// mid-stream runtime error is forwarded, later messages still processed
+	fn = build(t, Jq, map[string]any{"expression": ".a"})
+	got, errs := runAllErrs(t, fn, `notjson`, `{"a":7}`)
+	if len(got) != 1 || got[0] != "7" {
+		t.Errorf("stream after error = %v, want [7]", got)
+	}
+	if len(errs) != 1 {
+		t.Errorf("want 1 forwarded error, got %v", errs)
+	}
+}
+
+// TestRecodeOnError covers codecTransformer's on-error branches (Recode is the
+// plainest codec transformer). TestTextGarbageOnError covers the same for the
+// text/stringTransformer family; this is its codec counterpart.
+func TestRecodeOnError(t *testing.T) {
+	garbage := "notjson"
+
+	// on-error=raise surfaces the decode failure on errs
+	fn := build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "raise"})
+	if _, err, _ := runOne(t, fn, garbage); err == nil {
+		t.Error("on-error=raise should surface the decode error")
+	}
+
+	// on-error=drop swallows it: no output, no error
+	fn = build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "drop"})
+	if out, err, ok := runOne(t, fn, garbage); err != nil || ok {
+		t.Errorf("on-error=drop should swallow: out=%q err=%v ok=%v", out, err, ok)
+	}
+}
+
+// TestCancelReleases exercises the send-side ctx.Done branch across every loop
+// shape in the package: a cancelled context must unpark a transformer blocked
+// trying to emit. The engine relies on this for chain teardown (see core's
+// Chain* tests); here each stdlib transformer is checked in isolation.
+func TestCancelReleases(t *testing.T) {
+	cases := map[string]sdk.Transformer{
+		"recode": build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "raise"}),
+		"upper":  build(t, Upper, map[string]any{"decode": "utf-8", "on-error": "raise"}),
+		"filter": build(t, Filter, map[string]any{"expression": ".a"}),
+		"jq":     build(t, Jq, map[string]any{"expression": ".a"}),
+		"dedupe": build(t, Dedupe, map[string]any{"by": "", "path": []string{"a"}, "window": 10}),
+		"batch":  build(t, Batch, map[string]any{"size": 1}),
+		"assert": build(t, Assert, map[string]any{"expression": ".a", "message": "no"}),
+		"count":  build(t, Count, map[string]any{"every": 1, "prefix": "n="}),
+	}
+	for name, fn := range cases {
+		t.Run(name, func(t *testing.T) { assertCancelReleases(t, fn) })
+	}
+}
+
+// TestCodecErrSendCancelReleases covers reportErr's other cancellation branch:
+// a transformer parked trying to forward an error (unbuffered, undrained errs)
+// must still return when ctx is cancelled, rather than leaking on the err send.
+func TestCodecErrSendCancelReleases(t *testing.T) {
+	fn := build(t, Recode, map[string]any{"decode": "json", "encode": "json", "on-error": "raise"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error) // unbuffered, never drained
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(ctx, in, out, errs)
+	}()
+	in <- []byte(`notjson`) // decode fails; fn parks trying to send on errs
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not return after ctx cancel: parked on blocked err send")
 	}
 }

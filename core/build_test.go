@@ -201,6 +201,44 @@ func Test_composeTransformers(t *testing.T) {
 	}
 }
 
+// Test_composeTransformers_ContinuesAfterError proves the chain keeps
+// processing later messages after a middle stage drops one to an error — the
+// Test_composeTransformers boom case only feeds a single message, so it shows
+// the drop but not that the stream survives it. appendByte is reused from
+// run_test.go (same package).
+func Test_composeTransformers_ContinuesAfterError(t *testing.T) {
+	// errors on the middle stage's view of message "2" ("2a" after the first
+	// stage), passing everything else straight through.
+	selErr := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for msg := range in {
+			if string(msg) == "2a" {
+				select {
+				case errs <- fmt.Errorf("boom on %s", msg):
+				case <-ctx.Done():
+					return
+				}
+				continue
+			}
+			select {
+			case out <- msg:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	chain := composeTransformers([]sdk.Transformer{appendByte('a'), selErr, appendByte('c')})
+	got, errsGot := runComposed(t, chain, []byte("1"), []byte("2"), []byte("3"))
+
+	if len(got) != 2 || string(got[0]) != "1ac" || string(got[1]) != "3ac" {
+		t.Fatalf("want [1ac 3ac] to survive the error, got %s", got)
+	}
+	if len(errsGot) != 1 || errsGot[0].Error() != "boom on 2a" {
+		t.Fatalf("want one boom error, got %v", errsGot)
+	}
+}
+
 func Test_drain(t *testing.T) {
 	consumed := 0
 	plugin := corePlugin("p", []byte("m"), 2, &consumed, "!")
