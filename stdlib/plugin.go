@@ -207,6 +207,10 @@ func Plugin() sdk.Plugin {
 				{Name: "format", Description: "template/format/jq-expression string", Type: sdk.TypeString, Required: true},
 			}, encodingSpec("json", "bytes")),
 		},
+		&sdk.Resource{
+			Name: "parse-http-request", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.ParseHTTPRequest,
+			Spec: concat([]*sdk.Spec{}, encodingSpec("bytes", "json")),
+		},
 
 		// ── jq escape hatches ────────────────────────────────────────────
 		&sdk.Resource{

@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -9,11 +10,12 @@ import (
 	"time"
 
 	"github.com/gastrodon/psyduck/stdlib/produce"
+	"github.com/gastrodon/psyduck/stdlib/transform"
 )
 
 // TestHTTPWebhookReceiver exercises http-listen as an inbound webhook endpoint:
-// N concurrent POST requests must all be received exactly once, the configured
-// reply status must be returned to the caller, and no request may hang.
+// N concurrent POST requests must all be received exactly once as raw HTTP bytes,
+// the configured reply status must be returned to the caller, and no request may hang.
 func TestHTTPWebhookReceiver(t *testing.T) {
 	const N = 12
 	addr := freePort(t)
@@ -59,10 +61,27 @@ func TestHTTPWebhookReceiver(t *testing.T) {
 	wg.Wait()
 
 	msgs := readN(t, send, N, 5*time.Second)
+	// Verify that messages are raw HTTP bytes (contain request line and headers)
+	for _, msg := range msgs {
+		msgStr := string(msg)
+		if !strings.HasPrefix(msgStr, "POST /hook HTTP/1.1") {
+			t.Errorf("message does not start with request line: %q", msgStr[:min(50, len(msgStr))])
+		}
+		if !strings.Contains(msgStr, "Content-Type: application/json") {
+			t.Errorf("message missing Content-Type header: %q", msgStr)
+		}
+	}
 	assertNoDups(t, msgs)
 	if len(msgs) != N {
 		t.Errorf("got %d messages, want %d", len(msgs), N)
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // TestHTTPWebhookBodyCap verifies that max-body-bytes rejects oversize POSTs
@@ -109,8 +128,10 @@ func TestHTTPWebhookBodyCap(t *testing.T) {
 	}
 
 	msgs := readN(t, send, 1, 2*time.Second)
-	if string(msgs[0]) != "okay" {
-		t.Errorf("body = %q, want %q", msgs[0], "okay")
+	// Message is now raw HTTP bytes, verify it contains the body
+	msgStr := msgs[0]
+	if !strings.Contains(msgStr, "\r\n\r\nokay") {
+		t.Errorf("body not found in message: %q", msgStr)
 	}
 	select {
 	case extra := <-send:
@@ -162,13 +183,166 @@ func TestHTTPWebhookMethodGating(t *testing.T) {
 	}
 
 	msgs := readN(t, send, 1, 2*time.Second)
-	if string(msgs[0]) != "ok" {
-		t.Errorf("body = %q, want %q", msgs[0], "ok")
+	// Message is now raw HTTP bytes, verify it contains the body
+	msgStr := msgs[0]
+	if !strings.Contains(msgStr, "\r\n\r\nok") {
+		t.Errorf("body not found in message: %q", msgStr)
 	}
 	// send should still have exactly 1 message (the GET was rejected).
 	select {
 	case extra := <-send:
 		t.Errorf("unexpected extra message %q (GET body should have been dropped)", extra)
 	default:
+	}
+}
+
+// TestHTTPRawBytes verifies that http-listen emits raw HTTP request bytes
+// (request line + headers + body) instead of wrapping in JSON.
+func TestHTTPRawBytes(t *testing.T) {
+	addr := freePort(t)
+
+	p, err := produce.HTTPListen(parser(map[string]any{
+		"address": addr,
+		"path":    "/api/jobs",
+		"method":  "POST",
+		"status":  200,
+		"reply":   "ok",
+	}))
+	if err != nil {
+		t.Fatalf("HTTPListen: %v", err)
+	}
+
+	send := make(chan []byte, 5)
+	errs := make(chan error, 1)
+	go p(t.Context(), send, errs)
+	drainErrs(errs)
+
+	waitForHTTP(t, "http://"+addr+"/api/jobs")
+
+	// POST with query params and custom headers
+	body := []byte("hello world")
+	req, err := http.NewRequest("POST", "http://"+addr+"/api/jobs?timeout=30s&priority=high", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer token123")
+	req.Header.Set("Content-Type", "text/plain")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+
+	msgs := readN(t, send, 1, 2*time.Second)
+	if len(msgs) != 1 {
+		t.Fatalf("got %d messages, want 1", len(msgs))
+	}
+
+	// Verify raw HTTP format: request line, headers, blank line, body
+	msgStr := string(msgs[0])
+	if !strings.HasPrefix(msgStr, "POST /api/jobs?timeout=30s&priority=high HTTP/1.1") {
+		t.Errorf("message does not start with correct request line: %q", msgStr[:min(80, len(msgStr))])
+	}
+	if !strings.Contains(msgStr, "Authorization: Bearer token123") {
+		t.Errorf("message missing Authorization header: %q", msgStr)
+	}
+	if !strings.Contains(msgStr, "Content-Type: text/plain") {
+		t.Errorf("message missing Content-Type header: %q", msgStr)
+	}
+	if !strings.Contains(msgStr, "\r\n\r\nhello world") {
+		t.Errorf("message does not end with correct body: %q", msgStr[len(msgStr)-20:])
+	}
+}
+
+// TestParseHTTPRequest verifies that parse-http-request transformer
+// correctly parses raw HTTP bytes into structured JSON.
+func TestParseHTTPRequest(t *testing.T) {
+	addr := freePort(t)
+
+	// Set up http-listen to emit raw HTTP bytes
+	p, err := produce.HTTPListen(parser(map[string]any{
+		"address": addr,
+		"path":    "/api/jobs",
+		"method":  "POST",
+		"status":  200,
+		"reply":   "ok",
+	}))
+	if err != nil {
+		t.Fatalf("HTTPListen: %v", err)
+	}
+
+	send := make(chan []byte, 5)
+	errs := make(chan error, 1)
+	go p(t.Context(), send, errs)
+	drainErrs(errs)
+
+	waitForHTTP(t, "http://"+addr+"/api/jobs")
+
+	// Send a request with query params and headers
+	body := []byte("test payload")
+	req, err := http.NewRequest("POST", "http://"+addr+"/api/jobs?key=value&foo=bar", strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer abc123")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	resp.Body.Close()
+
+	msgs := readN(t, send, 1, 2*time.Second)
+	rawMsg := []byte(msgs[0])
+
+	// Test transformer: wire up the parse-http-request transformer
+	transformer, err := transform.ParseHTTPRequest(parser(map[string]any{}))
+	if err != nil {
+		t.Fatalf("ParseHTTPRequest: %v", err)
+	}
+
+	inChan := make(chan []byte, 1)
+	outChan := make(chan []byte, 1)
+	errChan := make(chan error, 1)
+
+	go transformer(t.Context(), inChan, outChan, errChan)
+	inChan <- rawMsg
+	close(inChan)
+
+	// Read the parsed result
+	select {
+	case parsedJSON := <-outChan:
+		parsed := &transform.ParsedHTTPRequest{}
+		if err := json.Unmarshal(parsedJSON, parsed); err != nil {
+			t.Fatalf("json.Unmarshal: %v", err)
+		}
+
+		// Verify parsed fields
+		if parsed.Method != "POST" {
+			t.Errorf("method = %q, want POST", parsed.Method)
+		}
+		if parsed.Path != "/api/jobs" {
+			t.Errorf("path = %q, want /api/jobs", parsed.Path)
+		}
+		if parsed.Query["key"] != "value" {
+			t.Errorf("query[key] = %q, want value", parsed.Query["key"])
+		}
+		if parsed.Query["foo"] != "bar" {
+			t.Errorf("query[foo] = %q, want bar", parsed.Query["foo"])
+		}
+		if strings.ToLower(parsed.Headers["authorization"]) != "bearer abc123" {
+			t.Errorf("authorization header = %q, want bearer abc123", parsed.Headers["authorization"])
+		}
+		if strings.ToLower(parsed.Headers["content-type"]) != "application/json" {
+			t.Errorf("content-type header = %q, want application/json", parsed.Headers["content-type"])
+		}
+		// Body should be base64-encoded
+		if parsed.Body == "" {
+			t.Errorf("body is empty")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for parsed output")
 	}
 }

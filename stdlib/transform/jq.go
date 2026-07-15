@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -12,8 +13,9 @@ type jqConfig struct {
 	Expression string `psy:"expression"`
 }
 
-// Jq applies a jq expression to the message and emits the result.
-// If the expression produces no output, the message is dropped (nil returned).
+// Jq applies a jq expression to each message. A jq expression yields a stream
+// of 0, 1, or many values per input, and each value becomes its own output
+// message — so Jq is explosive and cannot use sdk.Map (which is 1-to-0/1).
 // String outputs are emitted as plain bytes; all other types are JSON-encoded.
 func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(jqConfig)
@@ -26,34 +28,62 @@ func Jq(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("jq: parse expression %q: %w", config.Expression, err)
 	}
 
-	return func(in []byte) ([]byte, error) {
-		v, err := runJQ(query, in)
-		if err != nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		emitErr := func(err error) (stop bool) {
+			select {
+			case errs <- err:
+				return false
+			case <-ctx.Done():
+				return true
+			}
 		}
-
-		return marshalJQ(v)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				var input interface{}
+				if err := json.Unmarshal(msg, &input); err != nil {
+					if emitErr(fmt.Errorf("jq: parse input JSON: %w", err)) {
+						return
+					}
+					continue
+				}
+				iter := query.Run(input)
+				for {
+					v, ok := iter.Next()
+					if !ok {
+						break
+					}
+					if err, ok := v.(error); ok {
+						if emitErr(fmt.Errorf("jq: %w", err)) {
+							return
+						}
+						continue
+					}
+					b, err := marshalJQ(v)
+					if err != nil {
+						if emitErr(err) {
+							return
+						}
+						continue
+					}
+					if b == nil { // null / no output: drop
+						continue
+					}
+					select {
+					case out <- b:
+					case <-ctx.Done():
+						return
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
 	}, nil
-}
-
-// runJQ compiles and executes a jq expression against JSON-decoded input.
-// It returns the first output value or an error. If the expression produces
-// no output, it returns (nil, nil).
-func runJQ(query *gojq.Query, in []byte) (interface{}, error) {
-	var input interface{}
-	if err := json.Unmarshal(in, &input); err != nil {
-		return nil, fmt.Errorf("jq: parse input JSON: %w", err)
-	}
-
-	iter := query.Run(input)
-	v, ok := iter.Next()
-	if !ok {
-		return nil, nil
-	}
-	if err, ok := v.(error); ok {
-		return nil, fmt.Errorf("jq: %w", err)
-	}
-	return v, nil
 }
 
 // marshalJQ converts a jq output value back to bytes.

@@ -1,8 +1,10 @@
 package produce
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -22,10 +24,15 @@ type httpListenConfig struct {
 	IdleTimeoutMs  int    `psy:"idle-timeout-ms"`
 }
 
-// HTTPListen runs an HTTP server and emits each matching request body as a
-// message. An empty method matches any verb. Body reads are capped at
+// HTTPListen runs an HTTP server and emits each matching request as raw HTTP
+// bytes. An empty method matches any verb. Body reads are capped at
 // max-body-bytes (0 opts out of the cap) and connection lifetimes are bounded
 // by the read/write/idle timeouts.
+//
+// Each request is serialized to its complete HTTP wire format (request line +
+// headers + body) and emitted as raw bytes, similar to socket/tcp/udp
+// transports. Downstream transformers like parse-http-request can parse these
+// bytes into structured data (method, path, query, headers, body).
 func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 	config := new(httpListenConfig)
 	if err := parse(config); err != nil {
@@ -56,8 +63,16 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+
+			// Serialize the request to HTTP wire format
+			reqBytes, err := serializeHTTPRequest(r, body)
+			if err != nil {
+				http.Error(w, "failed to serialize request", http.StatusInternalServerError)
+				return
+			}
+
 			select {
-			case send <- body:
+			case send <- reqBytes:
 			case <-ctx.Done():
 				http.Error(w, "shutting down", http.StatusServiceUnavailable)
 				return
@@ -82,4 +97,34 @@ func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
 			errs <- err
 		}
 	}, nil
+}
+
+// serializeHTTPRequest encodes an HTTP request to its wire format
+// (request line + headers + body), similar to how net/http.Request.Write() works.
+// This allows downstream transformers to parse and extract fields as needed.
+func serializeHTTPRequest(r *http.Request, body []byte) ([]byte, error) {
+	var buf bytes.Buffer
+
+	// Request line: METHOD PATH?QUERY HTTP/1.1
+	path := r.URL.Path
+	if path == "" {
+		path = "/"
+	}
+	if r.URL.RawQuery != "" {
+		path = path + "?" + r.URL.RawQuery
+	}
+	fmt.Fprintf(&buf, "%s %s HTTP/1.1\r\n", r.Method, path)
+
+	// Headers
+	for k, vv := range r.Header {
+		for _, v := range vv {
+			fmt.Fprintf(&buf, "%s: %s\r\n", k, v)
+		}
+	}
+	fmt.Fprint(&buf, "\r\n")
+
+	// Body
+	buf.Write(body)
+
+	return buf.Bytes(), nil
 }

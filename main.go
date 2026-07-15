@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/psyduck-etl/sdk"
+	"github.com/psyduck-etl/sdk/data"
 	"github.com/urfave/cli/v2"
 
 	"github.com/gastrodon/psyduck/core"
@@ -18,14 +19,13 @@ import (
 	"github.com/gastrodon/psyduck/parse/hcl"
 	"github.com/gastrodon/psyduck/plugins"
 	"github.com/gastrodon/psyduck/stdlib"
-	"github.com/gastrodon/psyduck/stdlib/data"
 )
 
 // init installs the process-wide codec factory sdk.GetCodec resolves
-// against. Plugins that read an "encoding" config option — mysql, and
-// eventually others — call sdk.GetCodec, so the host has to hand it a
-// factory before any pipeline starts. init runs before main and before
-// any plugin.Open, which keeps this ordering trivially correct.
+// against. The stdlib (linked in-process) resolves codecs through
+// sdk.GetCodec, so the host has to hand it a factory before any pipeline
+// starts; plugin subprocesses get theirs from rpc.Serve. init runs before
+// main, which keeps this ordering trivially correct.
 func init() {
 	sdk.RegisterCodecs(data.Codec)
 }
@@ -295,7 +295,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := app.RunContext(ctx, os.Args); err != nil {
+	err := app.RunContext(ctx, os.Args)
+	// Plugins run as subprocesses (see sdk/rpc); kill them all before
+	// exiting so none outlives the run. os.Exit skips defers, so this
+	// happens here, before the error check.
+	plugins.CleanupClients()
+	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}

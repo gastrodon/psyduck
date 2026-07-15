@@ -9,11 +9,17 @@ package flow
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
 )
+
+// shutdownGrace bounds how long the Consumer wrapper waits for an inner
+// plugin to react to a shutdown signal before giving up. See Consumer's stop()
+// for why the wait can't be unconditional (a plugin that never selects on
+// ctx.Done() would hang the wrapper forever) or omitted entirely (a plugin
+// mid-teardown needs a real chance to finish).
+const shutdownGrace = 200 * time.Millisecond
 
 // Limiter returns a wait() that paces calls to at most perMinute and perSecond.
 // Non-positive limits are unrestricted; when both are unset wait() never blocks.
@@ -98,21 +104,109 @@ func Consumer(c sdk.Consumer, perMinute, perSecond int) sdk.Consumer {
 	}
 	return func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 		inner := make(chan []byte)
-		defer close(inner)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		go c(ctx, inner, errs, done)
+
+		innerDone := make(chan struct{})
+		go func() {
+			defer close(innerDone)
+			c(ctx, inner, errs, done)
+		}()
+
+		// stop delivers the clean-shutdown signal (close(inner)) and gives the
+		// inner consumer a bounded grace window to act on it before falling
+		// back to ctx cancellation (abandonment). The two signals can't just
+		// fire together: after this wrapper forwards a message into inner,
+		// this goroutine keeps running immediately while the woken inner
+		// consumer is only marked runnable, not yet scheduled — an
+		// unconditional cancel() right after close(inner) can reach the inner
+		// consumer's select before it even resumes, and select picks
+		// randomly between two simultaneously-ready cases. A consumer
+		// actively selecting on inner/ctx.Done() finishes and closes
+		// innerDone well within the grace window; only a consumer that isn't
+		// listening on inner at all (mid-fetch on external work) ever waits
+		// out the window and gets cancelled. The post-cancel wait is bounded
+		// too: a consumer that ignores ctx entirely (ill-behaved) must not
+		// wedge this wrapper forever — same convention as Producer.
+		stop := func() {
+			close(inner)
+			select {
+			case <-innerDone:
+				return
+			case <-time.After(shutdownGrace):
+			}
+			cancel()
+			select {
+			case <-innerDone:
+			case <-time.After(shutdownGrace):
+			}
+		}
 
 		wait := Limiter(perMinute, perSecond)
 		for {
 			select {
 			case msg, ok := <-recv:
 				if !ok {
+					stop()
 					return
 				}
 				wait()
 				select {
 				case inner <- msg:
+				case <-ctx.Done():
+					stop()
+					return
+				}
+			case <-ctx.Done():
+				stop()
+				return
+			}
+		}
+	}
+}
+
+// ── transformer gates (the stdlib flow transformers) ────────────────────────
+//
+// The stateless gates (Wait, Throttle) lift a per-message func onto the
+// contract with sdk.Map. Head/Tail/Sample keep their raw channel loops: each
+// carries a counter that must stay invocation-local, which a shared sdk.Map
+// closure cannot express.
+
+// Wait sleeps a fixed duration before passing each message through.
+func Wait(ms int) sdk.Transformer {
+	d := time.Duration(ms) * time.Millisecond
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		time.Sleep(d)
+		return msg, nil
+	})
+}
+
+// Throttle rate-limits the stream to perSecond messages, blocking as needed.
+func Throttle(perSecond int) sdk.Transformer {
+	wait := Limiter(0, perSecond)
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		wait()
+		return msg, nil
+	})
+}
+
+// Head passes the first count messages through and drops the rest.
+func Head(count int) sdk.Transformer {
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		seen := 0
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				if seen >= count {
+					continue
+				}
+				seen++
+				select {
+				case out <- msg:
 				case <-ctx.Done():
 					return
 				}
@@ -123,71 +217,57 @@ func Consumer(c sdk.Consumer, perMinute, perSecond int) sdk.Consumer {
 	}
 }
 
-// ── transformer gates (shared by the stdlib flow transformers) ──────────────
-
-// Wait sleeps a fixed duration before passing each message through.
-func Wait(ms int) sdk.Transformer {
-	d := time.Duration(ms) * time.Millisecond
-	return func(in []byte) ([]byte, error) {
-		time.Sleep(d)
-		return in, nil
-	}
-}
-
-// Throttle rate-limits the stream to perSecond messages, blocking as needed.
-func Throttle(perSecond int) sdk.Transformer {
-	wait := Limiter(0, perSecond)
-	return func(in []byte) ([]byte, error) {
-		wait()
-		return in, nil
-	}
-}
-
-// Head passes the first count messages through and drops the rest.
-func Head(count int) sdk.Transformer {
-	var mu sync.Mutex
-	seen := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if seen >= count {
-			return nil, nil
-		}
-		seen++
-		return in, nil
-	}
-}
-
 // Tail drops the first skip messages and passes the rest through.
 func Tail(skip int) sdk.Transformer {
-	var mu sync.Mutex
-	seen := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if seen < skip {
-			seen++
-			return nil, nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		seen := 0
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				if seen < skip {
+					seen++
+					continue
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		return in, nil
 	}
 }
 
 // Sample keeps one message in every rate (rate <= 1 keeps everything).
 func Sample(rate int) sdk.Transformer {
-	if rate <= 1 {
-		return func(in []byte) ([]byte, error) { return in, nil }
-	}
-	var mu sync.Mutex
-	n := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		keep := n%rate == 0
-		n++
-		if keep {
-			return in, nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		n := 0
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				keep := rate <= 1 || n%rate == 0
+				n++
+				if !keep {
+					continue
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		return nil, nil
 	}
 }

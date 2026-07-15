@@ -65,7 +65,24 @@ func testPlugin(name string) sdk.Plugin {
 			Name:  "echo",
 			Kinds: sdk.TRANSFORMER,
 			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
-				return func(in []byte) ([]byte, error) { return in, nil }, nil
+				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+					defer close(out)
+					for {
+						select {
+						case msg, ok := <-in:
+							if !ok {
+								return
+							}
+							select {
+							case out <- msg:
+							case <-ctx.Done():
+								return
+							}
+						case <-ctx.Done():
+							return
+						}
+					}
+				}, nil
 			},
 		},
 	)
@@ -753,6 +770,28 @@ func TestParseProduceParallelNegative(t *testing.T) {
 	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "must be non-negative") {
 		t.Fatalf("want produce-parallel floor error, got: %v", err)
+	}
+}
+
+// LIVE BUG (discovered by QA audit — this test FAILS at the commit that
+// introduces it): a fractional produce-parallel must be rejected at parse,
+// not silently truncated. Today resource.go takes AsBigFloat().Int64() and
+// discards the fraction, so produce-parallel = 2.9 quietly becomes 2 — the
+// strict-schema philosophy the rest of the parser follows (typos and bad
+// value types error at parse time) says this should be an error instead.
+func TestParseProduceParallelFractional(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce          = [produce.constant.p]
+		consume          = [trash.t]
+		produce-parallel = 2.9
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "produce-parallel") {
+		t.Fatalf("want produce-parallel fractional rejection, got: %v", err)
 	}
 }
 

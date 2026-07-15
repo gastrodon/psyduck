@@ -3,11 +3,10 @@ package transform
 import (
 	"fmt"
 	"strconv"
-	"sync"
+	"sync/atomic"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 type assertConfig struct {
@@ -32,7 +31,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 		msg = "assertion failed"
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return sdk.Map(func(in []byte) ([]byte, error) {
 		v, err := data.Decode(in, "json")
 		if err != nil {
 			return nil, err
@@ -45,7 +44,7 @@ func Assert(parse sdk.Parser) (sdk.Transformer, error) {
 			return nil, fmt.Errorf("%s: %s", msg, config.Expression)
 		}
 		return in, nil
-	}, nil
+	}), nil
 }
 
 func falsey(v data.Value) bool {
@@ -78,16 +77,16 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 		every = 1
 	}
 
-	var mu sync.Mutex
-	n := 0
+	// n is shared across every invocation, so the tally is global: the count
+	// spans all parallel callers. atomic.Add keeps the increment race-free and
+	// is cheaper than a mutex for a bare counter.
+	var n atomic.Uint64
 
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		n++
-		if n%every != 0 {
-			return in, nil
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		cur := n.Add(1)
+		if cur%uint64(every) == 0 {
+			return []byte(config.Prefix + strconv.FormatUint(cur, 10)), nil
 		}
-		return []byte(config.Prefix + strconv.Itoa(n)), nil
-	}, nil
+		return msg, nil
+	}), nil
 }
