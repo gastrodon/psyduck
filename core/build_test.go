@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -363,5 +365,120 @@ func Test_BuildPipeline_errors(t *testing.T) {
 	}
 	if err := RunPipeline(t.Context(), pipeline); err == nil || !strings.Contains(err.Error(), `no plugin "ghost"`) {
 		t.Fatalf("want no-plugin error at run, got %v", err)
+	}
+}
+
+// closeTracker is an sdk.Plugin whose instances record Close calls. A bound
+// instance is the engine's handle on plugin-side resources: for subprocess
+// plugins each one is an entry in the plugin server's handle table that only
+// a Close RPC frees, so an engine that never closes what it binds grows the
+// subprocess for the life of the run (most visibly under produce-from, which
+// keeps binding fresh producers).
+type closeTracker struct {
+	mu    sync.Mutex // producers bind at run time, so Bind may be concurrent
+	bound []*trackedInstance
+
+	produce   sdk.Producer
+	consume   sdk.Consumer
+	transform sdk.Transformer
+}
+
+func (p *closeTracker) Name() string                        { return "closetrack" }
+func (p *closeTracker) Resources() []sdk.ResourceDescriptor { return nil }
+
+func (p *closeTracker) Bind(kind sdk.Kind, _ string, _ sdk.ConfigBlock) (sdk.Instance, error) {
+	inst := &trackedInstance{kind: kind, plugin: p}
+	p.mu.Lock()
+	p.bound = append(p.bound, inst)
+	p.mu.Unlock()
+	return inst, nil
+}
+
+type trackedInstance struct {
+	kind   sdk.Kind
+	plugin *closeTracker
+	closes atomic.Int64
+}
+
+func (i *trackedInstance) Kind() sdk.Kind { return i.kind }
+
+func (i *trackedInstance) Produce(ctx context.Context, send chan<- []byte, errs chan<- error) {
+	i.plugin.produce(ctx, send, errs)
+}
+
+func (i *trackedInstance) Consume(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+	i.plugin.consume(ctx, recv, errs, done)
+}
+
+func (i *trackedInstance) Transform(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+	i.plugin.transform(ctx, in, out, errs)
+}
+
+func (i *trackedInstance) Close() error {
+	i.closes.Add(1)
+	return nil
+}
+
+// Test_RunPipeline_ClosesBoundInstances pins the instance lifecycle contract:
+// every instance the engine binds — eagerly (consumers, transformers) or
+// lazily at run time (producers) — is Closed by the time RunPipeline returns.
+// Close is how a plugin releases whatever Bind acquired (connections, files,
+// and for gRPC subprocess plugins the server-side handle itself), so a leak
+// here grows plugin subprocesses for the life of the run.
+func Test_RunPipeline_ClosesBoundInstances(t *testing.T) {
+	const n = 100
+	var got atomic.Int64
+	plugin := &closeTracker{
+		produce: emitN(n, []byte("x"), nil),
+		consume: countAll(&got),
+		transform: func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+			defer close(out)
+			for {
+				select {
+				case msg, ok := <-in:
+					if !ok {
+						return
+					}
+					select {
+					case out <- msg:
+					case <-ctx.Done():
+						return
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		},
+	}
+
+	src := parse.Pipeline{
+		Name:            "close-track",
+		Producers:       parse.LiteralResourceFunc(testResource("closetrack", "emit", sdk.PRODUCER, sdk.BlockMeta{})),
+		Consumers:       parse.LiteralResourceFunc(testResource("closetrack", "count", sdk.CONSUMER, sdk.BlockMeta{})),
+		Transformers:    parse.LiteralResourceFunc(testResource("closetrack", "pass", sdk.TRANSFORMER, sdk.BlockMeta{})),
+		ProduceParallel: 1,
+	}
+
+	pipeline, err := BuildPipeline(t.Context(), src, []sdk.Plugin{plugin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mustRun(t, t.Context(), pipeline); err != nil {
+		t.Fatal(err)
+	}
+	if got.Load() != n { // sanity: the pipeline actually moved data
+		t.Fatalf("want %d delivered, got %d", n, got.Load())
+	}
+
+	plugin.mu.Lock()
+	defer plugin.mu.Unlock()
+	if len(plugin.bound) != 3 {
+		t.Fatalf("want 3 bound instances (producer, transformer, consumer), got %d", len(plugin.bound))
+	}
+	names := map[sdk.Kind]string{sdk.PRODUCER: "producer", sdk.CONSUMER: "consumer", sdk.TRANSFORMER: "transformer"}
+	for i, inst := range plugin.bound {
+		if inst.closes.Load() == 0 {
+			t.Errorf("bound instance %d (%s) was never closed", i, names[inst.kind])
+		}
 	}
 }

@@ -141,9 +141,19 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 		lookup[p.Name()] = p
 	}
 
+	// Each bound instance is closed when its stage function returns — Close
+	// is how a plugin releases whatever Bind acquired (for subprocess
+	// plugins, the server-side handle itself). Close errors are dropped,
+	// matching the produce-from seed: by the time a stage returns, its error
+	// channel is no longer safe to send on (consumers and producers close
+	// their own errs, and the transform forwarder may already be gone).
 	consumers := make([]sdk.Consumer, 0)
 	if err := drain(ctx, src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		consumers = append(consumers, flow.Consumer(instance.Consume, b.Meta.PerMinute, 0))
+		consume := flow.Consumer(instance.Consume, b.Meta.PerMinute, 0)
+		consumers = append(consumers, func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer instance.Close()
+			consume(ctx, recv, errs, done)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -153,7 +163,10 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 
 	transformers := make([]sdk.Transformer, 0)
 	if err := drain(ctx, src.Transformers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		transformers = append(transformers, instance.Transform)
+		transformers = append(transformers, func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+			defer instance.Close()
+			instance.Transform(ctx, in, out, errs)
+		})
 	}); err != nil {
 		return nil, err
 	}
