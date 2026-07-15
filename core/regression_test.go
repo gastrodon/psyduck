@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
 // This file holds regression tests for the concurrency bugs the pre-rewrite
@@ -45,6 +43,17 @@ import (
 // #8 (produce-from seed closing without sending) is a parse-layer bug, not
 // a core-engine one; its regression test lives in
 // parse/hcl/hcl_test.go:TestParseProduceFromClosedSeed.
+//
+// One test here — Test_ErrorAfterDataClose_IsDelivered — guards a dropped-error
+// bug in the *new* engine's error forwarder that was found and fixed during the
+// rewrite, not in the 5c9985f engine reproduced above. It has no issue number
+// and isn't one of #10/#11/#12/#19, but it's a genuine regression against a
+// real fix, so it lives with the rest.
+//
+// Capability/invariant tests that exercise behavior the rewrite *introduced*
+// (the ctx-aware exit path, the transformer channel stage) rather than
+// reproducing a deleted-engine bug are not regressions and live with the other
+// RunPipeline behavior tests in run_test.go, not here.
 //
 // sdk v0.5.1 added ctx as Producer/Consumer's first parameter, giving
 // well-behaved plugins a way to exit on cancellation instead of parking.
@@ -120,7 +129,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 		Producers:   staticSource(producer),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	elapsed := time.Since(start)
@@ -160,7 +169,7 @@ func Test_ConsumerEarlyFinish_NoDeadlock(t *testing.T) {
 		Producers:   staticSource(emitN(100, []byte("x"), nil)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +218,7 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 		Producers:   staticSource(producers...),
 		Parallel:    2,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +255,7 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 			),
 			Parallel:    2,
 			Consumers:   []sdk.Consumer{countAll(&got), countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		}
 	}
 
@@ -264,49 +273,6 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 	}
 	buf := make([]byte, 1<<16)
 	t.Fatalf("goroutines leaked across runs: %d -> %d\n%s",
-		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
-}
-
-// Capability test, not a regression: sdk v0.5.1 added ctx to Producer and
-// Consumer specifically so a plugin abandoned mid-send has a way to exit
-// instead of parking forever — the one leak PR #20's rewrite documented as
-// unavoidable ("the sdk contract has no context"). A producer that actually
-// selects on ctx.Done() alongside its send, cut off mid-stream by a
-// flow.Producer stop-after wrap, must leave no goroutine behind at all.
-func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
-	blockForever := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
-		defer close(send)
-		defer close(errs)
-		for {
-			select {
-			case send <- []byte("x"):
-				continue
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
-
-	baseline := runtime.NumGoroutine()
-	var got atomic.Int64
-	if err := panicSafeRun(t, &Pipeline{
-		Producers:   staticSource(flow.Producer(blockForever, 0, 0, 3)),
-		Parallel:    1,
-		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if runtime.NumGoroutine() <= baseline {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	buf := make([]byte, 1<<16)
-	t.Fatalf("ctx-aware producer still leaked a goroutine on abandon: %d -> %d\n%s",
 		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
 }
 
@@ -338,39 +304,10 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 		Producers:   staticSource(producer),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
 		t.Fatalf("late error was dropped: got %v", err)
 	}
-}
-
-// A producer that ignores ctx entirely and sends forever with a bare send
-// (no select on ctx.Done) violates the sdk contract and leaks its own
-// goroutine when abandoned — the engine can't prevent that. What the engine
-// must still guarantee is that RunPipeline itself returns: the abandoned
-// plugin parks, the pipeline doesn't. The flow.Producer stop-after wrap is
-// what actually cuts the stream here — the misbehaving producer never would.
-func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
-	misbehaving := func(_ context.Context, send chan<- []byte, errs chan<- error) {
-		for {
-			send <- []byte("x") // bare send: parks forever once abandoned
-		}
-	}
-
-	var got atomic.Int64
-	if err := panicSafeRun(t, &Pipeline{
-		Producers:   staticSource(flow.Producer(misbehaving, 0, 0, 3)),
-		Parallel:    1,
-		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if n := got.Load(); n != 3 {
-		t.Fatalf("want 3 delivered, got %d", n)
-	}
-	// Note: this test intentionally leaks the misbehaving producer's
-	// goroutine — that's the documented cost of violating the contract.
 }

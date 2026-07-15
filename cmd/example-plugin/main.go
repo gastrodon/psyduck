@@ -22,6 +22,14 @@ func Plugin() sdk.Plugin {
 				{Name: "count", Description: "number of times to emit (0 = forever)", Type: sdk.TypeInt, Default: 1},
 			},
 		},
+		&sdk.Resource{
+			Name:               "affix",
+			Kinds:              sdk.TRANSFORMER,
+			ProvideTransformer: affixTransformer,
+			Spec: []*sdk.Spec{
+				{Name: "suffix", Description: "string appended to each record", Type: sdk.TypeString, Default: ""},
+			},
+		},
 	)
 }
 
@@ -30,6 +38,24 @@ func Plugin() sdk.Plugin {
 type constantConfig struct {
 	Value string `psy:"value" json:"value"`
 	Count int    `psy:"count" json:"count"`
+}
+
+type affixConfig struct {
+	Suffix string `psy:"suffix" json:"suffix"`
+}
+
+// affixTransformer appends a configured suffix to each record — a minimal
+// per-record mapping, so the streaming Transform wire path dominates any
+// measurement made against it.
+func affixTransformer(parse sdk.Parser) (sdk.Transformer, error) {
+	config := &affixConfig{}
+	if err := parse(config); err != nil {
+		return nil, err
+	}
+	suffix := []byte(config.Suffix)
+	return sdk.Map(func(data []byte) ([]byte, error) {
+		return append(append(make([]byte, 0, len(data)+len(suffix)), data...), suffix...), nil
+	}), nil
 }
 
 func constantProducer(parse sdk.Parser) (sdk.Producer, error) {

@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
+
+	"github.com/gastrodon/psyduck/stdlib/flow"
 )
 
 // runTimeout guards every RunPipeline call in this file: the old engine's
@@ -90,6 +93,51 @@ func staticSource(ps ...sdk.Producer) ProducerSource {
 	}
 }
 
+// Test_RunPipeline_noTransformer covers RunPipeline's Transformer==nil fast
+// path — the bypass loop that forwards producers straight to the sink with no
+// transform stage. It is the common zero-transformer pipeline
+// (composeTransformers returns nil for an empty stack), yet every other
+// RunPipeline test injects a non-nil transformer, so nothing else runs it.
+func Test_RunPipeline_noTransformer(t *testing.T) {
+	t.Run("passes every message straight through", func(t *testing.T) {
+		const n = 1000
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   staticSource(emitN(n, []byte("x"), nil)),
+			Parallel:    1,
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: nil,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Load() != n {
+			t.Fatalf("want %d delivered, got %d", n, got.Load())
+		}
+	})
+
+	t.Run("producer error is attributed, exit-on-error", func(t *testing.T) {
+		boom := errors.New("boom")
+		erroring := func(_ context.Context, send chan<- []byte, errs chan<- error) {
+			defer close(send)
+			defer close(errs)
+			send <- []byte("one")
+			errs <- boom
+		}
+		var got atomic.Int64
+		err := mustRun(t, t.Context(), &Pipeline{
+			Producers:   staticSource(erroring),
+			Parallel:    1,
+			Consumers:   []sdk.Consumer{countAll(&got)},
+			Transformer: nil,
+			ExitOnError: true,
+		})
+		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "producer supplied error") {
+			t.Fatalf("want attributed producer error, got %v", err)
+		}
+	})
+}
+
 func Test_RunPipeline(t *testing.T) {
 	cases := []struct {
 		name                 string
@@ -118,12 +166,12 @@ func Test_RunPipeline(t *testing.T) {
 				consumers[i] = countAll(&got[i])
 			}
 
-			transform := func(msg []byte) ([]byte, error) { return msg, nil }
+			transform := sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil })
 			if tc.delay {
-				transform = func(msg []byte) ([]byte, error) {
+				transform = sdk.Map(func(msg []byte) ([]byte, error) {
 					time.Sleep(time.Millisecond)
 					return msg, nil
-				}
+				})
 			}
 
 			err := mustRun(t, t.Context(), &Pipeline{
@@ -163,12 +211,12 @@ func Test_RunPipeline_filtering(t *testing.T) {
 		}),
 		Parallel:  1,
 		Consumers: []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) {
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) {
 			if msg[0]%2 == 0 {
 				return nil, nil // filtered
 			}
 			return msg, nil
-		},
+		}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +239,7 @@ func Test_RunPipeline_cancel(t *testing.T) {
 		Producers:   staticSource(emitForever([]byte("x"))),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("want context.Canceled, got %v", err)
@@ -216,7 +264,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(erroring("producer")),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) {
@@ -233,7 +281,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(erroring("producer")),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		})
 		if err != nil {
 			t.Fatalf("errors are logged, not returned, without exit-on-error: %v", err)
@@ -249,7 +297,7 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(emitN(10, []byte("x"), nil)),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return nil, boom },
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return nil, boom }),
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "transformer supplied error") {
@@ -269,11 +317,316 @@ func Test_RunPipeline_errors(t *testing.T) {
 			Producers:   staticSource(emitN(10, []byte("x"), nil)),
 			Parallel:    1,
 			Consumers:   []sdk.Consumer{consume},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 			ExitOnError: true,
 		})
 		if !errors.Is(err, boom) || !strings.Contains(err.Error(), "consumer supplied error") {
 			t.Fatalf("want the consumer's error, got %v", err)
 		}
 	})
+}
+
+// The tests below drive a multi-stage composeTransformers chain through the
+// full RunPipeline/startTransform machinery. They are coverage for the
+// concurrent chaining introduced by the transformer channel-contract rewrite
+// (issue #22), not regressions: the old stackTransform composed synchronous
+// per-message funcs by recursion, so it had no chain teardown/deadlock failure
+// mode to reproduce. build_test.go only exercises composeTransformers directly
+// with a buffered errs channel and context.Background(); these fill the gap by
+// running real chains with the unbuffered errs and real cancellation.
+
+// appendByte is a well-behaved stdlib-style transformer stage.
+func appendByte(c byte) sdk.Transformer {
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- append(append([]byte{}, msg...), c):
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// A real 3-stage chain through the full engine delivers every message,
+// transformed in declaration order, and terminates.
+func Test_RunPipeline_ChainFullRun(t *testing.T) {
+	const n = 5000
+	var got atomic.Int64
+	chain := composeTransformers([]sdk.Transformer{appendByte('a'), appendByte('b'), appendByte('c')})
+
+	var seen atomic.Value
+	consume := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(done)
+		defer close(errs)
+		for msg := range recv {
+			got.Add(1)
+			seen.Store(string(msg))
+		}
+	}
+
+	err := mustRun(t, t.Context(), &Pipeline{
+		Producers:   staticSource(emitN(n, []byte("_"), nil)),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{consume},
+		Transformer: chain,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Load() != n {
+		t.Fatalf("want %d messages, got %d", n, got.Load())
+	}
+	if s := seen.Load().(string); s != "_abc" {
+		t.Fatalf("want _abc, got %q", s)
+	}
+}
+
+// Cancelling mid-stream must tear down a multi-stage chain fed by a
+// ctx-ignoring, never-closing producer. A hang here means the chain leaks.
+func Test_RunPipeline_ChainCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+
+	var got atomic.Int64
+	chain := composeTransformers([]sdk.Transformer{appendByte('a'), appendByte('b'), appendByte('c')})
+	err := mustRun(t, ctx, &Pipeline{
+		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: chain,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+// A consumer that finishes after one message triggers the early-break path in
+// RunPipeline. With a multi-stage chain still mid-flight and an infinite
+// producer, the engine must cancel and join without hanging.
+func Test_RunPipeline_ChainEarlyConsumerFinish(t *testing.T) {
+	oneShot := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(errs)
+		<-recv      // take exactly one
+		close(done) // signal finished; sink should stop feeding us
+	}
+	chain := composeTransformers([]sdk.Transformer{appendByte('a'), appendByte('b'), appendByte('c')})
+	err := mustRun(t, t.Context(), &Pipeline{
+		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{oneShot},
+		Transformer: chain,
+	})
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("early consumer finish should end cleanly, got %v", err)
+	}
+}
+
+// A middle stage blocked in a slow op when ctx is cancelled must still exit;
+// exercises ctx.Done racing an in-flight send between stages.
+func Test_RunPipeline_ChainSlowMiddleCancel(t *testing.T) {
+	slow := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case <-time.After(5 * time.Millisecond):
+				case <-ctx.Done():
+					return
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	go func() { time.Sleep(50 * time.Millisecond); cancel() }()
+
+	var got atomic.Int64
+	chain := composeTransformers([]sdk.Transformer{appendByte('a'), slow, appendByte('c')})
+	err := mustRun(t, ctx, &Pipeline{
+		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: chain,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+// A middle stage that emits an error on every message, driven through the real
+// (unbuffered, single-forwarder) errs path with ExitOnError. The first error
+// must cancel and tear the whole chain down and surface as the run error.
+func Test_RunPipeline_ChainMiddleErrorExit(t *testing.T) {
+	boom := errors.New("boom")
+	errEvery := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case _, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case errs <- boom:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+	var got atomic.Int64
+	chain := composeTransformers([]sdk.Transformer{appendByte('a'), errEvery, appendByte('c')})
+	err := mustRun(t, t.Context(), &Pipeline{
+		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: chain,
+		ExitOnError: true,
+	})
+	if !errors.Is(err, boom) {
+		t.Fatalf("want boom from the middle stage, got %v", err)
+	}
+}
+
+// ── engine invariants under misbehaving / new-capability plugins ────────────
+//
+// These are capability/invariant tests, not regressions: they exercise
+// behavior the rewrite introduced (the ctx-aware exit path, the transformer
+// channel stage) rather than reproducing a bug in the deleted engine, so they
+// live here with the other RunPipeline behavior tests rather than in
+// regression_test.go.
+
+// Capability test: sdk v0.5.1 added ctx to Producer and Consumer specifically
+// so a plugin abandoned mid-send has a way to exit instead of parking forever
+// — the one leak PR #20's rewrite documented as unavoidable ("the sdk contract
+// has no context"). A producer that actually selects on ctx.Done() alongside
+// its send, cut off mid-stream by a flow.Producer stop-after wrap, must leave
+// no goroutine behind at all.
+func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
+	blockForever := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
+		defer close(errs)
+		for {
+			select {
+			case send <- []byte("x"):
+				continue
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	baseline := runtime.NumGoroutine()
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(flow.Producer(blockForever, 0, 0, 3)),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runtime.NumGoroutine() <= baseline {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	buf := make([]byte, 1<<16)
+	t.Fatalf("ctx-aware producer still leaked a goroutine on abandon: %d -> %d\n%s",
+		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
+}
+
+// A producer that ignores ctx entirely and sends forever with a bare send (no
+// select on ctx.Done) violates the sdk contract and leaks its own goroutine
+// when abandoned — the engine can't prevent that. What the engine must still
+// guarantee is that RunPipeline itself returns: the abandoned plugin parks,
+// the pipeline doesn't. The flow.Producer stop-after wrap is what actually cuts
+// the stream here — the misbehaving producer never would.
+func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
+	misbehaving := func(_ context.Context, send chan<- []byte, errs chan<- error) {
+		for {
+			send <- []byte("x") // bare send: parks forever once abandoned
+		}
+	}
+
+	var got atomic.Int64
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(flow.Producer(misbehaving, 0, 0, 3)),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{countAll(&got)},
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 3 {
+		t.Fatalf("want 3 delivered, got %d", n)
+	}
+	// Note: this test intentionally leaks the misbehaving producer's
+	// goroutine — that's the documented cost of violating the contract.
+}
+
+// Same class as Test_ContractViolatingProducer_EngineStillReturns, but for the
+// transformer stage the channel-contract rewrite introduced: a transformer
+// that ignores ctx and blocks on a bare receive/send loop leaks its own
+// goroutine when abandoned, but RunPipeline itself must still return —
+// startTransform's fire-and-forget launch (see core/transformstage.go) exists
+// specifically so this can't hang the engine.
+func Test_ContractViolatingTransformer_EngineStillReturns(t *testing.T) {
+	misbehaving := func(_ context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		for msg := range in {
+			out <- msg // bare send: parks forever once abandoned
+		}
+	}
+
+	// The consumer finishing early is what abandons the transformer: the run
+	// loop stops draining stage.out, and the misbehaving transformer parks on
+	// its bare send.
+	var got atomic.Int64
+	consumer := func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+		defer close(errs)
+		for range recv {
+			if got.Add(1) >= 3 {
+				close(done)
+				return
+			}
+		}
+	}
+	if err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(emitForever([]byte("x"))),
+		Parallel:    1,
+		Consumers:   []sdk.Consumer{consumer},
+		Transformer: misbehaving,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n := got.Load(); n != 3 {
+		t.Fatalf("want 3 delivered, got %d", n)
+	}
+	// Note: this test intentionally leaks the misbehaving transformer's
+	// goroutine — that's the documented cost of violating the contract.
 }

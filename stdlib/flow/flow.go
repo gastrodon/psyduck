@@ -9,7 +9,6 @@ package flow
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/psyduck-etl/sdk"
@@ -123,71 +122,109 @@ func Consumer(c sdk.Consumer, perMinute, perSecond int) sdk.Consumer {
 	}
 }
 
-// ── transformer gates (shared by the stdlib flow transformers) ──────────────
+// ── transformer gates (the stdlib flow transformers) ────────────────────────
+//
+// The stateless gates (Wait, Throttle) lift a per-message func onto the
+// contract with sdk.Map. Head/Tail/Sample keep their raw channel loops: each
+// carries a counter that must stay invocation-local, which a shared sdk.Map
+// closure cannot express.
 
 // Wait sleeps a fixed duration before passing each message through.
 func Wait(ms int) sdk.Transformer {
 	d := time.Duration(ms) * time.Millisecond
-	return func(in []byte) ([]byte, error) {
+	return sdk.Map(func(msg []byte) ([]byte, error) {
 		time.Sleep(d)
-		return in, nil
-	}
+		return msg, nil
+	})
 }
 
 // Throttle rate-limits the stream to perSecond messages, blocking as needed.
 func Throttle(perSecond int) sdk.Transformer {
 	wait := Limiter(0, perSecond)
-	return func(in []byte) ([]byte, error) {
+	return sdk.Map(func(msg []byte) ([]byte, error) {
 		wait()
-		return in, nil
-	}
+		return msg, nil
+	})
 }
 
 // Head passes the first count messages through and drops the rest.
 func Head(count int) sdk.Transformer {
-	var mu sync.Mutex
-	seen := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if seen >= count {
-			return nil, nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		seen := 0
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				if seen >= count {
+					continue
+				}
+				seen++
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		seen++
-		return in, nil
 	}
 }
 
 // Tail drops the first skip messages and passes the rest through.
 func Tail(skip int) sdk.Transformer {
-	var mu sync.Mutex
-	seen := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if seen < skip {
-			seen++
-			return nil, nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		seen := 0
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				if seen < skip {
+					seen++
+					continue
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		return in, nil
 	}
 }
 
 // Sample keeps one message in every rate (rate <= 1 keeps everything).
 func Sample(rate int) sdk.Transformer {
-	if rate <= 1 {
-		return func(in []byte) ([]byte, error) { return in, nil }
-	}
-	var mu sync.Mutex
-	n := 0
-	return func(in []byte) ([]byte, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		keep := n%rate == 0
-		n++
-		if keep {
-			return in, nil
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		n := 0
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				keep := rate <= 1 || n%rate == 0
+				n++
+				if !keep {
+					continue
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		return nil, nil
 	}
 }

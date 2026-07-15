@@ -175,8 +175,15 @@ starts pumping data through, it should be a live pipeline stage.
 ```go
 type Producer    func(ctx context.Context, send chan<- []byte, errs chan<- error)
 type Consumer    func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{})
-type Transformer func(in []byte) ([]byte, error)
+type Transformer func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error)
 ```
+
+All three receive the pipeline's `ctx` and are contractually required to
+select on `ctx.Done()` alongside their channel sends/receives — a plugin that
+only ever does bare sends/receives will park forever if the host abandons it
+mid-run (e.g. `stop-after` cutting the stream short). The host itself never
+hangs on an abandoned plugin, but a non-conforming one leaks its own
+goroutine.
 
 **Producer.** Emit bytes on `send`. Close `send` and `errs` when done. If you
 have nothing else to say, closing `send` is the only signal the host needs —
@@ -194,12 +201,62 @@ on, at the cost of at most one message already in flight landing after
 `done` closes. Select on `ctx.Done()` here too, for the same reason as
 `Producer`.
 
-**Transformer.** One in, one out. If you need to drop a message, return
-`(nil, nil)`. If you need to signal an error, return `(nil, err)` — the host
-decides whether that terminates the pipeline based on the pipeline's
-`exit-on-error`. Transformers may be called concurrently from more than one
-goroutine; guard mutable state (see `stdlib/transform/dev.go`'s `Count` for a
-mutex example).
+**Transformer.** Reads from `in`, writes results to `out`, and is responsible
+for closing `out` when done — typically when `in` closes and any buffered
+state has been flushed. To drop a message, simply don't write it to `out`;
+there is no `nil`-return sentinel to reason about. To signal an error, send
+it on `errs` and keep going — the host decides whether that terminates the
+pipeline based on the pipeline's `exit-on-error`, but *your* loop must not
+stop just because one message failed. A Transformer must not close `errs`.
+
+Because the host calls your `Transformer` exactly once per run — with `in`
+staying open for the whole stream, not once per message — this shape now
+supports 1-to-many (explode one message into several `out` sends), many-to-1
+(accumulate across messages, flush when `in` closes), and everything in
+between, not just the old 1-to-1/filter mapping. A minimal passthrough:
+
+```go
+func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+    defer close(out)
+    for {
+        select {
+        case msg, ok := <-in:
+            if !ok {
+                return
+            }
+            transformed, err := transformData(msg)
+            if err != nil {
+                select {
+                case errs <- err:
+                case <-ctx.Done():
+                    return
+                }
+                continue
+            }
+            select {
+            case out <- transformed:
+            case <-ctx.Done():
+                return
+            }
+        case <-ctx.Done():
+            return
+        }
+    }
+}
+```
+
+For the common case — a plain per-message mapping — the SDK ships
+`sdk.Map(fn func([]byte) ([]byte, error)) Transformer`, which lifts `fn`
+onto this contract: a `(nil, nil)` return filters the message out, an error
+is reported on `errs` and that message dropped, and the stage keeps running.
+If `fn` is all your transformer needs, use `sdk.Map` and skip the loop above
+entirely. Stdlib's own transformers write the raw loop directly (see
+`stdlib/transform/codec.go`'s `codecTransformer` or `stdlib/flow/flow.go`'s
+`Wait`/`Head`/`Tail`), so reading any of them shows exactly the loop a
+plugin author writes when they need more than 1-to-1. For a stateful example
+that flushes on stream end, see `stdlib/transform/keyed.go`'s `Batch`, which
+buffers messages into fixed-size groups and emits a final partial group when
+`in` closes.
 
 ### `sdk.BlockMeta`
 
@@ -252,7 +309,8 @@ examples worth reading:
 |---|---|
 | `stdlib/produce/constant.go` | Minimal producer + config struct. |
 | `stdlib/consume/trash.go` | Minimal consumer that ignores its config. |
-| `stdlib/transform/dev.go` (`Count`) | Transformer with per-instance mutable state. |
+| `stdlib/transform/dev.go` (`Count`) | Transformer with per-instance mutable state (closed over, not mutex-guarded — the channel loop is single-threaded). |
+| `stdlib/transform/keyed.go` (`Batch`) | Stateful transformer with a raw channel loop that flushes buffered output when `in` closes. |
 | `stdlib/plugin.go` | Assembling many `Resource`s under one `sdk.NewInProc` plugin. |
 
 The one thing the stdlib does *not* demonstrate is running as a

@@ -1,7 +1,9 @@
 package transform
 
 import (
+	"context"
 	"fmt"
+	"sync"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/psyduck-etl/sdk/data"
@@ -70,28 +72,36 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 		window = 10000
 	}
 
+	// seen/ring are shared across every invocation of this transformer, so
+	// the dedup window is global: duplicates are caught across all parallel
+	// invocations, not just within one. mu guards both — the critical section
+	// is a single lookup plus at most one evict/append, so it stays cheap even
+	// under parallel callers.
+	var mu sync.Mutex
 	seen := make(map[string]struct{}, window)
 	ring := make([]string, 0, window)
 
-	return func(in []byte) ([]byte, error) {
-		key, ok, err := k.key(in)
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		key, keyOK, err := k.key(msg)
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			return in, nil
+		if keyOK {
+			mu.Lock()
+			if _, dup := seen[key]; dup {
+				mu.Unlock()
+				return nil, nil
+			}
+			if len(ring) >= window {
+				delete(seen, ring[0])
+				ring = ring[1:]
+			}
+			seen[key] = struct{}{}
+			ring = append(ring, key)
+			mu.Unlock()
 		}
-		if _, dup := seen[key]; dup {
-			return nil, nil
-		}
-		if len(ring) >= window {
-			delete(seen, ring[0])
-			ring = ring[1:]
-		}
-		seen[key] = struct{}{}
-		ring = append(ring, key)
-		return in, nil
-	}, nil
+		return msg, nil
+	}), nil
 }
 
 // ── uniq ───────────────────────────────────────────────────────────────────
@@ -114,23 +124,29 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, err
 	}
 
+	// last/have are shared across every invocation, so "consecutive" is
+	// defined over the interleaving of all parallel callers. mu guards the
+	// compare-and-set so that check and update are atomic.
+	var mu sync.Mutex
 	var last string
 	var have bool
 
-	return func(in []byte) ([]byte, error) {
-		key, ok, err := k.key(in)
+	return sdk.Map(func(msg []byte) ([]byte, error) {
+		key, keyOK, err := k.key(msg)
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			return in, nil
+		if keyOK {
+			mu.Lock()
+			if have && key == last {
+				mu.Unlock()
+				return nil, nil
+			}
+			last, have = key, true
+			mu.Unlock()
 		}
-		if have && key == last {
-			return nil, nil
-		}
-		last, have = key, true
-		return in, nil
-	}, nil
+		return msg, nil
+	}), nil
 }
 
 // ── batch ──────────────────────────────────────────────────────────────────
@@ -139,10 +155,9 @@ type batchConfig struct {
 	Size int `psy:"size"`
 }
 
-// Batch collects `size` messages and emits them as a single JSON array. The
-// final partial batch is flushed when the stream ends — but transformers have
-// no end-of-stream hook, so a short trailing batch is emitted only once size is
-// reached. Use size to bound memory.
+// Batch collects `size` messages and emits them as a single JSON array. A
+// final partial batch — shorter than size — is flushed when the stream ends,
+// so no trailing messages are lost. Use size to bound memory.
 func Batch(parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(batchConfig)
 	if err := parse(config); err != nil {
@@ -153,19 +168,51 @@ func Batch(parse sdk.Parser) (sdk.Transformer, error) {
 		size = 1
 	}
 
-	buf := make(data.List, 0, size)
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		buf := make(data.List, 0, size)
 
-	return func(in []byte) ([]byte, error) {
-		v, err := data.Decode(in, "json")
-		if err != nil {
-			v = data.Bytes(in)
+		emit := func() bool {
+			b, err := data.Encode(buf, "json")
+			buf = make(data.List, 0, size)
+			if err != nil {
+				select {
+				case errs <- err:
+				case <-ctx.Done():
+					return false
+				}
+				return true
+			}
+			select {
+			case out <- b:
+			case <-ctx.Done():
+				return false
+			}
+			return true
 		}
-		buf = append(buf, v)
-		if len(buf) < size {
-			return nil, nil
+
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					if len(buf) > 0 {
+						emit()
+					}
+					return
+				}
+				v, err := data.Decode(msg, "json")
+				if err != nil {
+					v = data.Bytes(msg)
+				}
+				buf = append(buf, v)
+				if len(buf) >= size {
+					if !emit() {
+						return
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
 		}
-		b, err := data.Encode(buf, "json")
-		buf = make(data.List, 0, size)
-		return b, err
 	}, nil
 }

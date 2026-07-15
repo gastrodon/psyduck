@@ -186,19 +186,46 @@ func TestConsumerCancelsInnerOnRecvClose(t *testing.T) {
 	<-done
 }
 
-func TestGates(t *testing.T) {
-	count := func(fn sdk.Transformer, n int) int {
-		passed := 0
-		for i := 0; i < n; i++ {
-			out, err := fn([]byte("x"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if out != nil {
-				passed++
-			}
+// runTransformer feeds inputs through tx synchronously and collects
+// whatever it emits, closing in and waiting for out to close. A hang is a
+// test failure, not a timeout to tolerate.
+func runTransformer(t *testing.T, tx sdk.Transformer, inputs [][]byte) [][]byte {
+	t.Helper()
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, len(inputs))
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		tx(t.Context(), in, out, errs)
+	}()
+	go func() {
+		defer close(in)
+		for _, msg := range inputs {
+			in <- msg
 		}
-		return passed
+	}()
+
+	var got [][]byte
+	for msg := range out {
+		got = append(got, msg)
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("transformer did not finish: hung after closing out")
+	}
+	return got
+}
+
+func TestGates(t *testing.T) {
+	count := func(tx sdk.Transformer, n int) int {
+		inputs := make([][]byte, n)
+		for i := range inputs {
+			inputs[i] = []byte("x")
+		}
+		return len(runTransformer(t, tx, inputs))
 	}
 
 	if got := count(Head(2), 5); got != 2 {
@@ -209,5 +236,41 @@ func TestGates(t *testing.T) {
 	}
 	if got := count(Sample(2), 4); got != 2 {
 		t.Errorf("sample kept %d, want 2", got)
+	}
+}
+
+// TestGatesCancelRelease checks the send-side ctx.Done branch each flow gate
+// grew in the channel-contract rewrite: a gate parked trying to emit must
+// return when ctx is cancelled instead of leaking. runTransformer only ever
+// exercises the clean close-of-in path.
+func TestGatesCancelRelease(t *testing.T) {
+	gates := map[string]sdk.Transformer{
+		"wait":     Wait(0),
+		"throttle": Throttle(1000),
+		"head":     Head(10),
+		"tail":     Tail(0),
+		"sample":   Sample(1),
+	}
+	for name, tx := range gates {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			in := make(chan []byte)
+			out := make(chan []byte) // never drained
+			errs := make(chan error, 1)
+			done := make(chan struct{})
+
+			go func() {
+				defer close(done)
+				tx(ctx, in, out, errs)
+			}()
+			in <- []byte("x") // accepted; gate then blocks trying to emit
+			cancel()
+
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("gate did not return after ctx cancel: parked on blocked send")
+			}
+		})
 	}
 }
