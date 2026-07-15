@@ -82,7 +82,9 @@ jobs:
         go-version-file: go.mod
 
     - name: Build binary
-      run: go build -o psyduck .
+      # Matches the flake and Dockerfile: pure-Go static build, stripped,
+      # no builder-local paths baked in.
+      run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o psyduck .
 
     - name: Create release
       id: create_release

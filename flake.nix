@@ -26,8 +26,12 @@
           # and has no buildable package of its own).
           subPackages = [ "." ];
 
-          # Plugins run as gRPC subprocesses (sdk/rpc), not `plugin.Open`
-          # .so loads, so nothing here needs cgo anymore.
+          # Force a pure-Go build. Nothing in psyduck imports C, but the
+          # default (CGO_ENABLED=1, since the Nix build stdenv has a C
+          # compiler on PATH) still swaps in cgo-backed `net` and
+          # `os/user`, which dynamically link against glibc from the build
+          # closure. Disabling cgo gives a fully static, portable binary
+          # and drops glibc from the runtime closure.
           env.CGO_ENABLED = 0;
 
           ldflags = [
