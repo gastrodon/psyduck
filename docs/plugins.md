@@ -250,13 +250,16 @@ For the common case — a plain per-message mapping — the SDK ships
 onto this contract: a `(nil, nil)` return filters the message out, an error
 is reported on `errs` and that message dropped, and the stage keeps running.
 If `fn` is all your transformer needs, use `sdk.Map` and skip the loop above
-entirely. Stdlib's own transformers write the raw loop directly (see
+entirely — most of stdlib's own transformers do exactly this (see
 `stdlib/transform/codec.go`'s `codecTransformer` or `stdlib/flow/flow.go`'s
-`Wait`/`Head`/`Tail`), so reading any of them shows exactly the loop a
-plugin author writes when they need more than 1-to-1. For a stateful example
-that flushes on stream end, see `stdlib/transform/keyed.go`'s `Batch`, which
-buffers messages into fixed-size groups and emits a final partial group when
-`in` closes.
+`Wait`). For the cases that need more than 1-to-1, stdlib writes the raw loop
+directly instead: `stdlib/flow/flow.go`'s `Head`/`Tail`/`Sample` (each needs
+an invocation-local counter a shared `sdk.Map` closure can't express) and
+`stdlib/transform/jq.go`'s `Jq` (explosive, 1-to-many). Reading any of these
+shows exactly the loop a plugin author writes when they need more than
+1-to-1. For a stateful example that flushes on stream end, see
+`stdlib/transform/keyed.go`'s `Batch`, which buffers messages into
+fixed-size groups and emits a final partial group when `in` closes.
 
 ### `sdk.BlockMeta`
 
@@ -316,5 +319,6 @@ examples worth reading:
 The one thing the stdlib does *not* demonstrate is running as a
 subprocess: it is linked in directly by `main.go` and never crosses the
 gRPC boundary. `cmd/example-plugin` is the minimal external plugin — an
-`rpc.Serve` main around one producer resource. Any Git-based plugin is
-structurally identical.
+`rpc.Serve` main around a producer (`constant`) and a transformer (`affix`,
+built with `sdk.Map`) resource. Any Git-based plugin is structurally
+identical.
