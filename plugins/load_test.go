@@ -120,6 +120,24 @@ Loop:
 	}
 }
 
+// TestLoad_CloseIdempotent verifies Close can be called more than once
+// without panicking — the doc promises it, and main.go relies on it
+// (Store.Close may run, then plugins.CleanupClients reaps again).
+func TestLoad_CloseIdempotent(t *testing.T) {
+	store := NewStore(t.TempDir())
+
+	locked, err := store.Build([]parse.Plugin{{Name: "example-plugin", Source: examplePluginDir(t)}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if _, err := store.Load(locked); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	store.Close()
+	store.Close() // must be a no-op, not a double-kill panic
+}
+
 // TestLoad_PartialFailureTearsDown checks Load's teardown promise: when
 // one entry launches but a later one fails verification, the launched
 // subprocess must not leak. The failure is a hash mismatch (a drifted
