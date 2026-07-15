@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/psyduck-etl/sdk/data"
@@ -105,7 +106,10 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 		every = 1
 	}
 
-	n := 0
+	// n is shared across every invocation, so the tally is global: the count
+	// spans all parallel callers. atomic.Add keeps the increment race-free and
+	// is cheaper than a mutex for a bare counter.
+	var n atomic.Uint64
 
 	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 		defer close(out)
@@ -115,10 +119,10 @@ func Count(parse sdk.Parser) (sdk.Transformer, error) {
 				if !ok {
 					return
 				}
-				n++
+				cur := n.Add(1)
 				b := msg
-				if n%every == 0 {
-					b = []byte(config.Prefix + strconv.Itoa(n))
+				if cur%uint64(every) == 0 {
+					b = []byte(config.Prefix + strconv.FormatUint(cur, 10))
 				}
 				select {
 				case out <- b:

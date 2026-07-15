@@ -3,6 +3,7 @@ package transform
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/psyduck-etl/sdk/data"
@@ -71,6 +72,12 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 		window = 10000
 	}
 
+	// seen/ring are shared across every invocation of this transformer, so
+	// the dedup window is global: duplicates are caught across all parallel
+	// invocations, not just within one. mu guards both — the critical section
+	// is a single lookup plus at most one evict/append, so it stays cheap even
+	// under parallel callers.
+	var mu sync.Mutex
 	seen := make(map[string]struct{}, window)
 	ring := make([]string, 0, window)
 
@@ -92,7 +99,9 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 					continue
 				}
 				if keyOK {
+					mu.Lock()
 					if _, dup := seen[key]; dup {
+						mu.Unlock()
 						continue
 					}
 					if len(ring) >= window {
@@ -101,6 +110,7 @@ func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
 					}
 					seen[key] = struct{}{}
 					ring = append(ring, key)
+					mu.Unlock()
 				}
 				select {
 				case out <- msg:
@@ -134,6 +144,10 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, err
 	}
 
+	// last/have are shared across every invocation, so "consecutive" is
+	// defined over the interleaving of all parallel callers. mu guards the
+	// compare-and-set so that check and update are atomic.
+	var mu sync.Mutex
 	var last string
 	var have bool
 
@@ -155,10 +169,13 @@ func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
 					continue
 				}
 				if keyOK {
+					mu.Lock()
 					if have && key == last {
+						mu.Unlock()
 						continue
 					}
 					last, have = key, true
+					mu.Unlock()
 				}
 				select {
 				case out <- msg:

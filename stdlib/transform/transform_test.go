@@ -2,7 +2,11 @@ package transform
 
 import (
 	"context"
+	"fmt"
 	"reflect"
+	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,6 +195,227 @@ func assertCancelReleases(t *testing.T, fn sdk.Transformer) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("transformer did not return after ctx cancel: parked on blocked send")
+	}
+}
+
+// driveOnce runs a single transformer invocation to completion over its own
+// private in/out/errs channel set, feeding msgs and draining whatever it
+// emits. It is the unit of concurrency for TestConcurrentInvocationRace: one
+// call == one independent invocation of the same transformer value.
+func driveOnce(fn sdk.Transformer, msgs []string) {
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, len(msgs))
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(context.Background(), in, out, errs)
+	}()
+	go func() {
+		defer close(in)
+		for _, m := range msgs {
+			in <- []byte(m)
+		}
+	}()
+	for range out {
+	}
+	<-done
+}
+
+// TestConcurrentInvocationRace invokes one transformer VALUE from many
+// goroutines at once, each over its own channel set. The stdlib contract is
+// that a transformer may be invoked an arbitrary number of times in parallel,
+// so any state a provider keeps in its outer scope (shared across every
+// invocation) must be synchronized. Dedupe (seen/ring), Uniq (last/have) and
+// Count (n) all keep such state; under `go test -race` the unsynchronized
+// versions trip the detector here. Run with -race to exercise it.
+func TestConcurrentInvocationRace(t *testing.T) {
+	const goroutines = 8
+	const perGoroutine = 50
+
+	msgs := make([]string, perGoroutine)
+	for i := range msgs {
+		msgs[i] = fmt.Sprintf(`{"id":%d}`, i%7)
+	}
+
+	cases := map[string]sdk.Transformer{
+		"dedupe": build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 16}),
+		"uniq":   build(t, Uniq, map[string]any{"by": ".id", "path": []string{}}),
+		"count":  build(t, Count, map[string]any{"every": 3, "prefix": "n="}),
+	}
+
+	for name, fn := range cases {
+		t.Run(name, func(t *testing.T) {
+			var wg sync.WaitGroup
+			for i := 0; i < goroutines; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					driveOnce(fn, msgs)
+				}()
+			}
+			wg.Wait()
+		})
+	}
+}
+
+// driveCollect is driveOnce that returns everything the invocation emitted,
+// so a caller can assert on the merged output of many parallel invocations.
+func driveCollect(fn sdk.Transformer, msgs []string) []string {
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, len(msgs))
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		fn(context.Background(), in, out, errs)
+	}()
+	go func() {
+		defer close(in)
+		for _, m := range msgs {
+			in <- []byte(m)
+		}
+	}()
+
+	var got []string
+	for msg := range out {
+		got = append(got, string(msg))
+	}
+	<-done
+	return got
+}
+
+// parallelMerge invokes fn from `goroutines` goroutines at once — each over its
+// own channel set, all sharing fn's outer-scope state — and returns the merged
+// output. Each goroutine writes its own result slot, so the fan-out itself adds
+// no shared state to the test.
+func parallelMerge(fn sdk.Transformer, goroutines int, msgs []string) []string {
+	results := make([][]string, goroutines)
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i] = driveCollect(fn, msgs)
+		}(i)
+	}
+	wg.Wait()
+
+	var all []string
+	for _, r := range results {
+		all = append(all, r...)
+	}
+	return all
+}
+
+// TestConcurrentCountResult proves Count stays correct — not just race-free —
+// under parallel invocation. The counter is global across every invocation, so
+// over T total messages it must emit each checkpoint (every E-th count) exactly
+// once and pass the rest through, regardless of how the T messages interleave
+// across goroutines.
+func TestConcurrentCountResult(t *testing.T) {
+	const goroutines, perGoroutine, every = 8, 100, 4
+	total := goroutines * perGoroutine
+
+	msgs := make([]string, perGoroutine)
+	for i := range msgs {
+		msgs[i] = "x" // never collides with the "n=" checkpoint prefix
+	}
+	fn := build(t, Count, map[string]any{"every": every, "prefix": "n="})
+
+	all := parallelMerge(fn, goroutines, msgs)
+
+	// Count is 1-to-1: every input produces exactly one output.
+	if len(all) != total {
+		t.Fatalf("total outputs = %d, want %d (Count never drops or duplicates)", len(all), total)
+	}
+
+	counts := map[uint64]int{}
+	passthrough := 0
+	for _, s := range all {
+		if v, ok := strings.CutPrefix(s, "n="); ok {
+			n, err := strconv.ParseUint(v, 10, 64)
+			if err != nil {
+				t.Fatalf("unparseable checkpoint %q: %v", s, err)
+			}
+			counts[n]++
+			continue
+		}
+		if s != "x" {
+			t.Fatalf("unexpected output %q", s)
+		}
+		passthrough++
+	}
+
+	// The global counter runs 1..total with no gaps or repeats, so the emitted
+	// checkpoints are exactly the multiples of `every` in that range, each once.
+	wantCheckpoints := total / every
+	if len(counts) != wantCheckpoints {
+		t.Fatalf("distinct checkpoints = %d, want %d", len(counts), wantCheckpoints)
+	}
+	for n, c := range counts {
+		if c != 1 {
+			t.Errorf("checkpoint %d emitted %d times, want exactly once", n, c)
+		}
+		if n == 0 || n > uint64(total) || n%every != 0 {
+			t.Errorf("checkpoint %d is not a multiple of %d within 1..%d", n, every, total)
+		}
+	}
+	if passthrough != total-wantCheckpoints {
+		t.Errorf("passthrough = %d, want %d", passthrough, total-wantCheckpoints)
+	}
+}
+
+// TestConcurrentDedupeResult proves the dedup window is truly global across
+// parallel invocations: with the window large enough that nothing is evicted,
+// each distinct key must pass exactly once no matter which invocation happens
+// to see it first.
+func TestConcurrentDedupeResult(t *testing.T) {
+	const goroutines, perGoroutine, distinct = 8, 200, 7
+
+	msgs := make([]string, perGoroutine)
+	for i := range msgs {
+		msgs[i] = fmt.Sprintf(`{"id":%d}`, i%distinct)
+	}
+	// window > distinct keys => nothing is ever evicted, so the whole run is a
+	// single global window and the expected result is order-independent.
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 1000})
+
+	all := parallelMerge(fn, goroutines, msgs)
+
+	seen := map[string]int{}
+	for _, s := range all {
+		seen[s]++
+	}
+	if len(seen) != distinct {
+		t.Fatalf("distinct keys emitted = %d, want %d", len(seen), distinct)
+	}
+	for key, c := range seen {
+		if c != 1 {
+			t.Errorf("key %q emitted %d times, want exactly once (global dedup)", key, c)
+		}
+	}
+}
+
+// TestConcurrentUniqResult proves Uniq's compare-and-set is atomic across
+// parallel invocations. When every invocation streams the same single key, the
+// first message to win the lock emits and sets `last`; every later one sees the
+// match and drops — so exactly one message survives, deterministically.
+func TestConcurrentUniqResult(t *testing.T) {
+	const goroutines, perGoroutine = 8, 200
+
+	msgs := make([]string, perGoroutine)
+	for i := range msgs {
+		msgs[i] = `{"id":1}`
+	}
+	fn := build(t, Uniq, map[string]any{"by": ".id", "path": []string{}})
+
+	all := parallelMerge(fn, goroutines, msgs)
+
+	if len(all) != 1 {
+		t.Fatalf("uniq of one repeated key across all invocations emitted %d, want exactly 1", len(all))
 	}
 }
 
