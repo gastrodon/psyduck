@@ -12,8 +12,7 @@ import (
 	"strings"
 
 	"github.com/psyduck-etl/sdk"
-
-	"github.com/gastrodon/psyduck/stdlib/data"
+	"github.com/psyduck-etl/sdk/data"
 )
 
 // Text transformers operate in the string domain. `decode` chooses how bytes
@@ -40,24 +39,21 @@ func stringTransformer(decode string, onError data.OnError, op func(string) (dat
 	if decode == "" {
 		decode = "utf-8"
 	}
-	if onError == nil {
-		onError = data.Raise
-	}
-	fail := func(err error) ([]byte, error) { return nil, onError(err) }
-	return func(in []byte) ([]byte, error) {
-		s, err := textString(in, decode)
+
+	return mapErr(onError, func(msg []byte) ([]byte, error) {
+		s, err := textString(msg, decode)
 		if err != nil {
-			return fail(err)
+			return nil, err
 		}
-		out, err := op(s)
+		result, err := op(s)
 		if err != nil {
-			return fail(err)
+			return nil, err
 		}
-		if out == nil {
+		if result == nil {
 			return nil, nil
 		}
-		return out.Bytes(), nil
-	}
+		return result.Bytes(), nil
+	})
 }
 
 type splitConfig struct {
@@ -107,21 +103,21 @@ func Join(parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(in []byte) ([]byte, error) {
-		v, err := data.Decode(in, "json")
+	return mapErr(onError, func(msg []byte) ([]byte, error) {
+		v, err := data.Decode(msg, "json")
 		if err != nil {
-			return nil, onError(err)
+			return nil, err
 		}
 		list, ok := v.(data.List)
 		if !ok {
-			return nil, onError(fmt.Errorf("join: want a list, got %s", v.Kind()))
+			return nil, fmt.Errorf("join: want a list, got %s", v.Kind())
 		}
 		parts := make([]string, len(list))
 		for i, e := range list {
 			parts[i] = e.String()
 		}
 		return []byte(strings.Join(parts, config.Delimiter)), nil
-	}, nil
+	}), nil
 }
 
 type replaceConfig struct {
@@ -283,9 +279,9 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, fmt.Errorf("hash: unknown algorithm %q", config.Algorithm)
 	}
 
-	return func(in []byte) ([]byte, error) {
+	return sdk.Map(func(msg []byte) ([]byte, error) {
 		h := newHash()
-		h.Write(in)
+		h.Write(msg)
 		sum := h.Sum(nil)
 		switch config.Output {
 		case "", "hex":
@@ -295,5 +291,5 @@ func Hash(parse sdk.Parser) (sdk.Transformer, error) {
 		default:
 			return nil, fmt.Errorf("hash: unknown output %q", config.Output)
 		}
-	}, nil
+	}), nil
 }

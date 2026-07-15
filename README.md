@@ -19,10 +19,10 @@ cd psyduck
 go build -o psyduck .
 ```
 
-Or use the provided Dockerfile. Plugin loading uses `plugin.Open`, which
-requires CGO and a matching host toolchain — the same Go version and module
-graph as psyduck itself. In practice this means external plugins must be built
-against the same psyduck commit.
+Or use the provided Dockerfile. External plugins run as gRPC subprocesses
+(hashicorp/go-plugin style), so they don't need CGO or a toolchain matching
+psyduck's — a `go` toolchain on PATH is enough for `psyduck init` to build
+them.
 
 ## Getting started
 

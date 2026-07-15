@@ -49,18 +49,18 @@ func (f *fetcher) cleanup() {
 	os.RemoveAll(f.tmpDir)
 }
 
-// build compiles codePath into a temporary .so. It never writes directly
-// into the store — the store only knows binaries by content hash, which
-// isn't known until after the build produces bytes to hash.
-//
-// plugin.Open refuses a .so whose race setting differs from the host's, so
-// the build mirrors this binary's own (mostly relevant to `go test -race`).
+// build compiles codePath into a temporary plugin executable. It never
+// writes directly into the store — the store only knows binaries by
+// content hash, which isn't known until after the build produces bytes to
+// hash. Plugins run as subprocesses (see sdk/rpc), so this is a plain
+// `go build`: no -buildmode=plugin, no toolchain/race parity with the host.
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
-	tmpOut := filepath.Join(f.tmpDir, spec.Name+".so")
-	args := []string{"build", "-C", codePath, "-o", tmpOut, "-buildmode", "plugin"}
-	if raceEnabled {
-		args = append(args, "-race")
-	}
+	// The ".bin" suffix keeps the output distinct from cloneDir: a remote
+	// plugin's clone already sits at <tmpDir>/<name>, and `go build -o`
+	// pointed at an existing directory doesn't fail — it silently writes
+	// the binary inside it, leaving nothing at the path we hand back.
+	tmpOut := filepath.Join(f.tmpDir, spec.Name+".bin")
+	args := []string{"build", "-C", codePath, "-o", tmpOut}
 	if out, err := exec.Command("go", args...).CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
@@ -106,7 +106,7 @@ func resolveRef(cloneDir string) (string, error) {
 // fetch resolves spec (building it first if it's source code) and
 // content-addresses the resulting binary into the store, returning its
 // hash and, for remote sources, the actual git ref that got checked out.
-// A local .so source is read and stored as-is, relative to the current
+// A local prebuilt-binary source is read and stored as-is, relative to the current
 // working directory same as any other file argument — the store no
 // longer needs it to be absolute since it only reads it once, here, to
 // copy its bytes in.
@@ -122,10 +122,10 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 			if err != nil {
 				return "", "", err
 			}
-			hash, err := f.store.storeBinary(built)
+			hash, err := f.store.storeBinary(built, spec.Name)
 			return hash, "", err
 		}
-		hash, err := f.store.storeBinary(spec.Source)
+		hash, err := f.store.storeBinary(spec.Source, spec.Name)
 		return hash, "", err
 	case pluginRemote:
 		cloneDir, err := f.clone(spec)
@@ -140,7 +140,7 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		hash, err := f.store.storeBinary(built)
+		hash, err := f.store.storeBinary(built, spec.Name)
 		return hash, resolve, err
 	default:
 		return "", "", fmt.Errorf("unable to find a suitable way to fetch %s: %#v", spec.Name, spec)

@@ -98,7 +98,12 @@ func producerSource(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin) 
 }
 
 // bindProducer resolves b against its owning plugin and wraps the instance
-// with its host-owned flow gates (per-minute, stop-after).
+// with its host-owned flow gates (per-minute, stop-after). The instance is
+// closed as soon as its producer returns — not at the end of the run —
+// since a produce-from stream can keep binding fresh producers for as long
+// as its seed sends, and each one holds plugin-side resources until closed.
+// The Close error is dropped: the producer has already closed its own errs
+// by the time it returns (see BuildPipeline).
 func bindProducer(b parse.Resource, plugins map[string]sdk.Plugin) (sdk.Producer, error) {
 	plugin, ok := plugins[b.PluginID]
 	if !ok {
@@ -108,5 +113,9 @@ func bindProducer(b parse.Resource, plugins map[string]sdk.Plugin) (sdk.Producer
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s: %w", b.Block.Origin(), b.Ref, err)
 	}
-	return flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter), nil
+	produce := flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter)
+	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer instance.Close()
+		produce(ctx, send, errs)
+	}, nil
 }

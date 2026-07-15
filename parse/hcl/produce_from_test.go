@@ -474,6 +474,32 @@ func TestParseProduceFromTimeoutZeroWaitsForever(t *testing.T) {
 	}
 }
 
+// LIVE BUG (discovered by QA audit — this test FAILS at the commit that
+// introduces it): a produce-from-timeout too large for time.Duration must be
+// rejected at parse, like a negative one is. Today resource.go takes
+// AsBigFloat().Int64(), which saturates at MaxInt64 for huge values, and only
+// then multiplies by time.Second — the multiplication overflows and wraps
+// negative (MaxInt64 seconds ≈ -1s as a Duration). That slips past the
+// `secs < 0` check (which runs before the multiplication), and a negative
+// timeout arms no timer at all in runSeed (`if timeout > 0`): the user asked
+// for a huge-but-finite timeout and silently got "wait forever".
+func TestParseProduceFromTimeoutOverflow(t *testing.T) {
+	entry, load := src(`
+	produce "seed" "s" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from         = produce.seed.s
+		consume              = [trash.t]
+		produce-from-timeout = 10000000000000000000
+	}
+	`)
+	seed := seedPlugin(func(_ context.Context, send chan<- []byte, errs chan<- error) { close(send) })
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test"), seed})
+	if err == nil || !strings.Contains(err.Error(), "produce-from-timeout") {
+		t.Fatalf("want produce-from-timeout overflow rejection, got: %v", err)
+	}
+}
+
 func TestParseProduceFromTimeoutNegative(t *testing.T) {
 	entry, load := src(`
 	produce "seed" "s" {}

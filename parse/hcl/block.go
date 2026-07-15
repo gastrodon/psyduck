@@ -22,6 +22,23 @@ type hclBlock struct {
 
 func (b *hclBlock) Origin() sdk.SourceRange { return b.origin }
 
+// Encode renders the evaluated attribute values as a JSON object so the
+// block can cross a process boundary (sdk/rpc sends this to plugin
+// subprocesses, which rebuild the block with sdk.NewJSONBlock). Null
+// values (absent, no default) are kept as JSON nulls; the JSON decoder on
+// the far side treats them as absent.
+func (b *hclBlock) Encode() ([]byte, error) {
+	if len(b.values) == 0 {
+		return []byte("{}"), nil
+	}
+	obj := cty.ObjectVal(b.values)
+	raw, err := ctyjson.Marshal(obj, obj.Type())
+	if err != nil {
+		return nil, fmt.Errorf("%s: failed to encode options: %w", b.origin, err)
+	}
+	return raw, nil
+}
+
 func (b *hclBlock) Decode(dst any) error {
 	if len(b.values) == 0 {
 		return nil

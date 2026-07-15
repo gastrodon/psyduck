@@ -3,6 +3,8 @@ package hcl
 import (
 	"fmt"
 	"log"
+	"math"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -239,9 +241,15 @@ func makePipeline(
 			if err != nil {
 				return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-timeout: %w", name, err)
 			}
-			secs, _ := converted.AsBigFloat().Int64()
+			secs, acc := converted.AsBigFloat().Int64()
+			if acc != big.Exact {
+				return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-timeout: must be a whole number of seconds", name)
+			}
 			if secs < 0 {
 				return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-timeout: must be non-negative", name)
+			}
+			if secs > math.MaxInt64/int64(time.Second) {
+				return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-from-timeout: too large to represent as a duration", name)
 			}
 			timeout = time.Duration(secs) * time.Second
 		}
@@ -274,7 +282,10 @@ func makePipeline(
 		if err != nil {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: %w", name, err)
 		}
-		n, _ := converted.AsBigFloat().Int64()
+		n, acc := converted.AsBigFloat().Int64()
+		if acc != big.Exact {
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: must be a whole number", name)
+		}
 		switch {
 		case n < 0:
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: produce-parallel: must be non-negative", name)

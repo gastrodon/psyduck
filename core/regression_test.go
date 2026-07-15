@@ -9,9 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/psyduck-etl/sdk"
-
 	"github.com/gastrodon/psyduck/stdlib/flow"
+	"github.com/psyduck-etl/sdk"
 )
 
 // This file holds regression tests for the concurrency bugs the pre-rewrite
@@ -45,6 +44,17 @@ import (
 // #8 (produce-from seed closing without sending) is a parse-layer bug, not
 // a core-engine one; its regression test lives in
 // parse/hcl/hcl_test.go:TestParseProduceFromClosedSeed.
+//
+// One test here — Test_ErrorAfterDataClose_IsDelivered — guards a dropped-error
+// bug in the *new* engine's error forwarder that was found and fixed during the
+// rewrite, not in the 5c9985f engine reproduced above. It has no issue number
+// and isn't one of #10/#11/#12/#19, but it's a genuine regression against a
+// real fix, so it lives with the rest.
+//
+// Capability/invariant tests that exercise behavior the rewrite *introduced*
+// (the ctx-aware exit path, the transformer channel stage) rather than
+// reproducing a deleted-engine bug are not regressions and live with the other
+// RunPipeline behavior tests in run_test.go, not here.
 //
 // sdk v0.5.1 added ctx as Producer/Consumer's first parameter, giving
 // well-behaved plugins a way to exit on cancellation instead of parking.
@@ -120,7 +130,7 @@ func Test_LateErrorAfterExitOnError_NoPanic(t *testing.T) {
 		Producers:   staticSource(producer),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	elapsed := time.Since(start)
@@ -160,7 +170,7 @@ func Test_ConsumerEarlyFinish_NoDeadlock(t *testing.T) {
 		Producers:   staticSource(emitN(100, []byte("x"), nil)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +219,7 @@ func Test_NilMessage_DoesNotTruncateStream(t *testing.T) {
 		Producers:   staticSource(producers...),
 		Parallel:    2,
 		Consumers:   []sdk.Consumer{consumer},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +256,7 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 			),
 			Parallel:    2,
 			Consumers:   []sdk.Consumer{countAll(&got), countAll(&got)},
-			Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		}
 	}
 
@@ -264,49 +274,6 @@ func Test_GoroutinesDoNotAccumulateAcrossRuns(t *testing.T) {
 	}
 	buf := make([]byte, 1<<16)
 	t.Fatalf("goroutines leaked across runs: %d -> %d\n%s",
-		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
-}
-
-// Capability test, not a regression: sdk v0.5.1 added ctx to Producer and
-// Consumer specifically so a plugin abandoned mid-send has a way to exit
-// instead of parking forever — the one leak PR #20's rewrite documented as
-// unavoidable ("the sdk contract has no context"). A producer that actually
-// selects on ctx.Done() alongside its send, cut off mid-stream by a
-// flow.Producer stop-after wrap, must leave no goroutine behind at all.
-func Test_CtxAwareProducer_LeavesNoGoroutineOnAbandon(t *testing.T) {
-	blockForever := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
-		defer close(send)
-		defer close(errs)
-		for {
-			select {
-			case send <- []byte("x"):
-				continue
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
-
-	baseline := runtime.NumGoroutine()
-	var got atomic.Int64
-	if err := panicSafeRun(t, &Pipeline{
-		Producers:   staticSource(flow.Producer(blockForever, 0, 0, 3)),
-		Parallel:    1,
-		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if runtime.NumGoroutine() <= baseline {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	buf := make([]byte, 1<<16)
-	t.Fatalf("ctx-aware producer still leaked a goroutine on abandon: %d -> %d\n%s",
 		baseline, runtime.NumGoroutine(), buf[:runtime.Stack(buf, true)])
 }
 
@@ -338,7 +305,7 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 		Producers:   staticSource(producer),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
 		ExitOnError: true,
 	})
 	if err == nil || !strings.Contains(err.Error(), "late error after data close") {
@@ -346,31 +313,101 @@ func Test_ErrorAfterDataClose_IsDelivered(t *testing.T) {
 	}
 }
 
-// A producer that ignores ctx entirely and sends forever with a bare send
-// (no select on ctx.Done) violates the sdk contract and leaks its own
-// goroutine when abandoned — the engine can't prevent that. What the engine
-// must still guarantee is that RunPipeline itself returns: the abandoned
-// plugin parks, the pipeline doesn't. The flow.Producer stop-after wrap is
-// what actually cuts the stream here — the misbehaving producer never would.
-func Test_ContractViolatingProducer_EngineStillReturns(t *testing.T) {
-	misbehaving := func(_ context.Context, send chan<- []byte, errs chan<- error) {
-		for {
-			send <- []byte("x") // bare send: parks forever once abandoned
+// stream.go's error forwarder stops the moment the producer *function*
+// returns, relying on the documented invariant (stream.go:114-116) that an
+// unbuffered errs send is received before the function can return.
+// flow.Producer breaks that invariant: at the stop-after cutoff the wrapper
+// returns immediately, cancelling the derived ctx to tell the inner plugin —
+// which shares the same errs channel — to wind down. A plugin that reports
+// why it stopped (failed close handshake, flush error) sends into an errs
+// channel nobody reads anymore.
+//
+// The inner producer below is contrived to hit the window deterministically
+// rather than by luck: it waits for the cutoff cancel, then gives the
+// engine's forwarder every chance to observe the wrapper's return before
+// reporting (same trick as Test_ErrorAfterDataClose_IsDelivered above).
+func Test_StopAfterTeardownError_IsDelivered(t *testing.T) {
+	t.Skip("gastrodon/psyduck#37: joining the inner producer before flow.Producer " +
+		"returns deadlocks against producers that don't select on ctx.Done() " +
+		"(e.g. a blind `send <- msg` loop) — needs a design that doesn't assume " +
+		"ctx-cooperative producers; see issue for the goroutine-dump writeup")
+	inner := func(ctx context.Context, send chan<- []byte, errs chan<- error) {
+		defer close(send)
+		for i := 0; i < 3; i++ {
+			select {
+			case send <- []byte("x"):
+			case <-ctx.Done():
+				return
+			}
+		}
+		// The wrapper cancels this ctx as it returns at the cutoff.
+		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond)
+		select {
+		case errs <- errors.New("teardown failure at stop-after cutoff"):
+		case <-time.After(time.Second):
+			// nobody is listening anymore — this timeout firing IS the bug;
+			// the assertion below reports it as the missing pipeline error.
 		}
 	}
 
 	var got atomic.Int64
-	if err := panicSafeRun(t, &Pipeline{
-		Producers:   staticSource(flow.Producer(misbehaving, 0, 0, 3)),
+	err := panicSafeRun(t, &Pipeline{
+		Producers:   staticSource(flow.Producer(inner, 0, 0, 3)),
 		Parallel:    1,
 		Consumers:   []sdk.Consumer{countAll(&got)},
-		Transformer: func(msg []byte) ([]byte, error) { return msg, nil },
-	}); err != nil {
-		t.Fatal(err)
+		Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+		ExitOnError: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "teardown failure at stop-after cutoff") {
+		t.Fatalf("stop-after teardown error was dropped: got %v", err)
 	}
-	if n := got.Load(); n != 3 {
-		t.Fatalf("want 3 delivered, got %d", n)
+}
+
+// BuildPipeline wraps every per-minute consumer in flow.Consumer
+// (core/build.go). That wrapper's deferred cancel() runs before its deferred
+// close(inner) — defers are LIFO, and flow.go registers close(inner) first —
+// so when the pipeline's stream ends cleanly, the inner consumer observes
+// ctx.Done() before (or racing) the close of its recv channel. Per the sdk
+// contract those are opposite signals: recv closing means "upstream done,
+// finish up and flush", ctx.Done means "abandoned, stop now". The inner
+// consumer here follows the contract exactly and still gets told it was
+// abandoned. The unit-level mechanism test is
+// stdlib/flow/flow_test.go:TestConsumerCleanEndIsNotAbandonment.
+func Test_RateLimitedConsumer_FinalFlushSurvivesCleanShutdown(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		var flushed atomic.Int64
+		buffering := func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer close(done)
+			defer close(errs)
+			buf := 0
+			for {
+				select {
+				case _, ok := <-recv:
+					if !ok {
+						flushed.Store(int64(buf)) // clean end: final flush
+						return
+					}
+					buf++
+				case <-ctx.Done():
+					return // abandoned: buffered work is dropped
+				}
+			}
+		}
+
+		// 6_000_000/min = 10µs period: the limiter is active (so the
+		// flow.Consumer wrap is real, exactly as BuildPipeline applies it)
+		// without slowing the test.
+		if err := panicSafeRun(t, &Pipeline{
+			Producers:   staticSource(emitN(3, []byte("x"), nil)),
+			Parallel:    1,
+			Consumers:   []sdk.Consumer{flow.Consumer(buffering, 6_000_000, 0)},
+			Transformer: sdk.Map(func(msg []byte) ([]byte, error) { return msg, nil }),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if n := flushed.Load(); n != 3 {
+			t.Fatalf("run %d: clean shutdown dropped the final flush: flushed %d, want 3", i, n)
+		}
 	}
-	// Note: this test intentionally leaks the misbehaving producer's
-	// goroutine — that's the documented cost of violating the contract.
 }

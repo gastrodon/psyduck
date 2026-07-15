@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/psyduck-etl/sdk"
 	"github.com/sirupsen/logrus"
@@ -53,26 +54,37 @@ func pipelineLogger() *logrus.Logger {
 }
 
 /*
-Join a collection of transformers into a single that applies them in order
-*/
-func stackTransform(transformers []sdk.Transformer) sdk.Transformer {
-	if len(transformers) == 0 {
-		return func(data []byte) ([]byte, error) { return data, nil }
-	}
+composeTransformers joins a collection of transformers into a single one
+that chains them: the first transformer's out feeds the second's in, and so
+on, with every stage sharing one errs channel. Composition happens once at
+build time, so RunPipeline spawns the resulting chain once per run instead
+of recomposing per message.
 
-	if len(transformers) == 1 {
+Zero transformers composes to nil, which RunPipeline treats as "no
+transform stage" and bypasses entirely.
+*/
+func composeTransformers(transformers []sdk.Transformer) sdk.Transformer {
+	switch len(transformers) {
+	case 0:
+		return nil
+	case 1:
 		return transformers[0]
 	}
 
-	tail := len(transformers) - 1
-
-	return func(data []byte) ([]byte, error) {
-		transformed, err := stackTransform(transformers[:tail])(data)
-		if err != nil || transformed == nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		var wg sync.WaitGroup
+		stage := in
+		for _, t := range transformers[:len(transformers)-1] {
+			next := make(chan []byte)
+			wg.Add(1)
+			go func(t sdk.Transformer, in <-chan []byte, out chan<- []byte) {
+				defer wg.Done()
+				t(ctx, in, out, errs)
+			}(t, stage, next)
+			stage = next
 		}
-
-		return transformers[tail](transformed)
+		transformers[len(transformers)-1](ctx, stage, out, errs)
+		wg.Wait()
 	}
 }
 
@@ -129,9 +141,19 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 		lookup[p.Name()] = p
 	}
 
+	// Each bound instance is closed when its stage function returns — Close
+	// is how a plugin releases whatever Bind acquired (for subprocess
+	// plugins, the server-side handle itself). Close errors are dropped,
+	// matching the produce-from seed: by the time a stage returns, its error
+	// channel is no longer safe to send on (consumers and producers close
+	// their own errs, and the transform forwarder may already be gone).
 	consumers := make([]sdk.Consumer, 0)
 	if err := drain(ctx, src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		consumers = append(consumers, flow.Consumer(instance.Consume, b.Meta.PerMinute, 0))
+		consume := flow.Consumer(instance.Consume, b.Meta.PerMinute, 0)
+		consumers = append(consumers, func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
+			defer instance.Close()
+			consume(ctx, recv, errs, done)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -141,7 +163,10 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 
 	transformers := make([]sdk.Transformer, 0)
 	if err := drain(ctx, src.Transformers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		transformers = append(transformers, instance.Transform)
+		transformers = append(transformers, func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+			defer instance.Close()
+			instance.Transform(ctx, in, out, errs)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -150,7 +175,7 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 		Producers:   producerSource(src.Producers, lookup),
 		Parallel:    src.ProduceParallel,
 		Consumers:   consumers,
-		Transformer: stackTransform(transformers),
+		Transformer: composeTransformers(transformers),
 		logger:      logger,
 		ExitOnError: src.ExitOnError,
 	}, nil
