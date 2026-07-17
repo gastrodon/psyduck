@@ -14,8 +14,9 @@ import (
 )
 
 type parseHTTPRequestConfig struct {
-	Accept string `psy:"accept"`
-	Emit   string `psy:"emit"`
+	Decode  string `psy:"decode"`
+	Encode  string `psy:"encode"`
+	OnError string `psy:"on-error"`
 }
 
 // ParsedHTTPRequest is the output structure from parse-http-request transformer.

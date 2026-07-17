@@ -1,18 +1,21 @@
-# http-listen receives request bodies as messages. Build-only: the server only
-# binds when the pipeline runs.
+# produce-tcp-listen receives raw HTTP bytes as messages, with parse-http-request
+# transformer to extract structured data. The server binds when the pipeline runs.
+# Each HTTP request is sent on its own connection, which provides natural framing.
 import {
   shared = "shared.psy"
 }
 
-produce "http-listen" "hook" {
-  address = ":0"
-  path    = "/ingest"
-  method  = "POST"
-  status  = 202
-  reply   = "ok"
+produce "listen" "tcp-hook" {
+  location  = "tcp://127.0.0.1:0"
+  sep-byte  = 0  # NUL byte delimiter (unlikely in HTTP text; each connection = one request)
+}
+
+transform "parse-http-request" "parse-req" {
+  # decode and encode use defaults: bytes -> json
 }
 
 pipeline "http-listen" {
-  produce = [produce.http-listen.hook]
-  consume = [imports.shared.consume.trash.sink]
+  produce   = [produce.listen.tcp-hook]
+  transform = [transform.parse-http-request.parse-req]
+  consume   = [imports.shared.consume.trash.sink]
 }
