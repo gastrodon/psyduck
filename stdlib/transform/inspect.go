@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -14,7 +15,7 @@ type inspectConfig struct {
 
 // Inspect logs each message and passes it through unchanged — the debug tap.
 // Output is "stdout" (default) or "stderr"; prefix is prepended to each line.
-func Inspect(parse sdk.Parser) (sdk.Transformer, error) {
+func Inspect(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(inspectConfig)
 	if err := parse(config); err != nil {
 		return nil, err

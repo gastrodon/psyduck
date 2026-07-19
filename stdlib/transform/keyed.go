@@ -58,7 +58,7 @@ type dedupeConfig struct {
 // Dedupe drops messages whose key has been seen within the last `window`
 // messages. The original message passes through unchanged; the selector only
 // computes the dedup key.
-func Dedupe(parse sdk.Parser) (sdk.Transformer, error) {
+func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(dedupeConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ type uniqConfig struct {
 // Uniq drops consecutive duplicates — like the Unix tool — comparing each
 // message's key to only the previous one. Lighter than dedupe for sorted or
 // already-grouped streams.
-func Uniq(parse sdk.Parser) (sdk.Transformer, error) {
+func Uniq(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(uniqConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ type batchConfig struct {
 // Batch collects `size` messages and emits them as a single JSON array. A
 // final partial batch — shorter than size — is flushed when the stream ends,
 // so no trailing messages are lost. Use size to bound memory.
-func Batch(parse sdk.Parser) (sdk.Transformer, error) {
+func Batch(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(batchConfig)
 	if err := parse(config); err != nil {
 		return nil, err

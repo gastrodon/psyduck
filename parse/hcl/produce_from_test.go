@@ -18,7 +18,7 @@ func TestParseProduceFromEnv(t *testing.T) {
 		&sdk.Resource{
 			Name:  "seed",
 			Kinds: sdk.PRODUCER,
-			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(_ context.Context, _ sdk.Parser) (sdk.Producer, error) {
 				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					send <- []byte(`produce "constant" "remote" { value = env.PSYDUCK_REMOTE_ONLY }`)
 					close(send)
@@ -56,7 +56,7 @@ func TestParseProduceFrom(t *testing.T) {
 		&sdk.Resource{
 			Name:  "seed",
 			Kinds: sdk.PRODUCER,
-			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(_ context.Context, _ sdk.Parser) (sdk.Producer, error) {
 				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					send <- []byte(`
 					produce "constant" "remote" {
@@ -112,7 +112,7 @@ func seedPlugin(p sdk.Producer) sdk.Plugin {
 		&sdk.Resource{
 			Name:            "seed",
 			Kinds:           sdk.PRODUCER,
-			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) { return p, nil },
+			ProvideProducer: func(_ context.Context, _ sdk.Parser) (sdk.Producer, error) { return p, nil },
 		},
 	)
 }

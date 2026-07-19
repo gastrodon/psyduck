@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func TestSocketMetaRoundTrip(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "meta.sock")
 	sock := "unix://" + sockPath
 
-	lp, err := produce.Listen(parser(delimitCfg(sock, true)))
+	lp, err := produce.Listen(context.Background(), parser(delimitCfg(sock, true)))
 	if err != nil {
 		t.Fatalf("listen producer: %v", err)
 	}
@@ -29,7 +30,7 @@ func TestSocketMetaRoundTrip(t *testing.T) {
 
 	waitForSocket(t, sockPath)
 
-	cw, err := consume.Socket(parser(delimitCfg(sock, false)))
+	cw, err := consume.Socket(context.Background(), parser(delimitCfg(sock, false)))
 	if err != nil {
 		t.Fatalf("socket consumer: %v", err)
 	}

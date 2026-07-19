@@ -40,7 +40,7 @@ type fileConfig struct {
 // or a socket URI), joining messages with the configured separator. It is the
 // consumer half of the dual-role `file` resource — you write files the way you
 // read them.
-func File(parse sdk.Parser) (sdk.Consumer, error) {
+func File(ctx context.Context, parse sdk.Parser) (sdk.Consumer, error) {
 	config := new(fileConfig)
 	if err := parse(config); err != nil {
 		return nil, err

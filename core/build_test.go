@@ -29,7 +29,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 		&sdk.Resource{
 			Name:  "emit",
 			Kinds: sdk.PRODUCER,
-			ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(_ context.Context, _ sdk.Parser) (sdk.Producer, error) {
 				return func(_ context.Context, send chan<- []byte, errs chan<- error) {
 					for i := 0; i < count; i++ {
 						send <- payload
@@ -41,7 +41,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 		&sdk.Resource{
 			Name:  "count",
 			Kinds: sdk.CONSUMER,
-			ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
+			ProvideConsumer: func(_ context.Context, _ sdk.Parser) (sdk.Consumer, error) {
 				return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 					for range recv {
 						*consumed++
@@ -53,7 +53,7 @@ func corePlugin(name string, payload []byte, count int, consumed *int, suffix st
 		&sdk.Resource{
 			Name:  "suffix",
 			Kinds: sdk.TRANSFORMER,
-			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
+			ProvideTransformer: func(_ context.Context, _ sdk.Parser) (sdk.Transformer, error) {
 				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 					defer close(out)
 					for {
@@ -386,7 +386,7 @@ type closeTracker struct {
 func (p *closeTracker) Name() string                        { return "closetrack" }
 func (p *closeTracker) Resources() []sdk.ResourceDescriptor { return nil }
 
-func (p *closeTracker) Bind(kind sdk.Kind, _ string, _ sdk.ConfigBlock) (sdk.Instance, error) {
+func (p *closeTracker) Bind(_ context.Context, kind sdk.Kind, _ string, _ sdk.ConfigBlock) (sdk.Instance, error) {
 	inst := &trackedInstance{kind: kind, plugin: p}
 	p.mu.Lock()
 	p.bound = append(p.bound, inst)

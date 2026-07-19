@@ -3,6 +3,7 @@
 package plugins
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -82,7 +83,7 @@ func TestLoad_Integration(t *testing.T) {
 	}
 
 	block := jsonBlock{data: []byte(`{"value":"hello","count":2}`)}
-	inst, err := p.Bind(sdk.PRODUCER, "constant", block)
+	inst, err := p.Bind(context.Background(), sdk.PRODUCER, "constant", block)
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}

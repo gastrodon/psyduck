@@ -11,7 +11,7 @@ type constant struct {
 	StopAfter int    `psy:"stop-after"`
 }
 
-func Constant(parse sdk.Parser) (sdk.Producer, error) {
+func Constant(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(constant)
 	if err := parse(config); err != nil {
 		return nil, err

@@ -175,7 +175,7 @@ func runSeed(ctx context.Context, seed parse.Resource, ix *resourceIndex, timeou
 		return
 	}
 
-	instance, err := plugin.Bind(sdk.PRODUCER, seed.Resource.Name, seed.Block)
+	instance, err := plugin.Bind(ctx, sdk.PRODUCER, seed.Resource.Name, seed.Block)
 	if err != nil {
 		deliver(seedResult{err: fmt.Errorf("produce-from %s: failed to bind: %w", seed.Ref, err)})
 		return

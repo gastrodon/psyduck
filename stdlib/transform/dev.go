@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"sync/atomic"
@@ -17,7 +18,7 @@ type assertConfig struct {
 // Assert validates each message against a jq predicate, erroring (not dropping)
 // when the predicate is false or null. The message passes through unchanged on
 // success. Useful for tripwires in a pipeline under test.
-func Assert(parse sdk.Parser) (sdk.Transformer, error) {
+func Assert(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(assertConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -67,7 +68,7 @@ type countConfig struct {
 // Count tallies messages and, every `every` messages (default 1), replaces the
 // message with the running count (optionally prefixed). Between checkpoints the
 // message passes through unchanged.
-func Count(parse sdk.Parser) (sdk.Transformer, error) {
+func Count(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(countConfig)
 	if err := parse(config); err != nil {
 		return nil, err

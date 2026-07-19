@@ -19,7 +19,7 @@ type socketConfig struct {
 
 // Socket connects to a tcp://, udp://, or unix:// location and emits framed
 // messages read from the connection.
-func Socket(parse sdk.Parser) (sdk.Producer, error) {
+func Socket(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(socketConfig)
 	if err := parse(config); err != nil {
 		return nil, err

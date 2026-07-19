@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,7 +38,7 @@ func TestHTTPRequestConsumer(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := consume.Request(parser(map[string]any{
+	c, err := consume.Request(context.Background(), parser(map[string]any{
 		"url":           srv.URL,
 		"method":        "POST",
 		"headers":       map[string]string{"X-Source": "integration-test"},
@@ -87,7 +88,7 @@ func TestHTTPRequestConsumerErrorOnBadStatus(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c, err := consume.Request(parser(map[string]any{
+	c, err := consume.Request(context.Background(), parser(map[string]any{
 		"url":           srv.URL,
 		"method":        "POST",
 		"success-codes": []int{200},

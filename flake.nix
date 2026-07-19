@@ -19,7 +19,7 @@
           version = self.shortRev or self.dirtyShortRev or "dev";
 
           src = self;
-          vendorHash = "sha256-qVw7knLN99RNQ0pbTVP7ibTzH1kboJ9vwZZqMM4IEMw=";
+          vendorHash = "sha256-nIJ9UlWeXnkSz3Os01aSv/e/W++oVRu/G1aeEeVTbBQ=";
 
           # Only the root command builds a runnable binary; the rest of the
           # module is libraries (and stdlib/integration, which is test-only

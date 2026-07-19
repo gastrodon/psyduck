@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,7 +34,7 @@ func TestFileBroadcast(t *testing.T) {
 	}
 
 	newReader := func() <-chan []byte {
-		p, err := produce.File(parser(fileCfg(path, false)))
+		p, err := produce.File(context.Background(), parser(fileCfg(path, false)))
 		if err != nil {
 			t.Fatalf("File producer: %v", err)
 		}
@@ -76,7 +77,7 @@ func TestUnixSocketFanIn(t *testing.T) {
 	sockPath := filepath.Join(t.TempDir(), "fanin.sock")
 	loc := "unix://" + sockPath
 
-	lp, err := produce.Listen(parser(delimitCfg(loc, true)))
+	lp, err := produce.Listen(context.Background(), parser(delimitCfg(loc, true)))
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestUnixSocketFanIn(t *testing.T) {
 		w := w
 		go func() {
 			defer wg.Done()
-			sw, err := consume.Socket(parser(delimitCfg(loc, false)))
+			sw, err := consume.Socket(context.Background(), parser(delimitCfg(loc, false)))
 			if err != nil {
 				t.Errorf("writer %d: %v", w, err)
 				return

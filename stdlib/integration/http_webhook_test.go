@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -18,7 +19,7 @@ func TestHTTPWebhookReceiver(t *testing.T) {
 	const N = 12
 	addr := freePort(t)
 
-	p, err := produce.HTTPListen(parser(map[string]any{
+	p, err := produce.HTTPListen(context.Background(), parser(map[string]any{
 		"address": addr,
 		"path":    "/hook",
 		"method":  "POST",
@@ -70,7 +71,7 @@ func TestHTTPWebhookReceiver(t *testing.T) {
 func TestHTTPWebhookBodyCap(t *testing.T) {
 	addr := freePort(t)
 
-	p, err := produce.HTTPListen(parser(map[string]any{
+	p, err := produce.HTTPListen(context.Background(), parser(map[string]any{
 		"address":        addr,
 		"path":           "/ingest",
 		"method":         "POST",
@@ -124,7 +125,7 @@ func TestHTTPWebhookBodyCap(t *testing.T) {
 func TestHTTPWebhookMethodGating(t *testing.T) {
 	addr := freePort(t)
 
-	p, err := produce.HTTPListen(parser(map[string]any{
+	p, err := produce.HTTPListen(context.Background(), parser(map[string]any{
 		"address": addr,
 		"path":    "/ingest",
 		"method":  "POST",

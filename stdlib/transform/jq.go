@@ -17,7 +17,7 @@ type jqConfig struct {
 // of 0, 1, or many values per input, and each value becomes its own output
 // message — so Jq is explosive and cannot use sdk.Map (which is 1-to-0/1).
 // String outputs are emitted as plain bytes; all other types are JSON-encoded.
-func Jq(parse sdk.Parser) (sdk.Transformer, error) {
+func Jq(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(jqConfig)
 	if err := parse(config); err != nil {
 		return nil, err

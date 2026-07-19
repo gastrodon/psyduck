@@ -77,7 +77,7 @@ func gatedPlugin(name string, g *gate) sdk.Plugin {
 	return sdk.NewInProc(name, &sdk.Resource{
 		Name:  "gated",
 		Kinds: sdk.PRODUCER,
-		ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+		ProvideProducer: func(_ context.Context, _ sdk.Parser) (sdk.Producer, error) {
 			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 				defer close(send)
 				defer close(errs)
@@ -313,7 +313,7 @@ func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 	forever := sdk.NewInProc("f", &sdk.Resource{
 		Name:  "forever",
 		Kinds: sdk.PRODUCER,
-		ProvideProducer: func(sdk.Parser) (sdk.Producer, error) {
+		ProvideProducer: func(_ context.Context, _ sdk.Parser) (sdk.Producer, error) {
 			return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
 				defer close(send)
 				defer close(errs)
@@ -331,7 +331,7 @@ func Test_feed_NoGoroutineLeak_OnEarlyStop(t *testing.T) {
 	stopAt5 := sdk.NewInProc("p", &sdk.Resource{
 		Name:  "count-early",
 		Kinds: sdk.CONSUMER,
-		ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
+		ProvideConsumer: func(_ context.Context, _ sdk.Parser) (sdk.Consumer, error) {
 			return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 				defer close(errs)
 				for range recv {

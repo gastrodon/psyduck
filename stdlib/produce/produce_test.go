@@ -63,7 +63,7 @@ func mustStop(t *testing.T, p func(context.Context, chan<- []byte, chan<- error)
 }
 
 func TestConstant_StopsOnCancel(t *testing.T) {
-	p, err := Constant(parser(map[string]any{"value": "x", "stop-after": 0}))
+	p, err := Constant(context.Background(), parser(map[string]any{"value": "x", "stop-after": 0}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestConstant_StopsOnCancel(t *testing.T) {
 }
 
 func TestSequence_StopsOnCancel(t *testing.T) {
-	p, err := Sequence(parser(map[string]any{"start": 0, "step": 1, "stop-after": 0}))
+	p, err := Sequence(context.Background(), parser(map[string]any{"start": 0, "step": 1, "stop-after": 0}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestSequence_StopsOnCancel(t *testing.T) {
 }
 
 func TestGenerate_StopsOnCancel(t *testing.T) {
-	p, err := Generate(parser(map[string]any{"values": []string{"a", "b"}, "loop": true, "stop-after": 0}))
+	p, err := Generate(context.Background(), parser(map[string]any{"values": []string{"a", "b"}, "loop": true, "stop-after": 0}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestGenerate_StopsOnCancel(t *testing.T) {
 }
 
 func TestTicker_StopsOnCancel(t *testing.T) {
-	p, err := Ticker(parser(map[string]any{"interval-ms": 1, "format": "unix-ms", "stop-after": 0}))
+	p, err := Ticker(context.Background(), parser(map[string]any{"interval-ms": 1, "format": "unix-ms", "stop-after": 0}))
 	if err != nil {
 		t.Fatal(err)
 	}

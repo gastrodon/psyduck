@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -23,7 +24,7 @@ func TestTCPFanIn(t *testing.T) {
 	addr := freePort(t)
 	loc := "tcp://" + addr
 
-	lp, err := produce.Listen(parser(delimitCfg(loc, false)))
+	lp, err := produce.Listen(context.Background(), parser(delimitCfg(loc, false)))
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -43,7 +44,7 @@ func TestTCPFanIn(t *testing.T) {
 		w := w
 		go func() {
 			defer wg.Done()
-			cw, err := consume.Socket(parser(delimitCfg(loc, false)))
+			cw, err := consume.Socket(context.Background(), parser(delimitCfg(loc, false)))
 			if err != nil {
 				t.Errorf("writer %d: socket consumer: %v", w, err)
 				return
@@ -90,7 +91,7 @@ func TestTCPFanInSequential(t *testing.T) {
 	addr := freePort(t)
 	loc := "tcp://" + addr
 
-	lp, err := produce.Listen(parser(delimitCfg(loc, false)))
+	lp, err := produce.Listen(context.Background(), parser(delimitCfg(loc, false)))
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestTCPFanInSequential(t *testing.T) {
 
 	var allWant []string
 	for r := 0; r < rounds; r++ {
-		cw, err := consume.Socket(parser(delimitCfg(loc, false)))
+		cw, err := consume.Socket(context.Background(), parser(delimitCfg(loc, false)))
 		if err != nil {
 			t.Fatalf("round %d: socket consumer: %v", r, err)
 		}

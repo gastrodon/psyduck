@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/psyduck-etl/sdk"
+	"github.com/sirupsen/logrus"
 
 	"github.com/gastrodon/psyduck/parse"
 	"github.com/gastrodon/psyduck/stdlib/flow"
@@ -36,7 +37,7 @@ type ProducerSource func(ctx context.Context) (<-chan sdk.Producer, <-chan error
 // Both channels are unbuffered: a saturated worker pool blocks the feeder,
 // which blocks the pull, which is backpressure onto the seed — no unbounded
 // queue of pending producers builds up.
-func producerSource(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin) ProducerSource {
+func producerSource(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin, logger *logrus.Logger) ProducerSource {
 	return func(ctx context.Context) (<-chan sdk.Producer, <-chan error) {
 		feed := make(chan sdk.Producer)
 		errs := make(chan error)
@@ -77,7 +78,7 @@ func producerSource(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin) 
 					return // exhausted
 				}
 				for _, b := range chunk {
-					p, err := bindProducer(b, plugins)
+					p, err := bindProducer(ctx, b, plugins, logger)
 					if err != nil {
 						// a bind error is non-terminal: report it, skip this
 						// resource, and keep feeding whatever else arrives
@@ -102,20 +103,25 @@ func producerSource(bindings parse.ResourceFunc, plugins map[string]sdk.Plugin) 
 // closed as soon as its producer returns — not at the end of the run —
 // since a produce-from stream can keep binding fresh producers for as long
 // as its seed sends, and each one holds plugin-side resources until closed.
-// The Close error is dropped: the producer has already closed its own errs
-// by the time it returns (see BuildPipeline).
-func bindProducer(b parse.Resource, plugins map[string]sdk.Plugin) (sdk.Producer, error) {
+// Close errors are logged via logrus but not propagated: the producer has
+// already closed its own errs by the time it returns (see BuildPipeline).
+// The context is threaded into Bind so plugin-side setup work is cancellable.
+func bindProducer(ctx context.Context, b parse.Resource, plugins map[string]sdk.Plugin, logger *logrus.Logger) (sdk.Producer, error) {
 	plugin, ok := plugins[b.PluginID]
 	if !ok {
 		return nil, fmt.Errorf("%s: %s: no plugin %q loaded", b.Block.Origin(), b.Ref, b.PluginID)
 	}
-	instance, err := plugin.Bind(b.Kind, b.Resource.Name, b.Block)
+	instance, err := plugin.Bind(ctx, b.Kind, b.Resource.Name, b.Block)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s: %w", b.Block.Origin(), b.Ref, err)
 	}
 	produce := flow.Producer(instance.Produce, b.Meta.PerMinute, 0, b.Meta.StopAfter)
 	return func(ctx context.Context, send chan<- []byte, errs chan<- error) {
-		defer instance.Close()
+		defer func() {
+			if err := instance.Close(); err != nil {
+				logger.WithError(err).Warn("failed to close producer instance")
+			}
+		}()
 		produce(ctx, send, errs)
 	}, nil
 }

@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"testing"
@@ -17,7 +18,7 @@ func TestUDPDatagramTransport(t *testing.T) {
 	addr := freeUDPAddr(t)
 	loc := "udp://" + addr
 
-	lp, err := produce.Listen(parser(delimitCfg(loc, false)))
+	lp, err := produce.Listen(context.Background(), parser(delimitCfg(loc, false)))
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}

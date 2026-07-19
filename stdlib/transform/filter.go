@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -14,7 +15,7 @@ type filterConfig struct {
 
 // Filter passes a message through only when the jq expression returns a truthy
 // value (anything other than false or null). A nil result also drops the message.
-func Filter(parse sdk.Parser) (sdk.Transformer, error) {
+func Filter(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(filterConfig)
 	if err := parse(config); err != nil {
 		return nil, err

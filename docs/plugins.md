@@ -42,7 +42,7 @@ type greetConfig struct {
     Name string `psy:"name"`
 }
 
-func greet(parse sdk.Parser) (sdk.Producer, error) {
+func greet(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
     cfg := new(greetConfig)
     if err := parse(cfg); err != nil {
         return nil, err

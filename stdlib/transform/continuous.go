@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 	"math"
 
@@ -34,7 +35,7 @@ type sliceConfig struct {
 // stop of 0 or below means "through the end" — Slice clamps out-of-range
 // bounds rather than erroring, so any sufficiently large stop has the same
 // effect as an explicit length.
-func Slice(parse sdk.Parser) (sdk.Transformer, error) {
+func Slice(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(sliceConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -75,7 +76,7 @@ type chunkConfig struct {
 
 // Chunk splits continuous data into size-length windows and emits them as a
 // list (a transformer is 1→1, so the chunks arrive together as one message).
-func Chunk(parse sdk.Parser) (sdk.Transformer, error) {
+func Chunk(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(chunkConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -112,7 +113,7 @@ type everyConfig struct {
 }
 
 // Every emits size-length sliding windows advanced by step, as a list.
-func Every(parse sdk.Parser) (sdk.Transformer, error) {
+func Every(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(everyConfig)
 	if err := parse(config); err != nil {
 		return nil, err

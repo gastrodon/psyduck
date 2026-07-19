@@ -47,7 +47,7 @@ type affixConfig struct {
 // affixTransformer appends a configured suffix to each record — a minimal
 // per-record mapping, so the streaming Transform wire path dominates any
 // measurement made against it.
-func affixTransformer(parse sdk.Parser) (sdk.Transformer, error) {
+func affixTransformer(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := &affixConfig{}
 	if err := parse(config); err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func affixTransformer(parse sdk.Parser) (sdk.Transformer, error) {
 	}), nil
 }
 
-func constantProducer(parse sdk.Parser) (sdk.Producer, error) {
+func constantProducer(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := &constantConfig{}
 	if err := parse(config); err != nil {
 		return nil, err

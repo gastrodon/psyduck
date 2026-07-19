@@ -32,9 +32,9 @@ func psyParser(vals map[string]any) sdk.Parser {
 	}
 }
 
-func build(t *testing.T, provider func(sdk.Parser) (sdk.Transformer, error), vals map[string]any) sdk.Transformer {
+func build(t *testing.T, provider func(context.Context, sdk.Parser) (sdk.Transformer, error), vals map[string]any) sdk.Transformer {
 	t.Helper()
-	fn, err := provider(psyParser(vals))
+	fn, err := provider(context.Background(), psyParser(vals))
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestPick(t *testing.T) {
 	}
 
 	// both set -> configuration error
-	if _, err := Pick(psyParser(map[string]any{"path": []string{"a"}, "by": ".a"})); err == nil {
+	if _, err := Pick(context.Background(), psyParser(map[string]any{"path": []string{"a"}, "by": ".a"})); err == nil {
 		t.Error("expected error when both path and by set")
 	}
 }
@@ -548,7 +548,7 @@ func TestTextGarbageOnError(t *testing.T) {
 	garbage := string([]byte{0xff, 0xfe})
 
 	// invalid utf-8 with on-error=raise surfaces the error
-	fn, err := Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "raise"}))
+	fn, err := Upper(context.Background(), psyParser(map[string]any{"decode": "utf-8", "on-error": "raise"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,7 +557,7 @@ func TestTextGarbageOnError(t *testing.T) {
 	}
 
 	// on-error=drop swallows it
-	fn, _ = Upper(psyParser(map[string]any{"decode": "utf-8", "on-error": "drop"}))
+	fn, _ = Upper(context.Background(), psyParser(map[string]any{"decode": "utf-8", "on-error": "drop"}))
 	out, err, ok := runOne(t, fn, garbage)
 	if err != nil || ok {
 		t.Errorf("on-error=drop should swallow: out=%q err=%v", out, err)
@@ -618,7 +618,7 @@ func TestFlow(t *testing.T) {
 }
 
 func TestAssertCount(t *testing.T) {
-	fn, _ := Assert(psyParser(map[string]any{"expression": ".ok", "message": "not ok"}))
+	fn, _ := Assert(context.Background(), psyParser(map[string]any{"expression": ".ok", "message": "not ok"}))
 	if _, err, _ := runOne(t, fn, `{"ok":true}`); err != nil {
 		t.Errorf("assert true errored: %v", err)
 	}
@@ -680,7 +680,7 @@ func TestFilter(t *testing.T) {
 	}
 
 	// an unparseable expression is a construction error
-	if _, err := Filter(psyParser(map[string]any{"expression": "["})); err == nil {
+	if _, err := Filter(context.Background(), psyParser(map[string]any{"expression": "["})); err == nil {
 		t.Error("expected parse error for bad expression")
 	}
 
@@ -709,7 +709,7 @@ func TestJq(t *testing.T) {
 	}
 
 	// unparseable expression is a construction error
-	if _, err := Jq(psyParser(map[string]any{"expression": "{"})); err == nil {
+	if _, err := Jq(context.Background(), psyParser(map[string]any{"expression": "{"})); err == nil {
 		t.Error("expected parse error for bad expression")
 	}
 

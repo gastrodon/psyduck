@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/psyduck-etl/sdk"
@@ -19,7 +20,7 @@ type recodeConfig struct {
 // codec chain and re-encodes it with another. "gzip|json" → "json-pretty"
 // decompresses and pretty-prints; "base64" → "bytes" decodes base64; and so on.
 // It replaces the dozen single-purpose encode/decode transformers.
-func Recode(parse sdk.Parser) (sdk.Transformer, error) {
+func Recode(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(recodeConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -51,7 +52,7 @@ type pickConfig struct {
 // Pick extracts a single value from the message. Selection mirrors the data
 // domain: `path = ["a","b"]` walks discrete/object data by key, while
 // `by = "<jq>"` selects continuous/linear data by jq. Exactly one must be set.
-func Pick(parse sdk.Parser) (sdk.Transformer, error) {
+func Pick(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(pickConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -93,7 +94,7 @@ type pickMapConfig struct {
 // PickMap reshapes the message into a new object: each entry maps a destination
 // key to a source path walked in the input. It backs the transpose/remap use
 // case. Missing source paths are simply absent from the result.
-func PickMap(parse sdk.Parser) (sdk.Transformer, error) {
+func PickMap(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(pickMapConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -127,7 +128,7 @@ type setConfig struct {
 
 // Set adds or overwrites object fields with static string values. It backs the
 // annotate/tag use case (set a source name, a constant flag, …).
-func Set(parse sdk.Parser) (sdk.Transformer, error) {
+func Set(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(setConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -164,7 +165,7 @@ type dropConfig struct {
 }
 
 // Drop removes the named top-level fields from an object.
-func Drop(parse sdk.Parser) (sdk.Transformer, error) {
+func Drop(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(dropConfig)
 	if err := parse(config); err != nil {
 		return nil, err

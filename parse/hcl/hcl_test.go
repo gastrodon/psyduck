@@ -39,7 +39,7 @@ func testPlugin(name string) sdk.Plugin {
 			Name:  "constant",
 			Kinds: sdk.PRODUCER,
 			Spec:  []*sdk.Spec{{Name: "value", Type: sdk.TypeString, Default: "0"}},
-			ProvideProducer: func(p sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(_ context.Context, p sdk.Parser) (sdk.Producer, error) {
 				opts := new(constantOpts)
 				if err := p(opts); err != nil {
 					return nil, err
@@ -53,7 +53,7 @@ func testPlugin(name string) sdk.Plugin {
 		&sdk.Resource{
 			Name:  "trash",
 			Kinds: sdk.CONSUMER,
-			ProvideConsumer: func(sdk.Parser) (sdk.Consumer, error) {
+			ProvideConsumer: func(_ context.Context, _ sdk.Parser) (sdk.Consumer, error) {
 				return func(_ context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
 					for range recv {
 					}
@@ -64,7 +64,7 @@ func testPlugin(name string) sdk.Plugin {
 		&sdk.Resource{
 			Name:  "echo",
 			Kinds: sdk.TRANSFORMER,
-			ProvideTransformer: func(sdk.Parser) (sdk.Transformer, error) {
+			ProvideTransformer: func(_ context.Context, _ sdk.Parser) (sdk.Transformer, error) {
 				return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 					defer close(out)
 					for {
@@ -624,7 +624,7 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 			Name:  "constant",
 			Kinds: sdk.PRODUCER,
 			Spec:  []*sdk.Spec{{Name: "value", Type: sdk.TypeString, Default: "0"}},
-			ProvideProducer: func(p sdk.Parser) (sdk.Producer, error) {
+			ProvideProducer: func(_ context.Context, p sdk.Parser) (sdk.Producer, error) {
 				opts := new(constantOpts)
 				if err := p(opts); err != nil {
 					return nil, err

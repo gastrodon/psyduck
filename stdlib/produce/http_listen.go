@@ -26,7 +26,7 @@ type httpListenConfig struct {
 // message. An empty method matches any verb. Body reads are capped at
 // max-body-bytes (0 opts out of the cap) and connection lifetimes are bounded
 // by the read/write/idle timeouts.
-func HTTPListen(parse sdk.Parser) (sdk.Producer, error) {
+func HTTPListen(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(httpListenConfig)
 	if err := parse(config); err != nil {
 		return nil, err

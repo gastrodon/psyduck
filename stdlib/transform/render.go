@@ -2,6 +2,7 @@ package transform
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"text/template"
 
@@ -27,7 +28,7 @@ type renderConfig struct {
 //   - "jq":       a jq expression (the format string) evaluated over the message.
 //
 // The decoded input feeds every engine, so all three see structured data.
-func Render(parse sdk.Parser) (sdk.Transformer, error) {
+func Render(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(renderConfig)
 	if err := parse(config); err != nil {
 		return nil, err

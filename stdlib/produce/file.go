@@ -42,7 +42,7 @@ type fileConfig struct {
 // File reads bytes from a location (file path, "-" for stdin, or a socket URI)
 // and emits framed messages. With follow=true it tails a file, blocking at EOF
 // and emitting new data as the file grows.
-func File(parse sdk.Parser) (sdk.Producer, error) {
+func File(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(fileConfig)
 	if err := parse(config); err != nil {
 		return nil, err

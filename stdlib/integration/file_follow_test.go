@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func TestFileFollowTail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, err := produce.File(parser(fileCfg(path, true)))
+	p, err := produce.File(context.Background(), parser(fileCfg(path, true)))
 	if err != nil {
 		t.Fatalf("File follow: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestFileFollowExistingContent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, err := produce.File(parser(fileCfg(path, true)))
+	p, err := produce.File(context.Background(), parser(fileCfg(path, true)))
 	if err != nil {
 		t.Fatalf("File follow: %v", err)
 	}

@@ -13,7 +13,7 @@ import (
 // is the producer half of the dual-role `request` resource; the consumer half
 // sends messages to the endpoint. Use interval-ms to pace polling and the
 // host-owned stop-after to bound it.
-func Request(parse sdk.Parser) (sdk.Producer, error) {
+func Request(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(transport.RequestConfig)
 	if err := parse(config); err != nil {
 		return nil, err

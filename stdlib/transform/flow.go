@@ -1,6 +1,8 @@
 package transform
 
 import (
+	"context"
+
 	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib/flow"
@@ -17,7 +19,7 @@ type waitConfig struct {
 }
 
 // Wait sleeps a fixed duration before passing each message through.
-func Wait(parse sdk.Parser) (sdk.Transformer, error) {
+func Wait(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(waitConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -30,7 +32,7 @@ type throttleConfig struct {
 }
 
 // Throttle rate-limits the stream to per-second messages.
-func Throttle(parse sdk.Parser) (sdk.Transformer, error) {
+func Throttle(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(throttleConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -43,7 +45,7 @@ type headConfig struct {
 }
 
 // Head passes the first count messages through and drops the rest.
-func Head(parse sdk.Parser) (sdk.Transformer, error) {
+func Head(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(headConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -56,7 +58,7 @@ type tailConfig struct {
 }
 
 // Tail drops the first skip messages and passes the rest through.
-func Tail(parse sdk.Parser) (sdk.Transformer, error) {
+func Tail(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(tailConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -69,7 +71,7 @@ type sampleConfig struct {
 }
 
 // Sample keeps one message in every rate (statistical downsampling).
-func Sample(parse sdk.Parser) (sdk.Transformer, error) {
+func Sample(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(sampleConfig)
 	if err := parse(config); err != nil {
 		return nil, err

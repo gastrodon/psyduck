@@ -1,6 +1,7 @@
 package transform
 
 import (
+	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -64,7 +65,7 @@ type splitConfig struct {
 
 // Split cuts the text on a delimiter (default newline) and emits a JSON array
 // of the pieces.
-func Split(parse sdk.Parser) (sdk.Transformer, error) {
+func Split(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(splitConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -94,7 +95,7 @@ type joinConfig struct {
 
 // Join concatenates a JSON array of strings into a single string with the given
 // delimiter.
-func Join(parse sdk.Parser) (sdk.Transformer, error) {
+func Join(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(joinConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -129,7 +130,7 @@ type replaceConfig struct {
 }
 
 // Replace substitutes occurrences of old with new. A count of 0 replaces all.
-func Replace(parse sdk.Parser) (sdk.Transformer, error) {
+func Replace(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(replaceConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -156,7 +157,7 @@ type regexConfig struct {
 
 // Regex applies a regular-expression substitution, supporting $1 capture-group
 // references in the replacement.
-func Regex(parse sdk.Parser) (sdk.Transformer, error) {
+func Regex(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(regexConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -183,7 +184,7 @@ type trimConfig struct {
 
 // Trim removes leading/trailing characters (whitespace by default). Side is
 // "both" (default), "left", or "right".
-func Trim(parse sdk.Parser) (sdk.Transformer, error) {
+func Trim(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(trimConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -226,7 +227,7 @@ type caseConfig struct {
 }
 
 // Upper uppercases the text.
-func Upper(parse sdk.Parser) (sdk.Transformer, error) {
+func Upper(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(caseConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -241,7 +242,7 @@ func Upper(parse sdk.Parser) (sdk.Transformer, error) {
 }
 
 // Lower lowercases the text.
-func Lower(parse sdk.Parser) (sdk.Transformer, error) {
+func Lower(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(caseConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -262,7 +263,7 @@ type hashConfig struct {
 
 // Hash replaces the message with a digest of its bytes. Algorithm is one of
 // sha256 (default), sha512, or md5; output is "hex" (default) or "base64".
-func Hash(parse sdk.Parser) (sdk.Transformer, error) {
+func Hash(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(hashConfig)
 	if err := parse(config); err != nil {
 		return nil, err

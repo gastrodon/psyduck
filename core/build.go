@@ -110,7 +110,7 @@ func drain(ctx context.Context, bindings parse.ResourceFunc, plugins map[string]
 				return fmt.Errorf("%s: %s: no plugin %q loaded", b.Block.Origin(), b.Ref, b.PluginID)
 			}
 
-			instance, err := plugin.Bind(b.Kind, b.Resource.Name, b.Block)
+			instance, err := plugin.Bind(ctx, b.Kind, b.Resource.Name, b.Block)
 			if err != nil {
 				return fmt.Errorf("%s: %s: %w", b.Block.Origin(), b.Ref, err)
 			}
@@ -143,15 +143,21 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 
 	// Each bound instance is closed when its stage function returns — Close
 	// is how a plugin releases whatever Bind acquired (for subprocess
-	// plugins, the server-side handle itself). Close errors are dropped,
-	// matching the produce-from seed: by the time a stage returns, its error
+	// plugins, the server-side handle itself). Close errors are logged via
+	// logrus but not propagated: by the time a stage returns, its error
 	// channel is no longer safe to send on (consumers and producers close
 	// their own errs, and the transform forwarder may already be gone).
+	// Close failures are rare and typically indicate a dying subprocess;
+	// logging is sufficient.
 	consumers := make([]sdk.Consumer, 0)
 	if err := drain(ctx, src.Consumers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		consume := flow.Consumer(instance.Consume, b.Meta.PerMinute, 0)
 		consumers = append(consumers, func(ctx context.Context, recv <-chan []byte, errs chan<- error, done chan<- struct{}) {
-			defer instance.Close()
+			defer func() {
+				if err := instance.Close(); err != nil {
+					logger.WithError(err).Warn("failed to close consumer instance")
+				}
+			}()
 			consume(ctx, recv, errs, done)
 		})
 	}); err != nil {
@@ -164,7 +170,11 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	transformers := make([]sdk.Transformer, 0)
 	if err := drain(ctx, src.Transformers, lookup, func(b parse.Resource, instance sdk.Instance) {
 		transformers = append(transformers, func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-			defer instance.Close()
+			defer func() {
+				if err := instance.Close(); err != nil {
+					logger.WithError(err).Warn("failed to close transformer instance")
+				}
+			}()
 			instance.Transform(ctx, in, out, errs)
 		})
 	}); err != nil {
@@ -172,7 +182,7 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 	}
 
 	return &Pipeline{
-		Producers:   producerSource(src.Producers, lookup),
+		Producers:   producerSource(src.Producers, lookup, logger),
 		Parallel:    src.ProduceParallel,
 		Consumers:   consumers,
 		Transformer: composeTransformers(transformers),

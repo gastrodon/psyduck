@@ -24,7 +24,7 @@ type listenConfig struct {
 // connection. TCP and unix sockets accept a stream of connections, each framed
 // independently and merged into the output; udp:// reads datagrams. This is a
 // natural sink for the socket→meta-producer pattern: many writers, one reader.
-func Listen(parse sdk.Parser) (sdk.Producer, error) {
+func Listen(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(listenConfig)
 	if err := parse(config); err != nil {
 		return nil, err

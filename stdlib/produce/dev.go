@@ -16,7 +16,7 @@ type sequenceConfig struct {
 
 // Sequence emits an arithmetic sequence of integers as decimal strings:
 // start, start+step, start+2*step, … It supersedes the old increment producer.
-func Sequence(parse sdk.Parser) (sdk.Producer, error) {
+func Sequence(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(sequenceConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ type generateConfig struct {
 
 // Generate emits a fixed list of literal values in order. With loop=true it
 // cycles forever (bounded by stop-after or host-owned meta).
-func Generate(parse sdk.Parser) (sdk.Producer, error) {
+func Generate(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(generateConfig)
 	if err := parse(config); err != nil {
 		return nil, err
@@ -88,7 +88,7 @@ type tickerConfig struct {
 
 // Ticker emits the current timestamp at a fixed interval. Format is one of
 // "unix", "unix-ms", or "rfc3339".
-func Ticker(parse sdk.Parser) (sdk.Producer, error) {
+func Ticker(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	config := new(tickerConfig)
 	if err := parse(config); err != nil {
 		return nil, err

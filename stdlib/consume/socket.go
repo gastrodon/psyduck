@@ -20,7 +20,7 @@ type socketConfig struct {
 // Socket dials a tcp://, udp://, or unix:// location and writes each message to
 // the connection, joined by the configured separator. Consumer half of the
 // dual-role `socket` resource.
-func Socket(parse sdk.Parser) (sdk.Consumer, error) {
+func Socket(ctx context.Context, parse sdk.Parser) (sdk.Consumer, error) {
 	config := new(socketConfig)
 	if err := parse(config); err != nil {
 		return nil, err
