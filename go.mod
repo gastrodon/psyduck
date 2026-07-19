@@ -6,7 +6,7 @@ require (
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/hcl/v2 v2.20.1
 	github.com/itchyny/gojq v0.12.19
-	github.com/psyduck-etl/sdk v0.6.1
+	github.com/psyduck-etl/sdk v0.7.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/urfave/cli/v2 v2.27.1
 	github.com/zclconf/go-cty v1.14.4
