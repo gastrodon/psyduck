@@ -596,6 +596,68 @@ func TestKeyed(t *testing.T) {
 	}
 }
 
+// TestDedupeWindowZero verifies window=0 never evicts: a key seen once will
+// never re-emit, no matter how many other keys pass through afterward.
+func TestDedupeWindowZero(t *testing.T) {
+	// build with window=0 (unbounded, never evict)
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 0})
+
+	// emit 5 distinct ids
+	for i := 1; i <= 5; i++ {
+		in := fmt.Sprintf(`{"id":%d}`, i)
+		if _, ok := run(t, fn, in); !ok {
+			t.Errorf("first id=%d should pass", i)
+		}
+	}
+
+	// now push through 10000 more keys to exceed the old default window (10000)
+	// and evict the original 5 if we were in bounded mode
+	for i := 100; i < 10100; i++ {
+		in := fmt.Sprintf(`{"id":%d}`, i)
+		if _, ok := run(t, fn, in); !ok {
+			t.Errorf("new id=%d should pass", i)
+		}
+	}
+
+	// re-emit original ids 1-5: they must NOT pass because window=0 never forgets
+	for i := 1; i <= 5; i++ {
+		in := fmt.Sprintf(`{"id":%d}`, i)
+		if _, ok := run(t, fn, in); ok {
+			t.Errorf("re-emitted id=%d should drop (never-evict mode)", i)
+		}
+	}
+}
+
+// TestDedupeWindowEviction verifies that window > 0 still evicts as before:
+// when a key is pushed out of the ring by >window other ids, it re-emits.
+func TestDedupeWindowEviction(t *testing.T) {
+	// window=3: keep only the last 3 distinct keys in the ring
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 3})
+
+	// emit ids 1, 2, 3 — all pass, ring is [1, 2, 3]
+	for i := 1; i <= 3; i++ {
+		in := fmt.Sprintf(`{"id":%d}`, i)
+		if _, ok := run(t, fn, in); !ok {
+			t.Errorf("first id=%d should pass", i)
+		}
+	}
+
+	// emit id 4: ring becomes [2, 3, 4], id 1 is evicted
+	if _, ok := run(t, fn, `{"id":4}`); !ok {
+		t.Error("new id=4 should pass")
+	}
+
+	// re-emit id 1: it should pass because it was evicted from the window
+	if _, ok := run(t, fn, `{"id":1}`); !ok {
+		t.Error("re-emitted id=1 should pass after eviction")
+	}
+
+	// re-emit id 1 again: now it should drop (it's in the current ring)
+	if _, ok := run(t, fn, `{"id":1}`); ok {
+		t.Error("second emit of id=1 should drop (already in ring)")
+	}
+}
+
 func TestFlow(t *testing.T) {
 	// Head/Tail/Sample keep their counters inside the returned closure body
 	// (invocation-local, same as Batch), so each is meant to run once per

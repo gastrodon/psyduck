@@ -56,8 +56,8 @@ type dedupeConfig struct {
 }
 
 // Dedupe drops messages whose key has been seen within the last `window`
-// messages. The original message passes through unchanged; the selector only
-// computes the dedup key.
+// messages. When window == 0, never evicts (unbounded set). The original
+// message passes through unchanged; the selector only computes the dedup key.
 func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(dedupeConfig)
 	if err := parse(config); err != nil {
@@ -68,6 +68,7 @@ func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 		return nil, err
 	}
 	window := config.Window
+	unbounded := window == 0
 	if window <= 0 {
 		window = 10000
 	}
@@ -79,7 +80,10 @@ func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	// under parallel callers.
 	var mu sync.Mutex
 	seen := make(map[string]struct{}, window)
-	ring := make([]string, 0, window)
+	var ring []string
+	if !unbounded {
+		ring = make([]string, 0, window)
+	}
 
 	return sdk.Map(func(msg []byte) ([]byte, error) {
 		key, keyOK, err := k.key(msg)
@@ -92,12 +96,14 @@ func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 				mu.Unlock()
 				return nil, nil
 			}
-			if len(ring) >= window {
+			if !unbounded && len(ring) >= window {
 				delete(seen, ring[0])
 				ring = ring[1:]
 			}
 			seen[key] = struct{}{}
-			ring = append(ring, key)
+			if !unbounded {
+				ring = append(ring, key)
+			}
 			mu.Unlock()
 		}
 		return msg, nil
