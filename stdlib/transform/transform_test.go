@@ -240,7 +240,7 @@ func TestConcurrentInvocationRace(t *testing.T) {
 	}
 
 	cases := map[string]sdk.Transformer{
-		"dedupe": build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 16}),
+		"dedupe": build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": uint64(16)}),
 		"uniq":   build(t, Uniq, map[string]any{"by": ".id", "path": []string{}}),
 		"count":  build(t, Count, map[string]any{"every": 3, "prefix": "n="}),
 	}
@@ -381,7 +381,7 @@ func TestConcurrentDedupeResult(t *testing.T) {
 	}
 	// window > distinct keys => nothing is ever evicted, so the whole run is a
 	// single global window and the expected result is order-independent.
-	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 1000})
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": uint64(1000)})
 
 	all := parallelMerge(fn, goroutines, msgs)
 
@@ -566,7 +566,7 @@ func TestTextGarbageOnError(t *testing.T) {
 
 func TestKeyed(t *testing.T) {
 	// dedupe by path
-	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 100})
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": uint64(100)})
 	if _, ok := run(t, fn, `{"id":1}`); !ok {
 		t.Error("first id=1 should pass")
 	}
@@ -600,7 +600,7 @@ func TestKeyed(t *testing.T) {
 // never re-emit, no matter how many other keys pass through afterward.
 func TestDedupeWindowZero(t *testing.T) {
 	// build with window=0 (unbounded, never evict)
-	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 0})
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": uint64(0)})
 
 	// emit 5 distinct ids
 	for i := 1; i <= 5; i++ {
@@ -632,7 +632,7 @@ func TestDedupeWindowZero(t *testing.T) {
 // when a key is pushed out of the ring by >window other ids, it re-emits.
 func TestDedupeWindowEviction(t *testing.T) {
 	// window=3: keep only the last 3 distinct keys in the ring
-	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": 3})
+	fn := build(t, Dedupe, map[string]any{"by": "", "path": []string{"id"}, "window": uint64(3)})
 
 	// emit ids 1, 2, 3 — all pass, ring is [1, 2, 3]
 	for i := 1; i <= 3; i++ {
@@ -855,7 +855,7 @@ func TestCancelReleases(t *testing.T) {
 		"upper":  build(t, Upper, map[string]any{"decode": "utf-8", "on-error": "raise"}),
 		"filter": build(t, Filter, map[string]any{"expression": ".a"}),
 		"jq":     build(t, Jq, map[string]any{"expression": ".a"}),
-		"dedupe": build(t, Dedupe, map[string]any{"by": "", "path": []string{"a"}, "window": 10}),
+		"dedupe": build(t, Dedupe, map[string]any{"by": "", "path": []string{"a"}, "window": uint64(10)}),
 		"batch":  build(t, Batch, map[string]any{"size": 1}),
 		"assert": build(t, Assert, map[string]any{"expression": ".a", "message": "no"}),
 		"count":  build(t, Count, map[string]any{"every": 1, "prefix": "n="}),
