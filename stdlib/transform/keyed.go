@@ -52,12 +52,12 @@ func (k keyer) key(in []byte) (string, bool, error) {
 type dedupeConfig struct {
 	By     string   `psy:"by"`
 	Path   []string `psy:"path"`
-	Window int      `psy:"window"`
+	Window uint64   `psy:"window"`
 }
 
 // Dedupe drops messages whose key has been seen within the last `window`
-// messages. The original message passes through unchanged; the selector only
-// computes the dedup key.
+// messages. When window == 0, never evicts (unbounded set). The original
+// message passes through unchanged; the selector only computes the dedup key.
 func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(dedupeConfig)
 	if err := parse(config); err != nil {
@@ -67,20 +67,36 @@ func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	if err != nil {
 		return nil, err
 	}
-	window := config.Window
-	if window <= 0 {
-		window = 10000
+
+	// seen is shared across every invocation of this transformer, so the
+	// dedup window is global: duplicates are caught across all parallel
+	// invocations, not just within one. mu guards it — the critical section
+	// is a single lookup plus at most one evict/append, so it stays cheap
+	// even under parallel callers.
+	var mu sync.Mutex
+
+	if config.Window == 0 {
+		seen := make(map[string]struct{}, 10000)
+		return sdk.Map(func(msg []byte) ([]byte, error) {
+			key, keyOK, err := k.key(msg)
+			if err != nil {
+				return nil, err
+			}
+			if keyOK {
+				mu.Lock()
+				if _, dup := seen[key]; dup {
+					mu.Unlock()
+					return nil, nil
+				}
+				seen[key] = struct{}{}
+				mu.Unlock()
+			}
+			return msg, nil
+		}), nil
 	}
 
-	// seen/ring are shared across every invocation of this transformer, so
-	// the dedup window is global: duplicates are caught across all parallel
-	// invocations, not just within one. mu guards both — the critical section
-	// is a single lookup plus at most one evict/append, so it stays cheap even
-	// under parallel callers.
-	var mu sync.Mutex
-	seen := make(map[string]struct{}, window)
-	ring := make([]string, 0, window)
-
+	seen := make(map[string]struct{}, config.Window)
+	ring := make([]string, 0, config.Window)
 	return sdk.Map(func(msg []byte) ([]byte, error) {
 		key, keyOK, err := k.key(msg)
 		if err != nil {
@@ -88,17 +104,16 @@ func Dedupe(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 		}
 		if keyOK {
 			mu.Lock()
+			defer mu.Unlock()
 			if _, dup := seen[key]; dup {
-				mu.Unlock()
 				return nil, nil
 			}
-			if len(ring) >= window {
+			if uint64(len(ring)) >= config.Window {
 				delete(seen, ring[0])
 				ring = ring[1:]
 			}
 			seen[key] = struct{}{}
 			ring = append(ring, key)
-			mu.Unlock()
 		}
 		return msg, nil
 	}), nil
