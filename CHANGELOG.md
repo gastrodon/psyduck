@@ -4,6 +4,14 @@ All notable user-facing changes to psyduck since the Go rewrite. Versions
 before v0.1.0 belong to the archived TypeScript prototype and are not covered
 here. Dates are when the work landed on the release commit.
 
+## Unreleased
+
+- Resource blocks accept a host-owned `parallel = n` meta attribute on
+  `produce`, `consume`, and `transform`. It materializes n copies of the
+  resource, exactly as if it had been listed n times. Defaults to 1; values
+  below 1 (and fractional values) are rejected, and it is not allowed on a
+  `produce-from` seed.
+
 ## v0.13.1 — 2026-07-22
 
 - `dedupe`: `window=0` now means never-evict — keys are deduplicated for the

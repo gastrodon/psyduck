@@ -142,17 +142,20 @@ Naming convention: use kebab-case in `Spec.Name` and match it in the `psy`
 struct tag on the config type (`psy:"stop-after"`). This is consistent with
 the rest of the ecosystem and with what users type in `.psy`.
 
-Two attribute names are **reserved**: `stop-after` and `per-minute`. The host
-strips these off the block before your `Parser` runs (they become the
-resource's `sdk.BlockMeta`), and it enforces both behaviors independently of
-the plugin. Do not declare them in your `Spec`, and do not try to read them
-from your config struct — they will not be there.
+Three attribute names are **reserved**: `stop-after`, `per-minute`, and
+`parallel`. The host strips these off the block before your `Parser` runs and
+enforces them independently of the plugin. Do not declare them in your `Spec`,
+and do not try to read them from your config struct — they will not be there.
+(`stop-after` and `per-minute` become the resource's `sdk.BlockMeta`;
+`parallel` is core-only and never crosses to the plugin at all — the host
+simply materializes the resource that many times.)
 
-Both are verb-restricted: `stop-after` is accepted only on `produce`
-resources (it's a producer-only flow governor); `per-minute` is accepted on
-`produce` and `consume` resources. Declaring either on a `transform` block,
-or `stop-after` on a `consume` block, is a parse-time error — the host
-rejects it as an unknown attribute before your plugin is ever bound.
+`stop-after` and `per-minute` are verb-restricted: `stop-after` is accepted
+only on `produce` resources (it's a producer-only flow governor); `per-minute`
+is accepted on `produce` and `consume` resources. `parallel` is accepted on
+all three verbs. Declaring `stop-after`/`per-minute` on a verb that doesn't
+offer it is a parse-time error — the host rejects it as an unknown attribute
+before your plugin is ever bound.
 
 ### `sdk.Provider[T]`
 

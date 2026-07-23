@@ -196,18 +196,24 @@ func defaultVal(spec *sdk.Spec, want cty.Type) (cty.Value, error) {
 var (
 	perMinuteSpec = &sdk.Spec{Name: "per-minute", Description: "rate limit: items per minute (0 = unrestricted)", Type: sdk.TypeInt, Default: 0}
 	stopAfterSpec = &sdk.Spec{Name: "stop-after", Description: "stop after n items (0 = unrestricted)", Type: sdk.TypeInt, Default: 0}
+	parallelSpec  = &sdk.Spec{Name: "parallel", Description: "duplicate this resource n times (default 1, must be >= 1)", Type: sdk.TypeInt, Default: 1}
 )
 
-// metaSpecs drives which host-owned attributes (sdk.BlockMeta) a block's
-// source may set, keyed by verb. Plugins never declare these. stop-after is
-// a producer-only flow governor — accepting it on consume or transform would
-// silently do nothing (nothing wraps a transformer, and a consumer's own
-// completion is its own to decide), so those verbs simply don't offer it.
-// per-minute paces both producers and consumers.
+// metaSpecs drives which host-owned attributes a block's source may set,
+// keyed by verb. Plugins never declare these. stop-after is a producer-only
+// flow governor — accepting it on consume or transform would silently do
+// nothing (nothing wraps a transformer, and a consumer's own completion is
+// its own to decide), so those verbs simply don't offer it. per-minute paces
+// both producers and consumers. parallel is accepted on every verb: it just
+// stamps out copies of the block, which is meaningful for any kind. Note
+// that per-minute and stop-after belong to sdk.BlockMeta (decoded via
+// blockMetaSpec), while parallel is core-only (decoded straight into
+// parse.Resource.Parallel by makeBinding) — so it is deliberately absent from
+// blockMetaSpec.
 var metaSpecs = map[string][]*sdk.Spec{
-	blockProduce:   {perMinuteSpec, stopAfterSpec},
-	blockConsume:   {perMinuteSpec},
-	blockTransform: {},
+	blockProduce:   {perMinuteSpec, stopAfterSpec, parallelSpec},
+	blockConsume:   {perMinuteSpec, parallelSpec},
+	blockTransform: {parallelSpec},
 }
 
 // blockMetaSpec is the full sdk.BlockMeta shape, independent of verb. Every

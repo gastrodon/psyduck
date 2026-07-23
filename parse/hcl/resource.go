@@ -114,6 +114,11 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext
 		return parse.Resource{}, fmt.Errorf("%s %s.%s: %w", block.Type, resRef, name, err)
 	}
 
+	parallel, err := decodeParallel(content.Attributes, localsCtx, origin)
+	if err != nil {
+		return parse.Resource{}, fmt.Errorf("%s %s.%s: %w", block.Type, resRef, name, err)
+	}
+
 	return parse.Resource{
 		Ref:      strings.Join([]string{block.Type, resRef, name}, "."),
 		Kind:     verbKinds[block.Type],
@@ -121,7 +126,36 @@ func makeBinding(block *hcl.Block, ix *resourceIndex, localsCtx *hcl.EvalContext
 		PluginID: pluginID,
 		Block:    &hclBlock{values: specVals, origin: origin},
 		Meta:     meta,
+		Parallel: parallel,
 	}, nil
+}
+
+// decodeParallel reads the core-only `parallel` meta attribute off a resource
+// block. It is not part of sdk.BlockMeta (plugins never see it), so it is
+// evaluated on its own rather than through the BlockMeta decode. Absent, it
+// defaults to 1; present, it must be a whole number >= 1 — the value is a
+// duplication count, so 0 (and any negative) is meaningless and rejected.
+func decodeParallel(attrs hcl.Attributes, ctx *hcl.EvalContext, origin sdk.SourceRange) (int, error) {
+	attr, ok := attrs[parallelSpec.Name]
+	if !ok {
+		return 1, nil
+	}
+	v, diags := attr.Expr.Value(ctx)
+	if diags.HasErrors() {
+		return 0, diags
+	}
+	converted, err := convert.Convert(v, cty.Number)
+	if err != nil {
+		return 0, fmt.Errorf("%s: parallel: expected a whole number: %w", origin, err)
+	}
+	n, acc := converted.AsBigFloat().Int64()
+	if acc != big.Exact {
+		return 0, fmt.Errorf("%s: parallel: must be a whole number", origin)
+	}
+	if n < 1 {
+		return 0, fmt.Errorf("%s: parallel: must be >= 1 (it duplicates the resource that many times); got %d", origin, n)
+	}
+	return int(n), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +194,21 @@ func resolveRefs(pipeline string, refs []string, set map[string]parse.Resource) 
 	return resolved, nil
 }
 
+// expandParallel flattens each resource's host-owned parallel count into
+// literal duplicates: a resource with Parallel = n appears n times in a row,
+// exactly as if it had been listed n times. makeBinding guarantees Parallel
+// >= 1, so this only ever grows the list. Downstream (core) sees a plain flat
+// list and never has to know about parallelism.
+func expandParallel(resources []parse.Resource) []parse.Resource {
+	expanded := make([]parse.Resource, 0, len(resources))
+	for _, r := range resources {
+		for range r.Parallel {
+			expanded = append(expanded, r)
+		}
+	}
+	return expanded
+}
+
 func makePipeline(
 	block *hcl.Block,
 	bindings map[string]map[string]parse.Resource,
@@ -186,6 +235,7 @@ func makePipeline(
 	if err != nil {
 		return parse.Pipeline{}, err
 	}
+	consumers = expandParallel(consumers)
 	pipe.Consumers = parse.LiteralResourceFunc(consumers...)
 	pipe.Spec.Consumers = consumers
 
@@ -199,6 +249,7 @@ func makePipeline(
 			return parse.Pipeline{}, err
 		}
 	}
+	transformers = expandParallel(transformers)
 	pipe.Transformers = parse.LiteralResourceFunc(transformers...)
 	pipe.Spec.Transformers = transformers
 
@@ -220,6 +271,7 @@ func makePipeline(
 		if len(producers) == 0 {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q at %s: at least one producer is required", name, origin)
 		}
+		producers = expandParallel(producers)
 		pipe.Producers = parse.LiteralResourceFunc(producers...)
 		pipe.Spec.Producers = producers
 	case hasRemote:
@@ -230,6 +282,13 @@ func makePipeline(
 		seed, ok := bindings[blockProduce][v.AsString()]
 		if !ok {
 			return parse.Pipeline{}, fmt.Errorf("pipeline %q: unknown produce-from reference %q", name, v.AsString())
+		}
+		if seed.Parallel > 1 {
+			// A produce-from seed is a single live stream that declares its
+			// own producers over time; stamping out duplicate seeds would run
+			// several competing listeners, not "the same producer n times".
+			// Use produce-parallel to widen how many derived producers run.
+			return parse.Pipeline{}, fmt.Errorf("pipeline %q: parallel is not supported on a produce-from seed (%s); use produce-parallel to widen concurrency", name, seed.Ref)
 		}
 		timeout := remoteFirstMessageTimeout
 		if attr, ok := content.Attributes["produce-from-timeout"]; ok {

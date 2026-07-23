@@ -18,6 +18,14 @@ type Resource struct {
 	PluginID string                 // Name() of the owning plugin
 	Block    sdk.ConfigBlock        // the resource's config block; Block.Origin() is where it was defined
 	Meta     sdk.BlockMeta          // pre-decoded host-owned attributes
+	// Parallel is the host-owned duplication count for this resource: the
+	// resource is materialized this many times, exactly as if it had been
+	// written that many times in its pipeline list. It defaults to 1; the
+	// parser rejects anything below 1. It is a core-only meta attribute (not
+	// part of sdk.BlockMeta) — plugins never see it. The parser expands the
+	// duplicates into the pipeline lists, so core runs a plain flat list and
+	// never reads this field.
+	Parallel int
 }
 
 // ResourceFunc yields Resources in chunks of up to max until exhausted.

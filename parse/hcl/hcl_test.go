@@ -795,6 +795,185 @@ func TestParseProduceParallelFractional(t *testing.T) {
 	}
 }
 
+// parallel = n on a resource block stamps out n literal copies of it into
+// the pipeline list — one producer written parallel = 3 drains as three.
+func TestParseParallelDuplicatesProducers(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" {
+		value    = "x"
+		parallel = 3
+	}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	producers := drainAll(t, result["main"].Producers)
+	if len(producers) != 3 {
+		t.Fatalf("want 3 producers from parallel = 3, got %d", len(producers))
+	}
+	for i, p := range producers {
+		if p.Ref != "produce.constant.p" {
+			t.Fatalf("copy %d: bad ref %q", i, p.Ref)
+		}
+	}
+	if got := result["main"].Spec.Producers; len(got) != 3 {
+		t.Fatalf("Spec.Producers: want 3, got %d", len(got))
+	}
+}
+
+// parallel works the same on consumers and transformers — the parser expands
+// their literal lists before core ever sees them.
+func TestParseParallelDuplicatesConsumersAndTransformers(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" { parallel = 2 }
+	transform "echo" "x" { parallel = 4 }
+	pipeline "main" {
+		produce   = [produce.constant.p]
+		transform = [transform.echo.x]
+		consume   = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := drainAll(t, result["main"].Consumers); len(got) != 2 {
+		t.Fatalf("want 2 consumers from parallel = 2, got %d", len(got))
+	}
+	if got := drainAll(t, result["main"].Transformers); len(got) != 4 {
+		t.Fatalf("want 4 transformers from parallel = 4, got %d", len(got))
+	}
+}
+
+// Absent, parallel defaults to 1: one copy, exactly as before the field
+// existed.
+func TestParseParallelAbsent(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := drainAll(t, result["main"].Producers); len(got) != 1 {
+		t.Fatalf("default parallel: want 1 producer, got %d", len(got))
+	}
+}
+
+// parallel is a duplication count, so 0 is meaningless and rejected — mirrors
+// the "must be >= 1" contract the field promises.
+func TestParseParallelZeroRejected(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" {
+		value    = "x"
+		parallel = 0
+	}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "parallel: must be >= 1") {
+		t.Fatalf("want parallel >= 1 rejection, got: %v", err)
+	}
+}
+
+func TestParseParallelNegativeRejected(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" {
+		value    = "x"
+		parallel = -2
+	}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "parallel: must be >= 1") {
+		t.Fatalf("want parallel >= 1 rejection, got: %v", err)
+	}
+}
+
+// A fractional parallel is rejected rather than truncated, following the
+// strict-schema philosophy the rest of the parser holds to.
+func TestParseParallelFractionalRejected(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" {
+		value    = "x"
+		parallel = 2.5
+	}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "parallel: must be a whole number") {
+		t.Fatalf("want fractional parallel rejection, got: %v", err)
+	}
+}
+
+// parallel on a produce-from seed is rejected: a seed is one live stream, not
+// something duplication has a sensible meaning for.
+func TestParseParallelProduceFromSeedRejected(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "seed" {
+		value    = "x"
+		parallel = 2
+	}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce-from = produce.constant.seed
+		consume      = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "parallel is not supported on a produce-from seed") {
+		t.Fatalf("want produce-from seed rejection, got: %v", err)
+	}
+}
+
+// parallel and produce-parallel compose: expansion happens first, so
+// produce-parallel = 0 ("all at once") counts the duplicated producers.
+func TestParseParallelWithProduceParallelZero(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" {
+		value    = "x"
+		parallel = 4
+	}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce          = [produce.constant.p]
+		consume          = [trash.t]
+		produce-parallel = 0
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result["main"].ProduceParallel; got != 4 {
+		t.Fatalf("ProduceParallel: want 4 (one per expanded producer), got %d", got)
+	}
+}
+
 // With a static produce list, produce-parallel = 0 means "run them all at
 // once" — it resolves to the number of producers declared.
 func TestParseProduceParallelZeroStatic(t *testing.T) {
