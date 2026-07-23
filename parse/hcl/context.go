@@ -65,14 +65,29 @@ func objOrEmpty(m map[string]cty.Value) cty.Value {
 	return cty.ObjectVal(m)
 }
 
+// localRef tracks a local declaration: its name, attribute, and whether it's been resolved yet.
+type localRef struct {
+	name string
+	attr *hcl.Attribute
+	val  cty.Value
+	set  bool
+}
+
 // makeLocalsCtx merges all locals {} blocks across sources (duplicate keys
 // error) and returns the eval context exposing local.*, env.*, and
 // imports.* (the resolved import{} closure for this file, built by the
 // caller — see buildImportsValue in import.go).
+//
+// Locals are resolved to a fixed point via iterative evaluation: each pass
+// evaluates unresolved locals against the current set of resolved locals plus
+// env and imports. This allows locals to reference:
+//  - env.* (environment variables)
+//  - imports.* (imported resources and pipelines)
+//  - local.* (other locals, forward and backward references)
 func makeLocalsCtx(blocks []*hcl.Block, env cty.Value, imports cty.Value) (*hcl.EvalContext, error) {
-	envCtx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: env}}
-
-	values := make(map[string]cty.Value)
+	// Collect all local declarations first, checking for duplicates.
+	locals := make(map[string]*localRef)
+	allRefs := []*localRef{}
 	for _, block := range blocks {
 		attrs, diags := block.Body.JustAttributes()
 		if diags.HasErrors() {
@@ -80,16 +95,103 @@ func makeLocalsCtx(blocks []*hcl.Block, env cty.Value, imports cty.Value) (*hcl.
 		}
 
 		for name, attr := range attrs {
-			if _, dup := values[name]; dup {
+			if _, dup := locals[name]; dup {
 				return nil, fmt.Errorf("duplicate local %q at %s", name, attr.Range)
 			}
 
-			v, diags := attr.Expr.Value(envCtx)
+			ref := &localRef{name: name, attr: attr}
+			locals[name] = ref
+			allRefs = append(allRefs, ref)
+		}
+	}
+
+	// If there are no locals, we're done.
+	if len(locals) == 0 {
+		return &hcl.EvalContext{
+			Variables: map[string]cty.Value{
+				nsLocal:   objOrEmpty(make(map[string]cty.Value)),
+				nsEnv:     env,
+				nsImports: imports,
+			},
+		}, nil
+	}
+
+	// Resolve locals to a fixed point by iteratively evaluating unresolved
+	// locals against the current set of resolved locals.
+	for iterations := 0; iterations < len(locals)+1; iterations++ {
+		resolved := make(map[string]cty.Value)
+		for name, ref := range locals {
+			if ref.set {
+				resolved[name] = ref.val
+			}
+		}
+
+		// Build eval context with current resolved locals, env, and imports.
+		evalCtx := &hcl.EvalContext{
+			Variables: map[string]cty.Value{
+				nsLocal:   objOrEmpty(resolved),
+				nsEnv:     env,
+				nsImports: imports,
+			},
+		}
+
+		progressMade := false
+		unresolvedNames := []string{}
+		for _, ref := range allRefs {
+			if ref.set {
+				continue // Already resolved
+			}
+			unresolvedNames = append(unresolvedNames, ref.name)
+
+			v, diags := ref.attr.Expr.Value(evalCtx)
 			if diags.HasErrors() {
+				// Evaluation failed; check if this is due to undefined local refs.
+				// If the error mentions an unknown variable or unsupported attribute
+				// on local/imports objects, skip this local for now—maybe it will
+				// resolve in the next iteration.
+				errMsg := diags.Error()
+				if strings.Contains(errMsg, "Unknown variable") ||
+					strings.Contains(errMsg, "Unsupported attribute") {
+					continue
+				}
+				// Other errors (type mismatches, etc.) are real and should fail immediately.
 				return nil, diags
 			}
-			values[name] = v
+
+			ref.val = v
+			ref.set = true
+			progressMade = true
 		}
+
+		// If all locals are now resolved, we're done.
+		if len(unresolvedNames) == 0 {
+			break
+		}
+
+		if !progressMade {
+			// No progress was made this iteration; we're stuck with a circular dependency.
+			return nil, fmt.Errorf("local resolution: circular dependency or undefined reference in: %v", unresolvedNames)
+		}
+	}
+
+	// Final check: all locals should be resolved now.
+	unresolved := []string{}
+	for _, ref := range allRefs {
+		if !ref.set {
+			unresolved = append(unresolved, ref.name)
+		}
+	}
+	if len(unresolved) > 0 {
+		return nil, fmt.Errorf("local resolution: unable to resolve: %v", unresolved)
+	}
+
+	// Check that all locals were resolved (shouldn't happen if progressMade logic is sound).
+	values := make(map[string]cty.Value)
+	for name, ref := range locals {
+		if !ref.set {
+			return nil, fmt.Errorf("local %q: undefined reference", name)
+		}
+		values[name] = ref.val
 	}
 
 	return &hcl.EvalContext{
