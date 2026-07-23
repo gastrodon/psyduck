@@ -817,3 +817,184 @@ func TestParseProduceParallelZeroStatic(t *testing.T) {
 		t.Fatalf("ProduceParallel: got %d, want 3 (one per producer)", got)
 	}
 }
+
+func TestParseLocalsCompose(t *testing.T) {
+	// Locals can reference other locals within the same file.
+	entry, load := src(`
+	locals {
+		base  = "hello"
+		greet = local.base
+	}
+
+	produce "constant" "v" {
+		value = local.greet
+	}
+
+	consume "trash" "t" {}
+
+	pipeline "main" {
+		produce = [produce.constant.v]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	opts := new(constantOpts)
+	if err := producers[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "hello" {
+		t.Fatalf("local composition failed: want %q, got %q", "hello", opts.Value)
+	}
+}
+
+func TestParseLocalsForwardRef(t *testing.T) {
+	// Locals can reference each other even with forward references.
+	entry, load := src(`
+	locals {
+		later  = local.earlier
+		earlier = "value"
+	}
+
+	produce "constant" "v" {
+		value = local.later
+	}
+
+	consume "trash" "t" {}
+
+	pipeline "main" {
+		produce = [produce.constant.v]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	opts := new(constantOpts)
+	if err := producers[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "value" {
+		t.Fatalf("forward reference in locals failed: want %q, got %q", "value", opts.Value)
+	}
+}
+
+func TestParseLocalsChain(t *testing.T) {
+	// Locals can form chains of references.
+	entry, load := src(`
+	locals {
+		a = "base"
+		b = local.a
+		c = local.b
+		d = local.c
+	}
+
+	produce "constant" "v" {
+		value = local.d
+	}
+
+	consume "trash" "t" {}
+
+	pipeline "main" {
+		produce = [produce.constant.v]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	producers := drainAll(t, result["main"].Producers)
+	opts := new(constantOpts)
+	if err := producers[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "base" {
+		t.Fatalf("local chain failed: want %q, got %q", "base", opts.Value)
+	}
+}
+
+func TestParseLocalsWithImports(t *testing.T) {
+	// Locals can reference imports.
+	fs := files{
+		"a.psy": `produce "constant" "p" { value = "from-import" }`,
+		"b.psy": `
+		import {
+			a = "a.psy"
+		}
+		locals {
+			imported_ref = imports.a.produce.constant.p
+		}
+		consume "trash" "t" {}
+		pipeline "main" {
+			produce = [local.imported_ref]
+			consume = [trash.t]
+		}
+		`,
+	}
+	pipelines, err := NewParserHCL().Parse(t.Context(), "b.psy", fs.load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got := drainAll(t, pipelines["main"].Producers)
+	if len(got) != 1 {
+		t.Fatalf("want 1 producer via local import ref, got %d", len(got))
+	}
+	opts := new(constantOpts)
+	if err := got[0].Block.Decode(opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.Value != "from-import" {
+		t.Fatalf("local->import resolution failed: %q", opts.Value)
+	}
+}
+
+func TestParseLocalsCircular(t *testing.T) {
+	// Circular references in locals should error.
+	entry, load := src(`
+	locals {
+		a = local.b
+		b = local.a
+	}
+
+	produce "constant" "p" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "circular") {
+		t.Fatalf("want circular dependency error, got: %v", err)
+	}
+}
+
+func TestParseLocalsUndefinedRef(t *testing.T) {
+	// References to undefined locals should error.
+	entry, load := src(`
+	locals {
+		a = local.nonexistent
+	}
+
+	produce "constant" "p" {}
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err == nil || !strings.Contains(err.Error(), "undefined") {
+		t.Fatalf("want undefined reference error, got: %v", err)
+	}
+}
