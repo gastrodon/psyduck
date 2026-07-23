@@ -88,10 +88,6 @@ func Chunk(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	if config.Encode == "" {
 		config.Encode = "bytes"
 	}
-	onError, err := data.ParseOnError(config.OnError)
-	if err != nil {
-		return nil, err
-	}
 
 	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
 		defer close(out)
@@ -171,10 +167,6 @@ func Every(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	}
 	if config.Encode == "" {
 		config.Encode = "bytes"
-	}
-	onError, err := data.ParseOnError(config.OnError)
-	if err != nil {
-		return nil, err
 	}
 
 	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
