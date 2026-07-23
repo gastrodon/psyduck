@@ -74,8 +74,9 @@ type chunkConfig struct {
 	OnError  string `psy:"on-error"`
 }
 
-// Chunk splits continuous data into size-length windows and emits them as a
-// list (a transformer is 1→1, so the chunks arrive together as one message).
+// Chunk splits continuous data into size-length windows and emits each window
+// as a separate message. It is a true 1→N transformer: one input yields multiple
+// outputs. Each window is encoded per the encode setting.
 func Chunk(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(chunkConfig)
 	if err := parse(config); err != nil {
@@ -85,21 +86,62 @@ func Chunk(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 		config.Decode = "bytes"
 	}
 	if config.Encode == "" {
-		config.Encode = "json"
-	}
-	onError, err := data.ParseOnError(config.OnError)
-	if err != nil {
-		return nil, err
+		config.Encode = "bytes"
 	}
 
-	op := func(v data.Value) (data.Value, error) {
-		c, err := asContinuous(v, "chunk")
-		if err != nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		emitErr := func(err error) (stop bool) {
+			select {
+			case errs <- err:
+				return false
+			case <-ctx.Done():
+				return true
+			}
 		}
-		return windows(c.Chunk(config.Size, config.KeepTail)), nil
-	}
-	return codecTransformer(config.Decode, config.Encode, onError, op), nil
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				// Decode the input message
+				v, err := data.Decode(msg, config.Decode)
+				if err != nil {
+					if emitErr(fmt.Errorf("chunk: decode: %w", err)) {
+						return
+					}
+					continue
+				}
+				// Get continuous data
+				c, err := asContinuous(v, "chunk")
+				if err != nil {
+					if emitErr(fmt.Errorf("chunk: %w", err)) {
+						return
+					}
+					continue
+				}
+				// Chunk it and emit each window as a separate message
+				chunks := c.Chunk(config.Size, config.KeepTail)
+				for _, chunk := range chunks {
+					encoded, err := data.Encode(chunk, config.Encode)
+					if err != nil {
+						if emitErr(fmt.Errorf("chunk: encode: %w", err)) {
+							return
+						}
+						continue
+					}
+					select {
+					case out <- encoded:
+					case <-ctx.Done():
+						return
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}, nil
 }
 
 // ── every ──────────────────────────────────────────────────────────────────
@@ -112,7 +154,9 @@ type everyConfig struct {
 	OnError string `psy:"on-error"`
 }
 
-// Every emits size-length sliding windows advanced by step, as a list.
+// Every emits size-length sliding windows advanced by step. It is a true 1→N
+// transformer: one input yields multiple outputs. Each window is encoded per
+// the encode setting.
 func Every(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 	config := new(everyConfig)
 	if err := parse(config); err != nil {
@@ -122,28 +166,61 @@ func Every(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 		config.Decode = "bytes"
 	}
 	if config.Encode == "" {
-		config.Encode = "json"
-	}
-	onError, err := data.ParseOnError(config.OnError)
-	if err != nil {
-		return nil, err
+		config.Encode = "bytes"
 	}
 
-	op := func(v data.Value) (data.Value, error) {
-		c, err := asContinuous(v, "every")
-		if err != nil {
-			return nil, err
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		emitErr := func(err error) (stop bool) {
+			select {
+			case errs <- err:
+				return false
+			case <-ctx.Done():
+				return true
+			}
 		}
-		return windows(c.Every(config.Step, config.Size)), nil
-	}
-	return codecTransformer(config.Decode, config.Encode, onError, op), nil
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				// Decode the input message
+				v, err := data.Decode(msg, config.Decode)
+				if err != nil {
+					if emitErr(fmt.Errorf("every: decode: %w", err)) {
+						return
+					}
+					continue
+				}
+				// Get continuous data
+				c, err := asContinuous(v, "every")
+				if err != nil {
+					if emitErr(fmt.Errorf("every: %w", err)) {
+						return
+					}
+					continue
+				}
+				// Emit each sliding window as a separate message
+				everies := c.Every(config.Step, config.Size)
+				for _, every := range everies {
+					encoded, err := data.Encode(every, config.Encode)
+					if err != nil {
+						if emitErr(fmt.Errorf("every: encode: %w", err)) {
+							return
+						}
+						continue
+					}
+					select {
+					case out <- encoded:
+					case <-ctx.Done():
+						return
+					}
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}, nil
 }
 
-// windows lifts a slice of continuous windows into a data.List.
-func windows(cs []data.Continuous) data.List {
-	list := make(data.List, len(cs))
-	for i, c := range cs {
-		list[i] = c
-	}
-	return list
-}
