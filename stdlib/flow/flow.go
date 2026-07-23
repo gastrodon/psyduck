@@ -21,8 +21,25 @@ import (
 // mid-teardown needs a real chance to finish).
 const shutdownGrace = 200 * time.Millisecond
 
+// RateLimit expresses a rate as count/duration. Zero duration means unbounded.
+type RateLimit struct {
+	Count    int
+	Duration time.Duration
+}
+
+// LimiterFor returns a wait() that paces calls according to the rate limit.
+// Zero count or duration means unbounded (no pacing).
+func LimiterFor(rate RateLimit) func() {
+	if rate.Count <= 0 || rate.Duration <= 0 {
+		return func() {}
+	}
+	t := time.NewTicker(rate.Duration / time.Duration(rate.Count))
+	return func() { <-t.C }
+}
+
 // Limiter returns a wait() that paces calls to at most perMinute and perSecond.
 // Non-positive limits are unrestricted; when both are unset wait() never blocks.
+// Deprecated: use LimiterFor with RateLimit for generalized window support.
 func Limiter(perMinute, perSecond int) func() {
 	var waits []func()
 	if perMinute > 0 {
@@ -55,6 +72,11 @@ func Limiter(perMinute, perSecond int) func() {
 // channel until the whole pipeline ends. Live-subscription producers
 // (websocket listeners, long-poll loops) then get their teardown for free
 // from block-level stop-after.
+//
+// The wrapper joins its inner producer on shutdown, using the same stop()
+// discipline as Consumer: wait briefly for the producer to finish after
+// cancelling its context, then give up. This ensures late values/errors from
+// a winding-down producer are delivered before teardown races them away.
 func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer {
 	if perMinute <= 0 && perSecond <= 0 && stopAfter <= 0 {
 		return p
@@ -64,7 +86,26 @@ func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer 
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		inner := make(chan []byte)
-		go p(ctx, inner, errs)
+		innerDone := make(chan struct{})
+
+		go func() {
+			defer close(innerDone)
+			p(ctx, inner, errs)
+		}()
+
+		// stop gives the inner producer a bounded grace window to finish
+		// after context cancellation, then gives up. This ensures we don't
+		// leak the inner producer goroutine on stop-after cutoff: we signal
+		// ctx.Done() and wait for it to notice. A producer actively selecting
+		// on ctx.Done() finishes promptly; only a producer not listening at all
+		// (ill-behaved) times out the grace window.
+		stop := func() {
+			cancel()
+			select {
+			case <-innerDone:
+			case <-time.After(shutdownGrace):
+			}
+		}
 
 		wait, count := Limiter(perMinute, perSecond), 0
 		for {
@@ -77,13 +118,16 @@ func Producer(p sdk.Producer, perMinute, perSecond, stopAfter int) sdk.Producer 
 				select {
 				case send <- msg:
 				case <-ctx.Done():
+					stop()
 					return
 				}
 				count++
 				if stopAfter > 0 && count >= stopAfter {
+					stop()
 					return
 				}
 			case <-ctx.Done():
+				stop()
 				return
 			}
 		}
