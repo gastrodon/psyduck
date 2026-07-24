@@ -60,17 +60,37 @@ attribute is an error, missing required attributes are errors, and every
 value is evaluated and type-checked at parse time. Expressions may use
 `local.*` and `env.*`.
 
-Two **meta attributes** are host-owned (a plugin never declares them), each
+**Meta attributes** are host-owned (a plugin never declares them), each
 accepted only on the verbs where it means something:
 
 | Attribute | Type | Meaning | Accepted on |
 |---|---|---|---|
 | `stop-after` | int | stop this producer after n items (0 = unrestricted) | `produce` only |
 | `per-minute` | int | rate limit, items per minute (0 = unrestricted) | `produce`, `consume` |
+| `parallel` | int | duplicate this resource n times (default 1, must be ≥ 1) | `produce`, `consume`, `transform` |
 
-`transform` blocks accept neither — a transformer's throughput is bounded by
-its producers and consumers, not itself — and declaring either there is a
-parse error, same as any other unknown attribute.
+`stop-after` and `per-minute` are verb-restricted: `stop-after` is a
+producer-only flow governor, and declaring either on a verb that doesn't
+offer it is a parse error, same as any other unknown attribute.
+
+`parallel = n` brings up n instances of the resource. What that buys you
+depends on the verb:
+
+- **producers**: n copies feed the pipeline together. How many actually run at
+  once is still governed by `produce-parallel` (the producer worker pool) — a
+  producer `parallel` only enlarges the set of producers, it does not by itself
+  raise concurrency. With the default `produce-parallel = 1` the copies run one
+  at a time.
+- **consumers**: n copies each run concurrently, and each receives *every*
+  message (the sink broadcasts).
+- **transformers**: n copies run concurrently and *share* the input — each
+  incoming message is handled by whichever copy is free (greedy fan-out, not
+  duplication), and their outputs merge back into one stream. Message ordering
+  through the stage is not preserved, which is the trade for the parallelism.
+
+It is rejected on a `produce-from` seed — a seed is one live stream, not a
+fixed set to duplicate; widen derived concurrency with `produce-parallel`
+instead.
 
 Declaring the same `(verb, resource, name)` triple twice in the same file is
 an error.

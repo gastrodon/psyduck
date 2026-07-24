@@ -254,6 +254,8 @@ when they express what you mean — they're free at the resource site:
 
 - On `produce` blocks: `stop-after = N` (host-owned, producer-only).
 - On `produce`/`consume` blocks: `per-minute = N` (host-owned rate limit).
+- On any `produce`/`consume`/`transform` block: `parallel = N` (host-owned;
+  materializes N copies of the resource).
 - As transformers: `head`, `tail`, `sample`, `throttle`, `wait`.
 
 Rule of thumb: use `stop-after` to bound *sources*, `per-minute` to bound

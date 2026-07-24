@@ -241,6 +241,101 @@ func Test_composeTransformers_ContinuesAfterError(t *testing.T) {
 	}
 }
 
+// fakeInstance is a minimal sdk.Instance whose Transform runs a supplied
+// function and whose Close bumps a counter — enough to exercise
+// parallelTransformer without standing up a real plugin.
+type fakeInstance struct {
+	transform func(context.Context, <-chan []byte, chan<- []byte, chan<- error)
+	closes    *int32
+}
+
+func (fakeInstance) Kind() sdk.Kind                                                        { return sdk.TRANSFORMER }
+func (fakeInstance) Produce(context.Context, chan<- []byte, chan<- error)                  {}
+func (fakeInstance) Consume(context.Context, <-chan []byte, chan<- error, chan<- struct{}) {}
+func (f fakeInstance) Transform(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+	f.transform(ctx, in, out, errs)
+}
+func (f fakeInstance) Close() error { atomic.AddInt32(f.closes, 1); return nil }
+
+// A fanned-out stage load-balances its input: every message is handled by
+// exactly one copy, so the output count equals the input count (not input ×
+// copies — that would be duplication). Every instance is also closed.
+func Test_parallelTransformer_NoDuplication(t *testing.T) {
+	passthrough := func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		for {
+			select {
+			case msg, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- msg:
+				case <-ctx.Done():
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	const n = 4
+	var closes int32
+	instances := make([]sdk.Instance, n)
+	for i := range instances {
+		instances[i] = fakeInstance{transform: passthrough, closes: &closes}
+	}
+
+	inputs := make([][]byte, 30)
+	for i := range inputs {
+		inputs[i] = []byte{byte(i)}
+	}
+	got, _ := runComposed(t, parallelTransformer(instances, pipelineLogger()), inputs...)
+	if len(got) != len(inputs) {
+		t.Fatalf("fan-out must handle each message once: want %d outputs, got %d", len(inputs), len(got))
+	}
+	if closes != n {
+		t.Fatalf("want all %d instances closed, got %d", n, closes)
+	}
+}
+
+// The copies genuinely run at once. Each copy blocks on a shared barrier after
+// taking one message; with exactly n messages the barrier only ever releases
+// if all n copies are in-flight together. A serialized stage would deadlock
+// here — caught by runComposed's timeout.
+func Test_parallelTransformer_RunsConcurrently(t *testing.T) {
+	const n = 3
+	var arrived int32
+	barrier := make(chan struct{})
+	mk := func(tag byte) func(context.Context, <-chan []byte, chan<- []byte, chan<- error) {
+		return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+			defer close(out)
+			for msg := range in {
+				if atomic.AddInt32(&arrived, 1) == n {
+					close(barrier) // the last copy to arrive frees them all
+				}
+				<-barrier
+				out <- append(append([]byte{}, msg...), tag)
+			}
+		}
+	}
+
+	var closes int32
+	instances := make([]sdk.Instance, n)
+	for i := range instances {
+		instances[i] = fakeInstance{transform: mk(byte('0' + i)), closes: &closes}
+	}
+
+	got, _ := runComposed(t, parallelTransformer(instances, pipelineLogger()), []byte("a"), []byte("b"), []byte("c"))
+	if len(got) != n {
+		t.Fatalf("want %d outputs, got %d", n, len(got))
+	}
+	if closes != n {
+		t.Fatalf("want all %d instances closed, got %d", n, closes)
+	}
+}
+
 func Test_drain(t *testing.T) {
 	consumed := 0
 	plugin := corePlugin("p", []byte("m"), 2, &consumed, "!")
