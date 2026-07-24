@@ -829,10 +829,32 @@ func TestParseParallelDuplicatesProducers(t *testing.T) {
 
 // parallel works the same on consumers and transformers — the parser expands
 // their literal lists before core ever sees them.
-func TestParseParallelDuplicatesConsumersAndTransformers(t *testing.T) {
+func TestParseParallelDuplicatesConsumers(t *testing.T) {
 	entry, load := src(`
 	produce "constant" "p" { value = "x" }
 	consume "trash" "t" { parallel = 2 }
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("test")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := drainAll(t, result["main"].Consumers); len(got) != 2 {
+		t.Fatalf("want 2 consumers from parallel = 2, got %d", len(got))
+	}
+}
+
+// Transformers are NOT expanded in the parser: the resource stays single and
+// carries its Parallel count, which core turns into a fan-out stage. Chaining
+// duplicate copies (what expansion would do) would serialize the transform
+// instead of parallelizing it.
+func TestParseParallelTransformerKeptSingle(t *testing.T) {
+	entry, load := src(`
+	produce "constant" "p" { value = "x" }
+	consume "trash" "t" {}
 	transform "echo" "x" { parallel = 4 }
 	pipeline "main" {
 		produce   = [produce.constant.p]
@@ -844,11 +866,12 @@ func TestParseParallelDuplicatesConsumersAndTransformers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := drainAll(t, result["main"].Consumers); len(got) != 2 {
-		t.Fatalf("want 2 consumers from parallel = 2, got %d", len(got))
+	got := drainAll(t, result["main"].Transformers)
+	if len(got) != 1 {
+		t.Fatalf("want the transformer kept as 1 resource, got %d", len(got))
 	}
-	if got := drainAll(t, result["main"].Transformers); len(got) != 4 {
-		t.Fatalf("want 4 transformers from parallel = 4, got %d", len(got))
+	if got[0].Parallel != 4 {
+		t.Fatalf("want transformer Parallel = 4 carried to core, got %d", got[0].Parallel)
 	}
 }
 

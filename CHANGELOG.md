@@ -7,10 +7,13 @@ here. Dates are when the work landed on the release commit.
 ## Unreleased
 
 - Resource blocks accept a host-owned `parallel = n` meta attribute on
-  `produce`, `consume`, and `transform`. It materializes n copies of the
-  resource, exactly as if it had been listed n times. Defaults to 1; values
-  below 1 (and fractional values) are rejected, and it is not allowed on a
-  `produce-from` seed.
+  `produce`, `consume`, and `transform`, bringing up n instances of the
+  resource. Producer copies feed the pipeline together (their concurrency still
+  bounded by `produce-parallel`); consumer copies each run concurrently and
+  receive every message; transformer copies fan out — they share one input and
+  greedily process incoming messages in parallel, merging their output.
+  Defaults to 1; values below 1 (and fractional values) are rejected, and it is
+  not allowed on a `produce-from` seed.
 
 ## v0.13.1 — 2026-07-22
 

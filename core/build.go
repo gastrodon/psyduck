@@ -91,6 +91,90 @@ func composeTransformers(transformers []sdk.Transformer) sdk.Transformer {
 // bindChunk is how many bindings we ask a Bindings stream for at a time.
 const bindChunk = 8
 
+// collectResources drains a resource stream fully into a slice without
+// binding anything. Used for transformers, which need their per-resource
+// Parallel count in hand (to bind each one n times) before any instance is
+// created — unlike drain, which binds one instance per resource as it goes.
+func collectResources(ctx context.Context, stream parse.ResourceFunc) ([]parse.Resource, error) {
+	var out []parse.Resource
+	for {
+		chunk, err := stream(ctx, bindChunk)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			return out, nil
+		}
+		out = append(out, chunk...)
+	}
+}
+
+// parallelTransformer builds one transform stage from n independently-bound
+// instances of the same resource. Every instance reads from the stage's single
+// input channel, so each incoming message is picked up by whichever copy is
+// free — greedy load-balancing, not duplication — and their outputs merge into
+// the stage's one output. Ordering across the stage is therefore not preserved,
+// which is the cost of the parallelism the source opted into with parallel = n.
+//
+// The transformer contract has each instance close its own out channel on
+// return, so the copies cannot share one: each gets a private sub channel that
+// a forwarder drains into the merged out. The stage owns closing out, once all
+// copies have finished and their forwarders have drained. errs is shared — the
+// contract never closes it, and multiple senders are fine.
+//
+// With a single instance the stage is the plain transformer, no fan-out
+// machinery — the overwhelmingly common non-parallel path stays untouched.
+func parallelTransformer(instances []sdk.Instance, logger *logrus.Logger) sdk.Transformer {
+	closeInstance := func(instance sdk.Instance) {
+		if err := instance.Close(); err != nil {
+			logger.WithError(err).Warn("failed to close transformer instance")
+		}
+	}
+
+	if len(instances) == 1 {
+		instance := instances[0]
+		return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+			defer closeInstance(instance)
+			instance.Transform(ctx, in, out, errs)
+		}
+	}
+
+	return func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
+		defer close(out)
+		var wg sync.WaitGroup
+		for _, instance := range instances {
+			sub := make(chan []byte)
+			wg.Add(2)
+
+			go func(instance sdk.Instance) {
+				defer wg.Done()
+				defer closeInstance(instance)
+				instance.Transform(ctx, in, sub, errs)
+			}(instance)
+
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case msg, ok := <-sub:
+						if !ok {
+							return
+						}
+						select {
+						case out <- msg:
+						case <-ctx.Done():
+							return
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}()
+		}
+		wg.Wait()
+	}
+}
+
 // drain exhausts a Bindings stream, binding each against its owning plugin
 // and handing the configured instance to collect. Draining can do real work
 // (produce-from runs its seed) so it is bounded by ctx.
@@ -167,18 +251,30 @@ func BuildPipeline(ctx context.Context, src parse.Pipeline, plugins []sdk.Plugin
 		return nil, fmt.Errorf("%s: pipeline %q has no consumers", src.Origin, src.Name)
 	}
 
-	transformers := make([]sdk.Transformer, 0)
-	if err := drain(ctx, src.Transformers, lookup, func(b parse.Resource, instance sdk.Instance) {
-		transformers = append(transformers, func(ctx context.Context, in <-chan []byte, out chan<- []byte, errs chan<- error) {
-			defer func() {
-				if err := instance.Close(); err != nil {
-					logger.WithError(err).Warn("failed to close transformer instance")
-				}
-			}()
-			instance.Transform(ctx, in, out, errs)
-		})
-	}); err != nil {
+	// Transformers are bound eagerly, one stage per declared resource. A
+	// resource with Parallel > 1 is bound that many times and its instances
+	// fanned out (see parallelTransformer), so the copies process incoming
+	// messages greedily in parallel rather than being chained.
+	transResources, err := collectResources(ctx, src.Transformers)
+	if err != nil {
 		return nil, err
+	}
+	transformers := make([]sdk.Transformer, 0, len(transResources))
+	for _, b := range transResources {
+		plugin, ok := lookup[b.PluginID]
+		if !ok {
+			return nil, fmt.Errorf("%s: %s: no plugin %q loaded", b.Block.Origin(), b.Ref, b.PluginID)
+		}
+		n := max(b.Parallel, 1)
+		instances := make([]sdk.Instance, 0, n)
+		for range n {
+			instance, err := plugin.Bind(ctx, b.Kind, b.Resource.Name, b.Block)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %s: %w", b.Block.Origin(), b.Ref, err)
+			}
+			instances = append(instances, instance)
+		}
+		transformers = append(transformers, parallelTransformer(instances, logger))
 	}
 
 	return &Pipeline{

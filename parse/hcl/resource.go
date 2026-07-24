@@ -197,8 +197,11 @@ func resolveRefs(pipeline string, refs []string, set map[string]parse.Resource) 
 // expandParallel flattens each resource's host-owned parallel count into
 // literal duplicates: a resource with Parallel = n appears n times in a row,
 // exactly as if it had been listed n times. makeBinding guarantees Parallel
-// >= 1, so this only ever grows the list. Downstream (core) sees a plain flat
-// list and never has to know about parallelism.
+// >= 1, so this only ever grows the list. It is used for producers and
+// consumers, whose runtimes already do the right thing with duplicates (the
+// producer pool runs them, the sink fans out to each). Transformers are
+// handled differently — see makePipeline — because chaining duplicate
+// transformers would serialize them instead of running them in parallel.
 func expandParallel(resources []parse.Resource) []parse.Resource {
 	expanded := make([]parse.Resource, 0, len(resources))
 	for _, r := range resources {
@@ -249,7 +252,11 @@ func makePipeline(
 			return parse.Pipeline{}, err
 		}
 	}
-	transformers = expandParallel(transformers)
+	// Transformers are not expanded here the way producers and consumers are:
+	// duplicating a transformer into the flat list would chain the copies (the
+	// transform would run n times in series). Instead each transformer keeps
+	// its Parallel count and core fans it out — n instances greedily sharing
+	// one input — at the transform stage.
 	pipe.Transformers = parse.LiteralResourceFunc(transformers...)
 	pipe.Spec.Transformers = transformers
 

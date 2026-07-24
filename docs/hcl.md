@@ -73,12 +73,23 @@ accepted only on the verbs where it means something:
 producer-only flow governor, and declaring either on a verb that doesn't
 offer it is a parse error, same as any other unknown attribute.
 
-`parallel = n` stamps out n literal copies of the block, exactly as if you had
-listed the resource n times. What that buys you depends on the verb: n
-producers fan into the pipeline together, n consumers each receive every
-message, and n transformers are chained (the transform runs n times in
-series). It is rejected on a `produce-from` seed — a seed is one live stream,
-not a fixed set to duplicate; widen derived concurrency with `produce-parallel`
+`parallel = n` brings up n instances of the resource. What that buys you
+depends on the verb:
+
+- **producers**: n copies feed the pipeline together. How many actually run at
+  once is still governed by `produce-parallel` (the producer worker pool) — a
+  producer `parallel` only enlarges the set of producers, it does not by itself
+  raise concurrency. With the default `produce-parallel = 1` the copies run one
+  at a time.
+- **consumers**: n copies each run concurrently, and each receives *every*
+  message (the sink broadcasts).
+- **transformers**: n copies run concurrently and *share* the input — each
+  incoming message is handled by whichever copy is free (greedy fan-out, not
+  duplication), and their outputs merge back into one stream. Message ordering
+  through the stage is not preserved, which is the trade for the parallelism.
+
+It is rejected on a `produce-from` seed — a seed is one live stream, not a
+fixed set to duplicate; widen derived concurrency with `produce-parallel`
 instead.
 
 Declaring the same `(verb, resource, name)` triple twice in the same file is
