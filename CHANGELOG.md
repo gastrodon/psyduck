@@ -4,6 +4,13 @@ All notable user-facing changes to psyduck since the Go rewrite. Versions
 before v0.1.0 belong to the archived TypeScript prototype and are not covered
 here. Dates are when the work landed on the release commit.
 
+## Unreleased
+
+- `run` accepts `-p`/`--pipeline <name>` (repeatable) to run only the named
+  pipelines from a file instead of every one. Names may be bare or
+  `pipeline.`-prefixed; an unknown name errors, listing what the file
+  declares. No flag preserves the run-everything behavior.
+
 ## v0.13.1 — 2026-07-22
 
 - `dedupe`: `window=0` now means never-evict — keys are deduplicated for the

@@ -115,10 +115,34 @@ func loadPipelines(ctx *cli.Context) (map[string]parse.Pipeline, []sdk.Plugin, e
 	return pipelines, loaded, nil
 }
 
-// run builds every pipeline{} declared directly in the target file and
-// runs them. Zero pipelines is an error. One runs directly. More than one
-// run concurrently, one goroutine each; run returns the first error seen
-// (if any) once all of them have finished.
+// selectPipelines filters a file's pipelines down to the names given by
+// -p/--pipeline. No names selects everything — the historical "run the
+// whole file" behavior. A name may be written bare ("gate") or with its
+// namespace prefix ("pipeline.gate"); repeats collapse (a pipeline runs at
+// most once). An unknown name errors, listing what the file declares.
+func selectPipelines(pipelines map[string]parse.Pipeline, names []string) (map[string]parse.Pipeline, error) {
+	if len(names) == 0 {
+		return pipelines, nil
+	}
+
+	selected := make(map[string]parse.Pipeline, len(names))
+	for _, name := range names {
+		name = strings.TrimPrefix(name, "pipeline.")
+		pipe, ok := pipelines[name]
+		if !ok {
+			return nil, fmt.Errorf("no pipeline %q; file declares: %s",
+				name, strings.Join(sortedNames(pipelines), ", "))
+		}
+		selected[name] = pipe
+	}
+	return selected, nil
+}
+
+// run builds every pipeline{} declared directly in the target file — or
+// just the ones named by -p/--pipeline — and runs them. Zero pipelines is
+// an error. One runs directly. More than one run concurrently, one
+// goroutine each; run returns the first error seen (if any) once all of
+// them have finished.
 func run(ctx *cli.Context) error {
 	pipelines, loaded, err := loadPipelines(ctx)
 	if err != nil {
@@ -127,6 +151,11 @@ func run(ctx *cli.Context) error {
 
 	if len(pipelines) == 0 {
 		return fmt.Errorf("%s: declares no pipeline", ctx.Args().First())
+	}
+
+	pipelines, err = selectPipelines(pipelines, ctx.StringSlice("pipeline"))
+	if err != nil {
+		return err
 	}
 
 	built := make([]*core.Pipeline, 0, len(pipelines))
@@ -254,10 +283,17 @@ func main() {
 		Commands: []*cli.Command{
 			{
 				Name:      "run",
-				Usage:     "run every pipeline declared in a file",
+				Usage:     "run pipelines declared in a file",
 				Action:    run,
 				Args:      true,
 				ArgsUsage: "pipeline file",
+				Flags: []cli.Flag{
+					&cli.StringSliceFlag{
+						Name:    "pipeline",
+						Aliases: []string{"p"},
+						Usage:   "run only the named pipeline (repeatable); default is every pipeline in the file",
+					},
+				},
 			},
 			{
 				Name:      "list",

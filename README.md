@@ -145,7 +145,7 @@ psyduck <command> <file>.psy [args]
 
 | Command | Purpose |
 |---|---|
-| `run <file>` | Build and run every pipeline declared directly in the file (concurrently, if there's more than one). |
+| `run [-p name ...] <file>` | Build and run every pipeline declared directly in the file (concurrently, if there's more than one). `-p`/`--pipeline` narrows the run to the named pipeline; repeat it to run a subset. Flags go before the file argument. |
 | `list [--stat] <file>` | List the file's pipelines by name. `--stat` adds `r<producers> x<transformers> c<consumers>` and an `r` flag when `produce-from` is used. |
 | `show <file> [name ...]` | Print resource references and evaluated config for each pipeline. |
 | `init <file>` | Fetch and compile every `plugin {}` reachable from the file (including through imports), content-address the built binaries into `.psyduck/`, and write `<file>.lock`. Required before `run`/`list`/`show` will work — see [above](#using-an-external-plugin). |
