@@ -702,6 +702,101 @@ func TestParseUnknownAttribute(t *testing.T) {
 	}
 }
 
+type backendOpts struct {
+	Model string `psy:"model"`
+	Host  string `psy:"host"`
+	Think *bool  `psy:"think"`
+}
+
+type objectOpts struct {
+	Backend *backendOpts `psy:"backend"`
+}
+
+func objectPlugin() sdk.Plugin {
+	return sdk.NewInProc("objtest", &sdk.Resource{
+		Name:  "obj",
+		Kinds: sdk.PRODUCER,
+		Spec: []*sdk.Spec{{
+			Name: "backend",
+			Type: sdk.TypeObject,
+			Fields: []*sdk.Spec{
+				{Name: "model", Type: sdk.TypeString, Required: true},
+				{Name: "host", Type: sdk.TypeString},
+				{Name: "think", Type: sdk.TypeBool},
+			},
+		}},
+		ProvideProducer: func(_ context.Context, p sdk.Parser) (sdk.Producer, error) {
+			return func(_ context.Context, send chan<- []byte, errs chan<- error) {
+				close(send)
+			}, nil
+		},
+	})
+}
+
+func parseObjectBlock(t *testing.T, attrs string) (*objectOpts, error) {
+	t.Helper()
+	entry, load := src(fmt.Sprintf(`
+	produce "obj" "p" { %s }
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.obj.p]
+		consume = [trash.t]
+	}
+	`, attrs))
+	result, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{objectPlugin(), testPlugin("test")})
+	if err != nil {
+		return nil, err
+	}
+	opts := new(objectOpts)
+	if err := drainAll(t, result["main"].Producers)[0].Block.Decode(opts); err != nil {
+		t.Fatalf("decode: %s", err)
+	}
+	return opts, nil
+}
+
+func TestParseObjectPartial(t *testing.T) {
+	opts, err := parseObjectBlock(t, `backend = { model = "m" }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Backend == nil || opts.Backend.Model != "m" {
+		t.Fatalf("backend = %#v", opts.Backend)
+	}
+	if opts.Backend.Host != "" {
+		t.Errorf("omitted host should decode as zero, got %q", opts.Backend.Host)
+	}
+	if opts.Backend.Think != nil {
+		t.Errorf("omitted think should decode as nil, got %v", *opts.Backend.Think)
+	}
+}
+
+func TestParseObjectPartialFalse(t *testing.T) {
+	opts, err := parseObjectBlock(t, `backend = { model = "m", think = false }`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Backend == nil || opts.Backend.Think == nil || *opts.Backend.Think {
+		t.Fatalf("backend = %#v", opts.Backend)
+	}
+}
+
+func TestParseObjectMissingRequired(t *testing.T) {
+	_, err := parseObjectBlock(t, `backend = { host = "h" }`)
+	if err == nil || !strings.Contains(err.Error(), "model") {
+		t.Fatalf("want missing-model conversion error, got: %v", err)
+	}
+}
+
+func TestParseObjectAbsent(t *testing.T) {
+	opts, err := parseObjectBlock(t, ``)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Backend != nil {
+		t.Fatalf("absent backend should decode as nil, got %#v", opts.Backend)
+	}
+}
+
 func TestParseEagerConfigError(t *testing.T) {
 	// bad option values error at parse time, not at bind time
 	entry, load := src(`

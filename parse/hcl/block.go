@@ -43,7 +43,11 @@ func (b *hclBlock) Decode(dst any) error {
 	if len(b.values) == 0 {
 		return nil
 	}
-	if err := gocty.FromCtyValueTagged(cty.ObjectVal(b.values), dst, "psy"); err != nil {
+	raw, err := b.Encode()
+	if err != nil {
+		return err
+	}
+	if err := sdk.DecodeJSONTagged(raw, dst); err != nil {
 		return fmt.Errorf("%s: failed to decode options: %w", b.origin, err)
 	}
 	return nil
@@ -173,14 +177,18 @@ func specCty(spec *sdk.Spec) (cty.Type, error) {
 		return cty.Map(elem), nil
 	case sdk.TypeObject:
 		fields := make(map[string]cty.Type, len(spec.Fields))
+		optional := make([]string, 0, len(spec.Fields))
 		for _, f := range spec.Fields {
 			t, err := specCty(f)
 			if err != nil {
 				return cty.NilType, err
 			}
 			fields[f.Name] = t
+			if !f.Required {
+				optional = append(optional, f.Name)
+			}
 		}
-		return cty.Object(fields), nil
+		return cty.ObjectWithOptionalAttrs(fields, optional), nil
 	default:
 		return cty.NilType, fmt.Errorf("unknown spec type %d", spec.Type)
 	}
