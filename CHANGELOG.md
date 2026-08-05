@@ -4,7 +4,7 @@ All notable user-facing changes to psyduck since the Go rewrite. Versions
 before v0.1.0 belong to the archived TypeScript prototype and are not covered
 here. Dates are when the work landed on the release commit.
 
-## Unreleased
+## v0.13.2 — 2026-08-04
 
 - Object-typed config attributes accept partial literals: fields the plugin
   spec doesn't mark required may be omitted and decode as absent instead of
