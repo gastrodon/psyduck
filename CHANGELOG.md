@@ -7,9 +7,9 @@ here. Dates are when the work landed on the release commit.
 ## Unreleased
 
 - Object-typed config attributes accept partial literals: fields the plugin
-  spec doesn't mark required may be omitted (`ollama = { model = "m" }`)
-  and decode as absent instead of erroring on every missing attribute.
-  Required fields are still enforced at parse time.
+  spec doesn't mark required may be omitted and decode as absent instead of
+  erroring on every missing attribute. Required fields are still enforced at
+  parse time.
 - In-proc plugins decode config through the same JSON encoding subprocess
   plugins receive, so both paths treat absent attributes (nulls) identically.
 - `run` accepts `-p`/`--pipeline <name>` (repeatable) to run only the named
