@@ -39,11 +39,6 @@ func (b *hclBlock) Encode() ([]byte, error) {
 	return raw, nil
 }
 
-// Decode maps the evaluated values into the plugin's psy:-tagged struct by
-// round-tripping through the same JSON encoding subprocess plugins receive,
-// so in-proc and out-of-proc plugins decode identically — in particular,
-// nulls (absent attributes, including optional object fields filled in by
-// conversion) leave the destination untouched.
 func (b *hclBlock) Decode(dst any) error {
 	if len(b.values) == 0 {
 		return nil
@@ -181,12 +176,6 @@ func specCty(spec *sdk.Spec) (cty.Type, error) {
 		}
 		return cty.Map(elem), nil
 	case sdk.TypeObject:
-		// Non-required fields are optional attributes: a plan may write a
-		// partial object literal ({ model = "m" }) and conversion fills the
-		// rest with nulls, which decode as absent on the plugin side. A
-		// plain cty.Object would instead reject the literal for every
-		// missing attribute. Required fields stay required — conversion
-		// still errors when the literal omits them.
 		fields := make(map[string]cty.Type, len(spec.Fields))
 		optional := make([]string, 0, len(spec.Fields))
 		for _, f := range spec.Fields {

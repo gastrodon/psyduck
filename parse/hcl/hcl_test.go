@@ -702,9 +702,6 @@ func TestParseUnknownAttribute(t *testing.T) {
 	}
 }
 
-// objectOpts / backendOpts mirror the usual shape of a nested backend
-// config block: one required field, the rest optional with pointer fields
-// distinguishing absent from zero.
 type backendOpts struct {
 	Model string `psy:"model"`
 	Host  string `psy:"host"`
@@ -758,9 +755,6 @@ func parseObjectBlock(t *testing.T, attrs string) (*objectOpts, error) {
 }
 
 func TestParseObjectPartial(t *testing.T) {
-	// Optional attributes of an object block may be omitted: the literal
-	// converts with nulls filled in, which decode as absent (zero values,
-	// nil pointers) rather than erroring on the missing attributes.
 	opts, err := parseObjectBlock(t, `backend = { model = "m" }`)
 	if err != nil {
 		t.Fatal(err)
@@ -777,7 +771,6 @@ func TestParseObjectPartial(t *testing.T) {
 }
 
 func TestParseObjectPartialFalse(t *testing.T) {
-	// An explicit false is distinguishable from an omitted bool.
 	opts, err := parseObjectBlock(t, `backend = { model = "m", think = false }`)
 	if err != nil {
 		t.Fatal(err)
@@ -788,8 +781,6 @@ func TestParseObjectPartialFalse(t *testing.T) {
 }
 
 func TestParseObjectMissingRequired(t *testing.T) {
-	// Required fields inside an object block are still enforced by the
-	// conversion when the literal omits them.
 	_, err := parseObjectBlock(t, `backend = { host = "h" }`)
 	if err == nil || !strings.Contains(err.Error(), "model") {
 		t.Fatalf("want missing-model conversion error, got: %v", err)
@@ -797,7 +788,6 @@ func TestParseObjectMissingRequired(t *testing.T) {
 }
 
 func TestParseObjectAbsent(t *testing.T) {
-	// The whole object attribute may be absent; it decodes as a nil pointer.
 	opts, err := parseObjectBlock(t, ``)
 	if err != nil {
 		t.Fatal(err)
