@@ -1,6 +1,7 @@
-# The request transport is dual-role: producing polls the URL, consuming posts
-# each message. Build-only (no network): parsing + building validates the
-# spec — map headers, list success codes, required url.
+# `request` is triple-role: producing polls the URL, consuming posts each
+# message, and transforming fetches once per input message with url/body/
+# headers templated from it. Build-only (no network): parsing + building
+# validates the spec — map headers, list success codes, required url.
 import {
   shared = "shared.psy"
 }
@@ -16,4 +17,17 @@ produce "request" "api" {
 pipeline "http-request" {
   produce = [produce.request.api]
   consume = [imports.shared.consume.trash.sink]
+}
+
+# Per-identifier fetch: one request per input message, URL templated from it.
+produce "generate" "ids" { values = ["a", "b"] }
+
+transform "request" "pull" {
+  url = "http://example.invalid/items/{{.}}"
+}
+
+pipeline "http-request-pull" {
+  produce   = [produce.generate.ids]
+  transform = [transform.request.pull]
+  consume   = [imports.shared.consume.trash.sink]
 }

@@ -117,6 +117,39 @@ consume "request" "post" { url = env.API_URL  method       = "POST" }
 Two pipelines sharing a transport is how you turn one-shot flows into
 continuous ones. Read the way you write, and post the way you get.
 
+## Per-identifier HTTP fetch
+
+`transform "request"` turns a stream of identifiers into a stream of fetched
+responses, one HTTP call per input message. `url` (and optionally `body`,
+header values) is a Go template rendered against the decoded input, the same
+engine `render`'s `template` mode uses:
+
+```hcl
+produce "generate" "tenants" {
+  values = ["stripe", "airbnb", "coinbase"]
+}
+
+transform "request" "pull" {
+  url = "https://boards-api.greenhouse.io/v1/boards/{{.}}/jobs"
+}
+
+transform "jq" "explode" { expression = ".jobs[]? // empty" }
+
+pipeline "greenhouse" {
+  produce   = [produce.generate.tenants]
+  transform = [transform.request.pull, transform.jq.explode]
+  consume   = [consume.file.out]
+}
+```
+
+The identifier list is just data — swap `produce "generate"` for `produce
+"file"`, or an imported producer (see "Sharing config with `locals`" below for
+why `locals` can't do this job) — with zero change to the fetch/explode
+stages. Requests run one at a time, in input order; a transformer stage has
+no fan-out knob today. Reach for this before the meta-pipeline pattern below;
+meta-pipelines earn their two-process complexity only when the work itself
+(not just the identifier list) needs to be generated at runtime.
+
 ## Composing pipelines through a transport
 
 Any transport can be the seam between two pipelines. One writes messages

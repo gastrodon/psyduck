@@ -42,15 +42,17 @@ func concat(groups ...[]*sdk.Spec) []*sdk.Spec {
 
 func httpSpec() []*sdk.Spec {
 	return []*sdk.Spec{
-		{Name: "url", Description: "request URL", Type: sdk.TypeString, Required: true},
+		{Name: "url", Description: "request URL (templated from the input message on the transform role)", Type: sdk.TypeString, Required: true},
 		{Name: "method", Description: "HTTP method", Type: sdk.TypeString, Default: ""},
-		{Name: "headers", Description: "request headers", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
-		{Name: "body", Description: "static request body (producer)", Type: sdk.TypeString, Default: ""},
+		{Name: "headers", Description: "request headers (templated on the transform role)", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
+		{Name: "body", Description: "request body (producer: static; transform: templated)", Type: sdk.TypeString, Default: ""},
 		{Name: "query-params", Description: "URL query parameters", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
 		{Name: "basic-auth", Description: "\"user:pass\" for HTTP Basic auth", Type: sdk.TypeString, Default: ""},
 		{Name: "timeout-ms", Description: "request timeout (ms)", Type: sdk.TypeInt, Default: 0},
 		{Name: "success-codes", Description: "accepted status codes", Type: sdk.TypeList, ElemType: &sdk.Spec{Type: sdk.TypeInt}, Default: []int{}},
 		{Name: "interval-ms", Description: "polling interval (producer, ms)", Type: sdk.TypeInt, Default: 0},
+		{Name: "decode", Description: "codec to decode the input message before templating url/body/headers (transform)", Type: sdk.TypeString, Default: "bytes"},
+		{Name: "on-error", Description: "\"raise\" (default) or \"drop\" (transform)", Type: sdk.TypeString, Default: "raise"},
 	}
 }
 
@@ -122,11 +124,12 @@ func Plugin() sdk.Plugin {
 			}, delimitSpec()),
 		},
 		&sdk.Resource{
-			Name:            "request",
-			Kinds:           sdk.PRODUCER | sdk.CONSUMER,
-			ProvideProducer: produce.Request,
-			ProvideConsumer: consume.Request,
-			Spec:            httpSpec(),
+			Name:               "request",
+			Kinds:              sdk.PRODUCER | sdk.CONSUMER | sdk.TRANSFORMER,
+			ProvideProducer:    produce.Request,
+			ProvideConsumer:    consume.Request,
+			ProvideTransformer: transform.Request,
+			Spec:               httpSpec(),
 		},
 		&sdk.Resource{
 			Name:            "http-listen",

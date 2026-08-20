@@ -1,6 +1,8 @@
 package transform
 
 import (
+	"context"
+
 	"github.com/psyduck-etl/sdk"
 	"github.com/psyduck-etl/sdk/data"
 )
@@ -17,6 +19,25 @@ func mapErr(onError data.OnError, fn func([]byte) ([]byte, error)) sdk.Transform
 	}
 	return sdk.Map(func(msg []byte) ([]byte, error) {
 		out, err := fn(msg)
+		if err == nil {
+			return out, nil
+		}
+		if err = onError(err); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	})
+}
+
+// mapErrContext is mapErr's context-aware counterpart: fn receives the stage
+// ctx so per-message work that needs cancellation (network IO) is bound by
+// it, same as sdk.MapContext vs sdk.Map.
+func mapErrContext(onError data.OnError, fn func(context.Context, []byte) ([]byte, error)) sdk.Transformer {
+	if onError == nil {
+		onError = data.Raise
+	}
+	return sdk.MapContext(func(ctx context.Context, msg []byte) ([]byte, error) {
+		out, err := fn(ctx, msg)
 		if err == nil {
 			return out, nil
 		}

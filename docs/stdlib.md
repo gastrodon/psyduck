@@ -84,7 +84,7 @@ small and open to more modes later.
 | `file` | produce + consume | `location` (path, `-` stdin/stdout, `--` stderr, or a socket URI), `follow` (tail), `append`, `create`, + framing |
 | `socket` | produce + consume | `location` (`tcp://`/`udp://`/`unix://`), `create`, + framing |
 | `listen` | produce | `location` (`tcp://`/`unix://`/`udp://`), `create`, + framing |
-| `request` | produce + consume | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `interval-ms` |
+| `request` | produce + consume + transform | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `interval-ms` (producer), `decode`, `on-error` (transform) |
 | `http-listen` | produce | `address`, `path`, `method`, `status`, `reply`, `max-body-bytes`, `read-timeout-ms`, `write-timeout-ms`, `idle-timeout-ms` |
 
 `produce "file" {}` reads; `consume "file" {}` writes — you write files the way
@@ -114,6 +114,14 @@ you read them, and POST the way you GET.
 | `chunk` | `size`, `keep-tail` | fixed windows → list |
 | `every` | `step`, `size` | sliding windows → list |
 | `render` | `engine` (`template`/`printf`/`jq`), `format` | format a message |
+| `request` | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `decode`, `on-error` | one HTTP fetch per message, url/body/headers templated from it |
+
+`request` on the transform role decodes the input per `decode` (default
+`bytes`), then renders `url`/`body`/header values as Go templates against the
+decoded value — the dot is the decoded message, same as `render`'s
+`template` engine. There's no `encode`: the response body is always the
+output message, for a `jq`/`pick`/`pick-map` stage downstream to reshape.
+`interval-ms` is producer-only and rejected on the transform role.
 
 ### jq escape hatches
 

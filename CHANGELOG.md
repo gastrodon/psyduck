@@ -4,6 +4,14 @@ All notable user-facing changes to psyduck since the Go rewrite. Versions
 before v0.1.0 belong to the archived TypeScript prototype and are not covered
 here. Dates are when the work landed on the release commit.
 
+## Unreleased
+
+- The `request` resource is now triple-role: as a transformer, it fetches
+  once per input message, with `url`/`body`/header values templated from the
+  decoded message (same engine as `render`'s `template` mode). Turns a
+  "list of identifiers" stream into a "list of identifiers, each fetched"
+  stream in one stage, no meta-pipeline indirection required.
+
 ## v0.13.2 — 2026-08-04
 
 - Object-typed config attributes accept partial literals: fields the plugin

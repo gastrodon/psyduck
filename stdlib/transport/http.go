@@ -10,10 +10,12 @@ import (
 	"time"
 )
 
-// RequestConfig is the shared decode target for the dual-role `request`
-// resource. Both the producer and consumer decode into this one struct, so the
-// field set is declared once rather than duplicated. Body and IntervalMs are
-// used only when producing (polling); the consumer ignores them.
+// RequestConfig is the shared decode target for the triple-role `request`
+// resource. The producer, consumer, and transformer all decode into this one
+// struct, so the field set is declared once rather than duplicated.
+// IntervalMs is producer-only (polling). Decode and OnError are
+// transformer-only (they control how the input message is decoded before
+// url/body/headers are templated); the producer and consumer ignore them.
 type RequestConfig struct {
 	URL          string            `psy:"url"`
 	Method       string            `psy:"method"`
@@ -24,6 +26,8 @@ type RequestConfig struct {
 	TimeoutMs    int               `psy:"timeout-ms"`
 	SuccessCodes []int             `psy:"success-codes"`
 	IntervalMs   int               `psy:"interval-ms"`
+	Decode       string            `psy:"decode"`
+	OnError      string            `psy:"on-error"`
 }
 
 // HTTP projects the request-shaping options out of a RequestConfig (dropping

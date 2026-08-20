@@ -87,10 +87,11 @@ var examples = map[string]fixture{
 		tier:   tierRun,
 		expect: "hello\n0\n1",
 	},
-	"http-request": {tier: tierBuild},
-	"http-listen":  {tier: tierBuild},
-	"config-gen":   {file: "meta-socket.psy", tier: tierParse},
-	"scrape":       {file: "meta-socket.psy", tier: tierParse},
+	"http-request":      {tier: tierBuild},
+	"http-request-pull": {file: "http-request.psy", tier: tierBuild},
+	"http-listen":       {tier: tierBuild},
+	"config-gen":        {file: "meta-socket.psy", tier: tierParse},
+	"scrape":            {file: "meta-socket.psy", tier: tierParse},
 }
 
 // TestExamples runs each pipeline registered in the examples map as a subtest.
