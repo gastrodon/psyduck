@@ -36,7 +36,7 @@ func Request(ctx context.Context, parse sdk.Parser) (sdk.Consumer, error) {
 
 		for msg := range recv {
 			if _, err := transport.Dispatch(ctx, msg, ct); err != nil && ctx.Err() == nil {
-				errs <- fmt.Errorf("request: %w", err)
+				errs <- fmt.Errorf("request consumer: send message: %w", err)
 			}
 		}
 	}, nil

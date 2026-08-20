@@ -51,7 +51,6 @@ func httpTransportSpec() []*sdk.Spec {
 		{Name: "headers", Description: "request headers, merged with (and overridden by) a message's own", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
 		{Name: "body", Description: "request body", Type: sdk.TypeString, Default: ""},
 		{Name: "query-params", Description: "URL query parameters, merged with (and overridden by) a message's own", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
-		{Name: "basic-auth", Description: "\"user:pass\" for HTTP Basic auth", Type: sdk.TypeString, Default: ""},
 		{Name: "timeout-ms", Description: "request timeout (ms, default 30000)", Type: sdk.TypeInt, Default: 0},
 		{Name: "success-codes", Description: "accepted status codes (default [200])", Type: sdk.TypeList, ElemType: &sdk.Spec{Type: sdk.TypeInt}, Default: []int{}},
 		{Name: "follow-redirects", Description: "follow HTTP redirects (default true)", Type: sdk.TypeBool},

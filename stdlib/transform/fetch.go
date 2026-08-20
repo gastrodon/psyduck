@@ -39,6 +39,6 @@ func Fetch(ctx context.Context, parse sdk.Parser) (sdk.Transformer, error) {
 		if err == nil {
 			return out, nil
 		}
-		return nil, onError(fmt.Errorf("fetch: %w", err))
+		return nil, onError(fmt.Errorf("fetch: dispatch message: %w", err))
 	}), nil
 }

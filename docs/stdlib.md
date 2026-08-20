@@ -84,7 +84,7 @@ small and open to more modes later.
 | `file` | produce + consume | `location` (path, `-` stdin/stdout, `--` stderr, or a socket URI), `follow` (tail), `append`, `create`, + framing |
 | `socket` | produce + consume | `location` (`tcp://`/`udp://`/`unix://`), `create`, + framing |
 | `listen` | produce | `location` (`tcp://`/`unix://`/`udp://`), `create`, + framing |
-| `request` | produce + consume | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `follow-redirects`, `interval-ms` |
+| `request` | produce + consume | `url`, `method`, `headers`, `body`, `query-params`, `timeout-ms`, `success-codes`, `follow-redirects`, `interval-ms` |
 | `http-listen` | produce | `address`, `path`, `method`, `status`, `reply`, `max-body-bytes`, `read-timeout-ms`, `write-timeout-ms`, `idle-timeout-ms` |
 
 `produce "file" {}` reads; `consume "file" {}` writes — you write files the way
@@ -126,7 +126,7 @@ to GET, a 30s timeout, success on 200, and redirects followed. A bare
 
 | Resource | Attributes | Purpose |
 |---|---|---|
-| `fetch` | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `follow-redirects`, `on-error` | build and perform a request per message (see request composition above), emit the response body |
+| `fetch` | `url`, `method`, `headers`, `body`, `query-params`, `timeout-ms`, `success-codes`, `follow-redirects`, `on-error` | build and perform a request per message (see request composition above), emit the response body |
 
 `fetch` is the transformer counterpart to `request`'s consumer: same
 per-message request composition, but the response body becomes the

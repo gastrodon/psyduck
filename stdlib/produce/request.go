@@ -20,7 +20,7 @@ func Request(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 	}
 	h, err := transport.Compose(nil, config.RequestSpec)
 	if err != nil {
-		return nil, fmt.Errorf("request producer: %w", err)
+		return nil, fmt.Errorf("request producer: build request: %w", err)
 	}
 	interval := time.Duration(config.IntervalMs) * time.Millisecond
 
@@ -35,7 +35,7 @@ func Request(ctx context.Context, parse sdk.Parser) (sdk.Producer, error) {
 				if ctx.Err() != nil {
 					return
 				}
-				errs <- fmt.Errorf("request: %w", err)
+				errs <- fmt.Errorf("request producer: poll: %w", err)
 				return
 			}
 			select {

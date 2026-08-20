@@ -34,7 +34,6 @@ type RequestSpec struct {
 	Headers         map[string]string `psy:"headers"`
 	Body            string            `psy:"body"`
 	QueryParams     map[string]string `psy:"query-params"`
-	BasicAuth       string            `psy:"basic-auth"`
 	TimeoutMs       int               `psy:"timeout-ms"`
 	SuccessCodes    []int             `psy:"success-codes"`
 	FollowRedirects *bool             `psy:"follow-redirects"`
@@ -60,9 +59,6 @@ func (spec RequestSpec) Merge(base RequestSpec) RequestSpec {
 	}
 	if len(spec.QueryParams) > 0 {
 		out.QueryParams = mergeStrMap(base.QueryParams, spec.QueryParams)
-	}
-	if spec.BasicAuth != "" {
-		out.BasicAuth = spec.BasicAuth
 	}
 	if spec.TimeoutMs > 0 {
 		out.TimeoutMs = spec.TimeoutMs
@@ -113,7 +109,6 @@ func (spec RequestSpec) Resolve() HTTP {
 		Headers:         spec.Headers,
 		Body:            spec.Body,
 		QueryParams:     spec.QueryParams,
-		BasicAuth:       spec.BasicAuth,
 		TimeoutMs:       timeout,
 		SuccessCodes:    codes,
 		FollowRedirects: follow,
@@ -137,12 +132,12 @@ func Compose(msg []byte, ct RequestSpec) (HTTP, error) {
 	cp := RequestSpec{}
 	if len(bytes.TrimSpace(msg)) > 0 {
 		if err := sdk.DecodeJSONTagged(msg, &cp); err != nil {
-			return HTTP{}, fmt.Errorf("transport: decode request: %w", err)
+			return HTTP{}, fmt.Errorf("transport: decode request descriptor: %w", err)
 		}
 	}
 	h := cp.Merge(ct).Resolve()
 	if err := h.Validate(); err != nil {
-		return HTTP{}, fmt.Errorf("transport: %w", err)
+		return HTTP{}, fmt.Errorf("transport: compose request: %w", err)
 	}
 	return h, nil
 }
@@ -164,7 +159,6 @@ type HTTP struct {
 	Headers         map[string]string
 	Body            string
 	QueryParams     map[string]string
-	BasicAuth       string // "user:pass"
 	TimeoutMs       int
 	SuccessCodes    []int
 	FollowRedirects bool
@@ -199,7 +193,7 @@ func (h HTTP) Client() *http.Client {
 func (h HTTP) Do(ctx context.Context, client *http.Client) ([]byte, error) {
 	target, err := url.Parse(h.URL)
 	if err != nil {
-		return nil, fmt.Errorf("http: bad url %q: %w", h.URL, err)
+		return nil, fmt.Errorf("http: parse url %q: %w", h.URL, err)
 	}
 	if len(h.QueryParams) > 0 {
 		q := target.Query()
@@ -216,28 +210,24 @@ func (h HTTP) Do(ctx context.Context, client *http.Client) ([]byte, error) {
 
 	req, err := http.NewRequestWithContext(ctx, h.Method, target.String(), reader)
 	if err != nil {
-		return nil, fmt.Errorf("http: build request: %w", err)
+		return nil, fmt.Errorf("http: build %s request to %s: %w", h.Method, target, err)
 	}
 	for k, v := range h.Headers {
 		req.Header.Set(k, v)
 	}
-	if h.BasicAuth != "" {
-		user, pass, _ := strings.Cut(h.BasicAuth, ":")
-		req.SetBasicAuth(user, pass)
-	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("http: %w", err)
+		return nil, fmt.Errorf("http: %s %s: %w", h.Method, target, err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("http: read body: %w", err)
+		return nil, fmt.Errorf("http: %s %s: read response body: %w", h.Method, target, err)
 	}
 	if !h.accepts(resp.StatusCode) {
-		return data, fmt.Errorf("http: %s returned %d", h.URL, resp.StatusCode)
+		return data, fmt.Errorf("http: %s %s: unexpected status %d", h.Method, target, resp.StatusCode)
 	}
 	return data, nil
 }
