@@ -14,7 +14,7 @@ import (
 )
 
 // Innermost fallback layer: used when neither a message's own request
-// descriptor (Cp) nor a resource's static spec (Ct) sets a field.
+// descriptor nor a resource's static spec sets a field.
 const (
 	defaultMethod    = http.MethodGet
 	defaultTimeoutMs = 30000
@@ -23,11 +23,11 @@ const (
 var defaultSuccessCodes = []int{200}
 
 // RequestSpec is one layer of HTTP request config: a resource's static
-// spec block (Ct, decoded from HCL) or a single message's own request
-// descriptor (Cp, decoded from that message's JSON via
-// sdk.DecodeJSONTagged — same psy tags, either source). A zero field means
-// unset at that layer, so Merge/Resolve know to fall through;
-// FollowRedirects is a *bool since false is a real value, not "unset".
+// spec block (decoded from HCL) or a single message's own request
+// descriptor (decoded from that message's JSON via sdk.DecodeJSONTagged —
+// same psy tags, either source). A zero field means unset at that layer,
+// so Merge/Resolve know to fall through; FollowRedirects is a *bool since
+// false is a real value, not "unset".
 type RequestSpec struct {
 	URL             string            `psy:"url"`
 	Method          string            `psy:"method"`
@@ -39,9 +39,10 @@ type RequestSpec struct {
 	FollowRedirects *bool             `psy:"follow-redirects"`
 }
 
-// Merge layers spec (Cp) over base (Ct): a field spec leaves unset falls
-// through to base. Headers and query-params merge key by key rather than
-// replace wholesale, so a message can add/override one header without
+// Merge layers spec (typically a message's own request descriptor) over
+// base (typically a resource's static spec): a field spec leaves unset
+// falls through to base. Headers and query-params merge key by key rather
+// than replace wholesale, so a message can add/override one header without
 // repeating the rest.
 func (spec RequestSpec) Merge(base RequestSpec) RequestSpec {
 	out := base
@@ -85,7 +86,7 @@ func mergeStrMap(base, over map[string]string) map[string]string {
 
 // Resolve fills in the built-in defaults (GET, 30s timeout, success on
 // 200, redirects followed) for anything still unset and returns an HTTP
-// ready to run. Call Merge first, then Resolve: Cp.Merge(ct).Resolve().
+// ready to run. Call Merge first, then Resolve.
 func (spec RequestSpec) Resolve() HTTP {
 	method := spec.Method
 	if method == "" {
@@ -116,7 +117,7 @@ func (spec RequestSpec) Resolve() HTTP {
 }
 
 // RequestConfig is RequestSpec plus IntervalMs, the request producer's
-// polling-only knob (meaningless to the consumer, which rejects it).
+// polling interval.
 type RequestConfig struct {
 	RequestSpec
 	IntervalMs int `psy:"interval-ms"`

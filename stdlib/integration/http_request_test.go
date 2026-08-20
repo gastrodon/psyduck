@@ -15,9 +15,9 @@ import (
 )
 
 // TestHTTPRequestConsumer verifies consume.Request as an outbound HTTP
-// poster: each message is its own JSON request descriptor (Cp), composed
-// over the consumer's block (Ct) — method and X-Source here come from the
-// block, body from each message — and every one must arrive at the server
+// poster: each message is its own JSON request descriptor, composed over
+// the consumer's block — method and X-Source here come from the block,
+// body from each message — and every one must arrive at the server
 // exactly once. The consumer must also close done cleanly when recv is
 // closed (graceful exit, no hang).
 func TestHTTPRequestConsumer(t *testing.T) {
@@ -121,7 +121,7 @@ func TestHTTPRequestConsumerDefaultsToPOST(t *testing.T) {
 }
 
 // TestHTTPRequestConsumerMessageOverridesBlock verifies a message's own
-// request descriptor (Cp) can override the block's url entirely, not just
+// request descriptor can override the block's url entirely, not just
 // supply a body.
 func TestHTTPRequestConsumerMessageOverridesBlock(t *testing.T) {
 	var gotPath string

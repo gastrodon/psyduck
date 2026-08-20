@@ -65,9 +65,9 @@ func TestHTTPFetchComposesFromMessage(t *testing.T) {
 	}
 }
 
-// TestHTTPFetchMessageFallsBackToBlock verifies Cp -> Ct fallback: a
-// message setting only headers still gets url/method from the block, and
-// its header merges in rather than replacing the block's.
+// TestHTTPFetchMessageFallsBackToBlock verifies the message-over-block
+// fallback: a message setting only headers still gets url/method from the
+// block, and its header merges in rather than replacing the block's.
 func TestHTTPFetchMessageFallsBackToBlock(t *testing.T) {
 	var gotAuth, gotExtra string
 

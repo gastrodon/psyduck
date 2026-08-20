@@ -15,8 +15,7 @@ import (
 // transport.Dispatch; the response is discarded, and only a transport
 // failure or non-success status surfaces as an error.
 //
-// A bare block defaults to method POST. interval-ms is rejected: it's a
-// polling knob and has no meaning for a per-message send.
+// A bare block defaults to method POST.
 func Request(ctx context.Context, parse sdk.Parser) (sdk.Consumer, error) {
 	config := new(transport.RequestConfig)
 	if err := parse(config); err != nil {
