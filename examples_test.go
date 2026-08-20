@@ -88,6 +88,7 @@ var examples = map[string]fixture{
 		expect: "hello\n0\n1",
 	},
 	"http-request": {tier: tierBuild},
+	"http-fetch":   {tier: tierBuild},
 	"http-listen":  {tier: tierBuild},
 	"config-gen":   {file: "meta-socket.psy", tier: tierParse},
 	"scrape":       {file: "meta-socket.psy", tier: tierParse},

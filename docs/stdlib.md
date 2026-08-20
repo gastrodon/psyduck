@@ -115,6 +115,25 @@ you read them, and POST the way you GET.
 | `every` | `step`, `size` | sliding windows → list |
 | `render` | `engine` (`template`/`printf`/`jq`), `format` | format a message |
 
+### HTTP
+
+| Resource | Attributes | Purpose |
+|---|---|---|
+| `fetch` | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `decode` (default `bytes`), `on-error`, `parallel` | template a request from each message, perform it, emit the response body |
+
+`fetch` is the transformer counterpart to `request`: `request` polls or posts
+a static URL, `fetch` performs one call per input message, templated from
+that message. `url`, `body`, and header values are Go `text/template`
+templates — same engine as `render`'s `template` mode — rendered per message
+with the message decoded per `decode` as the template's dot, e.g.
+`url = "https://api.example.com/items/{{.}}"` against a plain string
+message. The response body becomes the transformed message, unencoded, for a
+follow-on `jq`/`pick`/`pick-map` stage to reshape. `parallel` runs that many
+requests concurrently, all sharing the input with unordered output — psyduck
+has no pipeline-level `parallel` knob for transformers, so this is a
+resource-owned in-flight cap rather than a host-owned one; it defaults to 1
+(one request at a time).
+
 ### jq escape hatches
 
 | Resource | Attributes |

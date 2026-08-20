@@ -1,0 +1,27 @@
+# fetch is the transformer half of the request/fetch pair: it templates a
+# request per input message, performs the call, and emits the response body
+# as the transformed message. Here a couple of ATS tenant slugs become full
+# job-board URLs, one HTTP call per message, and the raw response is handed
+# to trash — a real pipeline would follow with jq/pick to reshape it.
+#
+# Build-only (no network in CI): parsing + building validates the spec —
+# the url template, the decode default, and the parallel knob.
+import {
+  shared = "shared.psy"
+}
+
+produce "generate" "tenants" {
+  values     = ["stripe", "airbnb"]
+  stop-after = 2
+}
+
+transform "fetch" "jobs" {
+  url      = "https://boards-api.greenhouse.io/v1/boards/{{.}}/jobs"
+  parallel = 2
+}
+
+pipeline "http-fetch" {
+  produce   = [produce.generate.tenants]
+  transform = [transform.fetch.jobs]
+  consume   = [imports.shared.consume.trash.sink]
+}

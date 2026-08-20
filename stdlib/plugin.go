@@ -40,18 +40,27 @@ func concat(groups ...[]*sdk.Spec) []*sdk.Spec {
 	return out
 }
 
-func httpSpec() []*sdk.Spec {
+// httpTransportSpec is the request/response shaping surface shared by every
+// HTTP-based resource — the request producer/consumer and the fetch
+// transform all decode into transport.RequestConfig and reuse these fields
+// unchanged; only how and when the call happens differs between them.
+func httpTransportSpec() []*sdk.Spec {
 	return []*sdk.Spec{
-		{Name: "url", Description: "request URL", Type: sdk.TypeString, Required: true},
+		{Name: "url", Description: "request URL (fetch: a template, dot = decoded input)", Type: sdk.TypeString, Required: true},
 		{Name: "method", Description: "HTTP method", Type: sdk.TypeString, Default: ""},
-		{Name: "headers", Description: "request headers", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
-		{Name: "body", Description: "static request body (producer)", Type: sdk.TypeString, Default: ""},
+		{Name: "headers", Description: "request headers (fetch: values are templates)", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
+		{Name: "body", Description: "request body (producer: static; fetch: a template)", Type: sdk.TypeString, Default: ""},
 		{Name: "query-params", Description: "URL query parameters", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
 		{Name: "basic-auth", Description: "\"user:pass\" for HTTP Basic auth", Type: sdk.TypeString, Default: ""},
 		{Name: "timeout-ms", Description: "request timeout (ms)", Type: sdk.TypeInt, Default: 0},
 		{Name: "success-codes", Description: "accepted status codes", Type: sdk.TypeList, ElemType: &sdk.Spec{Type: sdk.TypeInt}, Default: []int{}},
-		{Name: "interval-ms", Description: "polling interval (producer, ms)", Type: sdk.TypeInt, Default: 0},
 	}
+}
+
+func httpSpec() []*sdk.Spec {
+	return concat(httpTransportSpec(), []*sdk.Spec{
+		{Name: "interval-ms", Description: "polling interval (producer, ms)", Type: sdk.TypeInt, Default: 0},
+	})
 }
 
 func Plugin() sdk.Plugin {
@@ -127,6 +136,14 @@ func Plugin() sdk.Plugin {
 			ProvideProducer: produce.Request,
 			ProvideConsumer: consume.Request,
 			Spec:            httpSpec(),
+		},
+		&sdk.Resource{
+			Name: "fetch", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.Fetch,
+			Spec: concat(httpTransportSpec(), []*sdk.Spec{
+				{Name: "decode", Description: "codec chain to decode each input message before templating (e.g. \"bytes\", \"json\")", Type: sdk.TypeString, Default: "bytes"},
+				{Name: "on-error", Description: "\"raise\" (default) or \"drop\"", Type: sdk.TypeString, Default: "raise"},
+				{Name: "parallel", Description: "concurrent in-flight requests, sharing the input (unordered output)", Type: sdk.TypeInt, Default: 1},
+			}),
 		},
 		&sdk.Resource{
 			Name:            "http-listen",
