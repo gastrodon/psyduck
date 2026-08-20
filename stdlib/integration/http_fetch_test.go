@@ -2,40 +2,20 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/psyduck-etl/sdk"
 
 	"github.com/gastrodon/psyduck/stdlib/transform"
 )
 
-// fetchParser builds an sdk.Parser over vals via the real JSON-tagged decode
-// path (sdk.DecodeJSONTagged), rather than the reflection-based parser used
-// elsewhere in this package: fetchConfig embeds transport.RequestConfig, and
-// only the JSON path promotes an anonymous embedded struct's fields the way
-// production decode (hclBlock.Decode, jsonBlock.Decode) does.
-func fetchParser(vals map[string]any) sdk.Parser {
-	return func(dst any) error {
-		raw, err := json.Marshal(vals)
-		if err != nil {
-			return err
-		}
-		return sdk.DecodeJSONTagged(raw, dst)
-	}
-}
-
-// TestHTTPFetchTemplatesPerMessage verifies the core round trip: each input
-// message templates its own URL, the request actually goes out, and the
-// response body comes back as the transformed message — one call per input,
-// not a poll.
-func TestHTTPFetchTemplatesPerMessage(t *testing.T) {
+// TestHTTPFetchComposesFromMessage verifies the core round trip: each
+// message is its own JSON request descriptor, dispatched, and the response
+// body comes back as the transformed message.
+func TestHTTPFetchComposesFromMessage(t *testing.T) {
 	var mu sync.Mutex
 	var gotPaths []string
 
@@ -47,9 +27,7 @@ func TestHTTPFetchTemplatesPerMessage(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	fn, err := transform.Fetch(context.Background(), fetchParser(map[string]any{
-		"url":        srv.URL + "/items/{{.}}",
-		"decode":     "bytes",
+	fn, err := transform.Fetch(context.Background(), parser(map[string]any{
 		"timeout-ms": 5000,
 	}))
 	if err != nil {
@@ -66,7 +44,7 @@ func TestHTTPFetchTemplatesPerMessage(t *testing.T) {
 	want := []string{"a", "b", "c"}
 	go func() {
 		for _, w := range want {
-			in <- []byte(w)
+			in <- []byte(fmt.Sprintf(`{"url":%q}`, srv.URL+"/items/"+w))
 		}
 		close(in)
 	}()
@@ -87,32 +65,22 @@ func TestHTTPFetchTemplatesPerMessage(t *testing.T) {
 	}
 }
 
-// TestHTTPFetchParallelBoundsConcurrency verifies parallel controls how many
-// requests are in flight at once: with parallel = 1, the server never sees a
-// second request start before the first (held open) one is released.
-func TestHTTPFetchParallelBoundsConcurrency(t *testing.T) {
-	var inFlight int32
-	var maxInFlight int32
-	release := make(chan struct{})
+// TestHTTPFetchMessageFallsBackToBlock verifies Cp -> Ct fallback: a
+// message setting only headers still gets url/method from the block, and
+// its header merges in rather than replacing the block's.
+func TestHTTPFetchMessageFallsBackToBlock(t *testing.T) {
+	var gotAuth, gotExtra string
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := atomic.AddInt32(&inFlight, 1)
-		for {
-			old := atomic.LoadInt32(&maxInFlight)
-			if n <= old || atomic.CompareAndSwapInt32(&maxInFlight, old, n) {
-				break
-			}
-		}
-		<-release
-		atomic.AddInt32(&inFlight, -1)
+		gotAuth = r.Header.Get("Authorization")
+		gotExtra = r.Header.Get("X-Extra")
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
 
-	fn, err := transform.Fetch(context.Background(), fetchParser(map[string]any{
-		"url":        srv.URL + "/",
-		"decode":     "bytes",
-		"parallel":   1,
+	fn, err := transform.Fetch(context.Background(), parser(map[string]any{
+		"url":        srv.URL,
+		"headers":    map[string]string{"Authorization": "Bearer block-token"},
 		"timeout-ms": 5000,
 	}))
 	if err != nil {
@@ -125,20 +93,109 @@ func TestHTTPFetchParallelBoundsConcurrency(t *testing.T) {
 	drainErrs(errs)
 
 	go fn(t.Context(), in, out, errs)
-
 	go func() {
-		in <- []byte("1")
-		in <- []byte("2")
+		in <- []byte(`{"headers":{"X-Extra":"per-message"}}`)
 		close(in)
 	}()
 
-	// Give the first request time to land and hold, then release both.
-	time.Sleep(200 * time.Millisecond)
-	close(release)
+	readN(t, out, 1, 5*time.Second)
 
-	readN(t, out, 2, 5*time.Second)
+	if gotAuth != "Bearer block-token" {
+		t.Errorf("Authorization = %q, want block's default to survive", gotAuth)
+	}
+	if gotExtra != "per-message" {
+		t.Errorf("X-Extra = %q, want the message's own header", gotExtra)
+	}
+}
 
-	if got := atomic.LoadInt32(&maxInFlight); got != 1 {
-		t.Errorf("max concurrent requests = %d, want 1 (parallel = 1)", got)
+// TestHTTPFetchFollowRedirects verifies follow-redirects: true (the
+// default) follows a 3xx to completion, false stops at the redirect
+// response itself.
+func TestHTTPFetchFollowRedirects(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/redirect" {
+			http.Redirect(w, r, "/target", http.StatusFound)
+			return
+		}
+		fmt.Fprint(w, "landed")
+	}))
+	t.Cleanup(srv.Close)
+
+	for _, tc := range []struct {
+		name   string
+		follow any
+		codes  []int
+	}{
+		{name: "follows by default", follow: nil, codes: []int{200}},
+		{name: "stops when disabled", follow: false, codes: []int{302}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			vals := map[string]any{
+				"url":           srv.URL + "/redirect",
+				"success-codes": tc.codes,
+				"timeout-ms":    5000,
+			}
+			if tc.follow != nil {
+				vals["follow-redirects"] = tc.follow
+			}
+			fn, err := transform.Fetch(context.Background(), parser(vals))
+			if err != nil {
+				t.Fatalf("Fetch: %v", err)
+			}
+
+			in := make(chan []byte)
+			out := make(chan []byte)
+			errs := make(chan error, 1)
+			go fn(t.Context(), in, out, errs)
+			go func() {
+				in <- []byte("{}")
+				close(in)
+			}()
+
+			select {
+			case got := <-out:
+				followed := string(got) == "landed"
+				wantFollowed := tc.follow == nil
+				if followed != wantFollowed {
+					t.Errorf("followed redirect = %v (body %q), want %v", followed, got, wantFollowed)
+				}
+			case err := <-errs:
+				t.Fatalf("unexpected error: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("timed out waiting for result")
+			}
+		})
+	}
+}
+
+// TestHTTPFetchMissingURLErrors verifies that a message composing to no url
+// at all (neither the message nor the block sets one) surfaces a clear
+// error rather than an obscure transport failure.
+func TestHTTPFetchMissingURLErrors(t *testing.T) {
+	fn, err := transform.Fetch(context.Background(), parser(map[string]any{
+		"timeout-ms": 2000,
+	}))
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	in := make(chan []byte)
+	out := make(chan []byte)
+	errs := make(chan error, 1)
+	go fn(t.Context(), in, out, errs)
+	go func() {
+		in <- []byte("{}")
+		close(in)
+	}()
+
+	select {
+	case err := <-errs:
+		if err == nil {
+			t.Error("expected an error for a request with no url")
+		}
+	case <-out:
+		t.Fatal("expected an error, got a result")
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for error")
 	}
 }
