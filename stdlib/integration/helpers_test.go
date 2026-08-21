@@ -16,30 +16,42 @@ import (
 // vals using reflection. It is the integration-test stand-in for the HCL config
 // layer so tests stay independent of the parser package. Scalar values assigned
 // to pointer fields are auto-boxed; a value of nil leaves the field zero.
+// Anonymous embedded fields (e.g. transport.RequestSpec) are descended into,
+// matching production decode's field promotion.
 func parser(vals map[string]any) sdk.Parser {
 	return func(dst any) error {
-		rv := reflect.ValueOf(dst).Elem()
-		rt := rv.Type()
-		for i := 0; i < rt.NumField(); i++ {
-			tag := rt.Field(i).Tag.Get("psy")
-			if tag == "" {
-				continue
-			}
-			v, ok := vals[tag]
-			if !ok || v == nil {
-				continue
-			}
-			field := rv.Field(i)
-			val := reflect.ValueOf(v)
-			if field.Kind() == reflect.Pointer && val.Kind() != reflect.Pointer {
-				boxed := reflect.New(field.Type().Elem())
-				boxed.Elem().Set(val)
-				val = boxed
-			}
-			field.Set(val)
-		}
-		return nil
+		return assignFields(reflect.ValueOf(dst).Elem(), vals)
 	}
+}
+
+func assignFields(rv reflect.Value, vals map[string]any) error {
+	rt := rv.Type()
+	for i := 0; i < rt.NumField(); i++ {
+		ft := rt.Field(i)
+		tag := ft.Tag.Get("psy")
+		if ft.Anonymous && tag == "" {
+			if err := assignFields(rv.Field(i), vals); err != nil {
+				return err
+			}
+			continue
+		}
+		if tag == "" {
+			continue
+		}
+		v, ok := vals[tag]
+		if !ok || v == nil {
+			continue
+		}
+		field := rv.Field(i)
+		val := reflect.ValueOf(v)
+		if field.Kind() == reflect.Pointer && val.Kind() != reflect.Pointer {
+			boxed := reflect.New(field.Type().Elem())
+			boxed.Elem().Set(val)
+			val = boxed
+		}
+		field.Set(val)
+	}
+	return nil
 }
 
 // delimitCfg returns a standard config map for stream transports using

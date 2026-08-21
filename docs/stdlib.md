@@ -84,11 +84,18 @@ small and open to more modes later.
 | `file` | produce + consume | `location` (path, `-` stdin/stdout, `--` stderr, or a socket URI), `follow` (tail), `append`, `create`, + framing |
 | `socket` | produce + consume | `location` (`tcp://`/`udp://`/`unix://`), `create`, + framing |
 | `listen` | produce | `location` (`tcp://`/`unix://`/`udp://`), `create`, + framing |
-| `request` | produce + consume | `url`, `method`, `headers`, `body`, `query-params`, `basic-auth`, `timeout-ms`, `success-codes`, `interval-ms` |
+| `request` | produce + consume | `url`, `method`, `headers`, `body`, `query-params`, `timeout-ms`, `success-codes`, `follow-redirects`, `interval-ms` |
 | `http-listen` | produce | `address`, `path`, `method`, `status`, `reply`, `max-body-bytes`, `read-timeout-ms`, `write-timeout-ms`, `idle-timeout-ms` |
 
 `produce "file" {}` reads; `consume "file" {}` writes — you write files the way
 you read them, and POST the way you GET.
+
+`request`'s consumer and `fetch` (below) both build one HTTP request per
+message: each message decodes as JSON into the same attributes as the block
+itself and is layered over it — a message can set `url`, add or override a
+header, or leave everything to the block. Whatever neither sets falls back
+to GET, a 30s timeout, success on 200, and redirects followed. A bare
+`request` consumer defaults to POST instead of GET.
 
 ---
 
@@ -114,6 +121,17 @@ you read them, and POST the way you GET.
 | `chunk` | `size`, `keep-tail` | fixed windows → list |
 | `every` | `step`, `size` | sliding windows → list |
 | `render` | `engine` (`template`/`printf`/`jq`), `format` | format a message |
+
+### HTTP
+
+| Resource | Attributes | Purpose |
+|---|---|---|
+| `fetch` | `url`, `method`, `headers`, `body`, `query-params`, `timeout-ms`, `success-codes`, `follow-redirects`, `on-error` | build and perform a request per message (see request composition above), emit the response body |
+
+`fetch` is the transformer counterpart to `request`'s consumer: same
+per-message request composition, but the response body becomes the
+transformed message, unencoded, for a follow-on `jq`/`pick`/`pick-map` stage
+to reshape rather than being discarded.
 
 ### jq escape hatches
 

@@ -109,7 +109,8 @@ you use decides which role; the attributes are the same.
 produce "file" "src" { location = env.PSYDUCK_IN  }  # reads
 consume "file" "out" { location = env.PSYDUCK_OUT }  # writes
 
-# HTTP: producer polls; consumer POSTs.
+# HTTP: producer polls; consumer POSTs each message (a JSON request
+# descriptor — {"body": ...} at minimum — layered over the block below).
 produce "request" "poll" { url = env.API_URL  interval-ms = 5000 }
 consume "request" "post" { url = env.API_URL  method       = "POST" }
 ```

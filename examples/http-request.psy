@@ -1,6 +1,7 @@
-# The request transport is dual-role: producing polls the URL, consuming posts
-# each message. Build-only (no network): parsing + building validates the
-# spec — map headers, list success codes, required url.
+# The request transport is dual-role: producing polls the URL, consuming
+# performs one request per message. Build-only (no network): parsing +
+# building validates the spec — map headers, list success codes, required
+# url on the producer.
 import {
   shared = "shared.psy"
 }
@@ -16,4 +17,23 @@ produce "request" "api" {
 pipeline "http-request" {
   produce = [produce.request.api]
   consume = [imports.shared.consume.trash.sink]
+}
+
+# Each message the consumer receives is a JSON request descriptor, composed
+# over the block below — here every message supplies its own url, and the
+# block only pins down method and a default header.
+produce "generate" "posts" {
+  values     = ["{\"url\": \"http://example.invalid/items/1\"}"]
+  stop-after = 1
+}
+
+consume "request" "post" {
+  url     = "http://example.invalid/items"
+  method  = "POST"
+  headers = { "Authorization" = "Bearer x" }
+}
+
+pipeline "http-request-post" {
+  produce = [produce.generate.posts]
+  consume = [consume.request.post]
 }

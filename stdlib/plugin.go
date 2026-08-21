@@ -40,18 +40,27 @@ func concat(groups ...[]*sdk.Spec) []*sdk.Spec {
 	return out
 }
 
-func httpSpec() []*sdk.Spec {
+// httpTransportSpec is the request-shaping surface shared by every
+// HTTP-based resource, decoded into a transport.RequestSpec. Every field
+// defaults to unset (not transport's real defaults) so RequestSpec.Resolve
+// is the one place those live.
+func httpTransportSpec() []*sdk.Spec {
 	return []*sdk.Spec{
-		{Name: "url", Description: "request URL", Type: sdk.TypeString, Required: true},
-		{Name: "method", Description: "HTTP method", Type: sdk.TypeString, Default: ""},
-		{Name: "headers", Description: "request headers", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
-		{Name: "body", Description: "static request body (producer)", Type: sdk.TypeString, Default: ""},
-		{Name: "query-params", Description: "URL query parameters", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
-		{Name: "basic-auth", Description: "\"user:pass\" for HTTP Basic auth", Type: sdk.TypeString, Default: ""},
-		{Name: "timeout-ms", Description: "request timeout (ms)", Type: sdk.TypeInt, Default: 0},
-		{Name: "success-codes", Description: "accepted status codes", Type: sdk.TypeList, ElemType: &sdk.Spec{Type: sdk.TypeInt}, Default: []int{}},
-		{Name: "interval-ms", Description: "polling interval (producer, ms)", Type: sdk.TypeInt, Default: 0},
+		{Name: "url", Description: "request URL; required if no message ever supplies its own", Type: sdk.TypeString, Default: ""},
+		{Name: "method", Description: "HTTP method (default GET; a request consumer defaults to POST)", Type: sdk.TypeString, Default: ""},
+		{Name: "headers", Description: "request headers, merged with (and overridden by) a message's own", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
+		{Name: "body", Description: "request body", Type: sdk.TypeString, Default: ""},
+		{Name: "query-params", Description: "URL query parameters, merged with (and overridden by) a message's own", Type: sdk.TypeMap, ElemType: strList(), Default: map[string]string{}},
+		{Name: "timeout-ms", Description: "request timeout (ms, default 30000)", Type: sdk.TypeInt, Default: 0},
+		{Name: "success-codes", Description: "accepted status codes (default [200])", Type: sdk.TypeList, ElemType: &sdk.Spec{Type: sdk.TypeInt}, Default: []int{}},
+		{Name: "follow-redirects", Description: "follow HTTP redirects (default true)", Type: sdk.TypeBool},
 	}
+}
+
+func httpSpec() []*sdk.Spec {
+	return concat(httpTransportSpec(), []*sdk.Spec{
+		{Name: "interval-ms", Description: "polling interval (producer, ms)", Type: sdk.TypeInt, Default: 0},
+	})
 }
 
 func Plugin() sdk.Plugin {
@@ -127,6 +136,14 @@ func Plugin() sdk.Plugin {
 			ProvideProducer: produce.Request,
 			ProvideConsumer: consume.Request,
 			Spec:            httpSpec(),
+		},
+		&sdk.Resource{
+			// each input message is a JSON request descriptor with this same
+			// field set; see transform.Fetch.
+			Name: "fetch", Kinds: sdk.TRANSFORMER, ProvideTransformer: transform.Fetch,
+			Spec: concat(httpTransportSpec(), []*sdk.Spec{
+				{Name: "on-error", Description: "\"raise\" (default) or \"drop\"", Type: sdk.TypeString, Default: "raise"},
+			}),
 		},
 		&sdk.Resource{
 			Name:            "http-listen",
