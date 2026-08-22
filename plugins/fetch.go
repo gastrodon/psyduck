@@ -49,22 +49,66 @@ func (f *fetcher) cleanup() {
 	os.RemoveAll(f.tmpDir)
 }
 
-// build compiles codePath into a temporary plugin executable. It never
-// writes directly into the store — the store only knows binaries by
-// content hash, which isn't known until after the build produces bytes to
-// hash. Plugins run as subprocesses (see sdk/rpc), so this is a plain
-// `go build`: no -buildmode=plugin, no toolchain/race parity with the host.
+// build compiles codePath into a temporary plugin executable, using the
+// toolchain spec.BuildMode names. It never writes directly into the
+// store — the store only knows binaries by content hash, which isn't
+// known until after the build produces bytes to hash. Plugins run as
+// subprocesses (see sdk/rpc) regardless of toolchain: no
+// -buildmode=plugin, no toolchain/race parity with the host.
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
+	switch spec.BuildMode {
+	case "", parse.BuildModeGo:
+		return f.buildGo(codePath, spec)
+	case parse.BuildModeBun:
+		return f.buildBun(codePath)
+	default:
+		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
+	}
+}
+
+// buildGo runs `go build -C codePath -o <tmpOut>`, the toolchain's own
+// build orchestration for a Go plugin's package layout.
+func (f *fetcher) buildGo(codePath string, spec parse.Plugin) (string, error) {
 	// The ".bin" suffix keeps the output distinct from cloneDir: a remote
-	// plugin's clone already sits at <tmpDir>/<name>, and `go build -o`
-	// pointed at an existing directory doesn't fail — it silently writes
-	// the binary inside it, leaving nothing at the path we hand back.
+	// plugin's clone already sits at <tmpDir>/<name>, and a build tool's
+	// `-o`/`--outfile` pointed at an existing directory doesn't fail — it
+	// silently writes the binary inside it, leaving nothing at the path we
+	// hand back.
 	tmpOut := filepath.Join(f.tmpDir, spec.Name+".bin")
-	args := []string{"build", "-C", codePath, "-o", tmpOut}
-	if out, err := exec.Command("go", args...).CombinedOutput(); err != nil {
+
+	cmd := exec.Command("go", "build", "-C", codePath, "-o", tmpOut)
+	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
 	return tmpOut, nil
+}
+
+// buildBun runs a bun plugin's own build: `bun install` against its
+// committed lockfile, then its `build-plugin` package.json script, which
+// is expected to write the built executable to ./plugin (relative to
+// codePath) — see docs/plugins.md. What that script actually runs
+// (--compile, externals, entry point) is the plugin's own business, the
+// same way fetch.go never looks inside a Go plugin's package layout. The
+// build's side effects (node_modules, ./plugin) are left in codePath,
+// same as any other build tooling writing into a checkout.
+func (f *fetcher) buildBun(codePath string) (string, error) {
+	install := exec.Command("bun", "install", "--frozen-lockfile")
+	install.Dir = codePath
+	if out, err := install.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("bun install failed: %w\noutput: %s", err, out)
+	}
+
+	build := exec.Command("bun", "run", "build-plugin")
+	build.Dir = codePath
+	if out, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("bun run build-plugin failed: %w\noutput: %s", err, out)
+	}
+
+	out := filepath.Join(codePath, "plugin")
+	if _, err := os.Stat(out); err != nil {
+		return "", fmt.Errorf("bun build-plugin did not produce %s: %w", out, err)
+	}
+	return out, nil
 }
 
 func (f *fetcher) clone(spec parse.Plugin) (string, error) {

@@ -2,16 +2,45 @@ package parse
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/psyduck-etl/sdk"
 )
 
+// buildMode selects the toolchain fetch uses to turn a plugin's source
+// into an executable. It's an enum, not a general plugin-toolchain
+// system: exactly the values psyduck's own fetch/build dispatch knows
+// how to run. The type itself is unexported so a buildMode value can
+// only come from ParseBuildMode or the constants below — never an
+// unvalidated string built elsewhere.
+type buildMode string
+
+const (
+	// BuildModeGo is the default: `go build -C <codePath> -o <out>`.
+	BuildModeGo buildMode = "go"
+	// BuildModeBun runs `bun install` followed by the plugin's own
+	// `build-plugin` script; see ParseBuildMode and plugins/fetch.go.
+	BuildModeBun buildMode = "bun"
+)
+
+// ParseBuildMode validates s against the known buildmode values,
+// returning an error naming both valid options if it isn't one.
+func ParseBuildMode(s string) (buildMode, error) {
+	switch mode := buildMode(s); mode {
+	case BuildModeGo, BuildModeBun:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unknown buildmode %q, want %q or %q", mode, BuildModeGo, BuildModeBun)
+	}
+}
+
 // Plugin identifies a plugin declared in configuration, before it has
 // been fetched or loaded.
 type Plugin struct {
-	Name   string
-	Source string // git URL or local path today; other schemes later
-	Tag    string // optional ref to check out when fetching
+	Name      string
+	Source    string    // git URL or local path today; other schemes later
+	Tag       string    // optional ref to check out when fetching
+	BuildMode buildMode // how to build Source into an executable; "" means BuildModeGo
 }
 
 // Parser bridges a configuration language (HCL, YAML, ...) to the pipeline

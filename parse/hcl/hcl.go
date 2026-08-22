@@ -5,6 +5,7 @@ package hcl
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
@@ -47,6 +48,7 @@ var pluginSchema = &hcl.BodySchema{
 	Attributes: []hcl.AttributeSchema{
 		{Name: "source", Required: true},
 		{Name: "tag"},
+		{Name: "buildmode"},
 	},
 }
 
@@ -134,6 +136,17 @@ func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
 			return parse.Plugin{}, diags
 		}
 		spec.Tag = v.AsString()
+	}
+	if attr, ok := content.Attributes["buildmode"]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() {
+			return parse.Plugin{}, diags
+		}
+		mode, err := parse.ParseBuildMode(v.AsString())
+		if err != nil {
+			return parse.Plugin{}, fmt.Errorf("plugin %q: %w", spec.Name, err)
+		}
+		spec.BuildMode = mode
 	}
 	return spec, nil
 }

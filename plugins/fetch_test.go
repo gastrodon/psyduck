@@ -171,3 +171,57 @@ func TestBuild_RemoteSource(t *testing.T) {
 		t.Errorf("stored binary mode = %v, want a regular file", stat.Mode())
 	}
 }
+
+// TestBuild_BunSource covers the buildmode=bun path end to end: a plugin
+// source with no go.mod at all, only a package.json declaring a
+// build-plugin script (per the documented contract in docs/plugins.md)
+// and a committed lockfile, still builds and stores correctly when
+// spec.BuildMode says bun.
+func TestBuild_BunSource(t *testing.T) {
+	if _, err := exec.LookPath("bun"); err != nil {
+		t.Skip("skipping: bun not installed")
+	}
+
+	codeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(codeDir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codeDir, "src", "main.ts"), []byte("console.log(\"hi\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packageJSON := `{
+  "name": "bunplugin",
+  "scripts": {
+    "build-plugin": "bun build --compile --outfile plugin src/main.ts"
+  }
+}
+`
+	if err := os.WriteFile(filepath.Join(codeDir, "package.json"), []byte(packageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// bun install --frozen-lockfile (what buildBun runs) requires a
+	// lockfile to already exist, same as a real bun plugin committing one.
+	setup := exec.Command("bun", "install")
+	setup.Dir = codeDir
+	if out, err := setup.CombinedOutput(); err != nil {
+		t.Fatalf("bun install (fixture setup): %v\n%s", err, out)
+	}
+
+	store := NewStore(t.TempDir())
+	locked, err := store.Build([]parse.Plugin{{Name: "bunplugin", Source: codeDir, BuildMode: parse.BuildModeBun}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	entry, ok := locked["bunplugin"]
+	if !ok {
+		t.Fatalf("no lock entry for bunplugin: %#v", locked)
+	}
+	stat, err := os.Stat(store.binPath("bunplugin", entry.Hash))
+	if err != nil {
+		t.Fatalf("stored binary: %v", err)
+	}
+	if !stat.Mode().IsRegular() {
+		t.Errorf("stored binary mode = %v, want a regular file", stat.Mode())
+	}
+}

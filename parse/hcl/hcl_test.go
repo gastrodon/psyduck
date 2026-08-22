@@ -112,20 +112,39 @@ func TestPlugins(t *testing.T) {
 	plugin "local" {
 		source = "./plugins/local"
 	}
+	plugin "playwright" {
+		source    = "https://github.com/psyduck-etl/playwright-ts"
+		buildmode = "bun"
+	}
 	`)
 	specs, err := NewParserHCL().Plugins(entry, load)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(specs) != 2 {
-		t.Fatalf("want 2 specs, got %d", len(specs))
+	if len(specs) != 3 {
+		t.Fatalf("want 3 specs, got %d", len(specs))
 	}
-	if specs[0].Name != "amqp" || specs[0].Source != "https://github.com/psyduck-etl/amqp" || specs[0].Tag != "v1.2.3" {
+	if specs[0].Name != "amqp" || specs[0].Source != "https://github.com/psyduck-etl/amqp" || specs[0].Tag != "v1.2.3" || specs[0].BuildMode != "" {
 		t.Fatalf("bad spec: %#v", specs[0])
 	}
-	if specs[1].Name != "local" || specs[1].Tag != "" {
+	if specs[1].Name != "local" || specs[1].Tag != "" || specs[1].BuildMode != "" {
 		t.Fatalf("bad spec: %#v", specs[1])
+	}
+	if specs[2].Name != "playwright" || specs[2].BuildMode != parse.BuildModeBun {
+		t.Fatalf("bad spec: %#v", specs[2])
+	}
+}
+
+func TestPlugins_UnknownBuildMode(t *testing.T) {
+	entry, load := src(`
+	plugin "bad" {
+		source    = "./plugins/local"
+		buildmode = "rust"
+	}
+	`)
+	if _, err := NewParserHCL().Plugins(entry, load); err == nil {
+		t.Fatal("want error for unknown buildmode, got nil")
 	}
 }
 

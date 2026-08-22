@@ -1,11 +1,16 @@
 # Writing psyduck plugins
 
-A plugin is a Go `main` module whose `main` serves an `sdk.Plugin` over
-gRPC via `rpc.Serve`. psyduck clones the module at `psyduck init`, compiles
-it with a plain `go build`, and launches the resulting executable as a
-subprocess at run time (hashicorp/go-plugin style — the same model
-Terraform providers use). Once loaded, every resource the plugin declares
-becomes usable from `.psy` files just like a stdlib resource.
+A plugin is a module whose entrypoint serves an `sdk.Plugin` over gRPC via
+`rpc.Serve`. psyduck clones it at `psyduck init`, builds it with the
+toolchain `plugin.buildmode` names (`go` by default; see "Publishing and
+versioning" below), and launches the resulting executable as a subprocess
+at run time (hashicorp/go-plugin style — the same model Terraform
+providers use). Once loaded, every resource the plugin declares becomes
+usable from `.psy` files just like a stdlib resource.
+
+Everything below describes a Go plugin, the default and most common case.
+A `buildmode = "bun"` plugin meets the same SDK contract from TypeScript
+instead — see "Publishing and versioning".
 
 The public interface is the `github.com/psyduck-etl/sdk` package. Nothing in
 `github.com/gastrodon/psyduck` is imported by plugin authors — the host and
@@ -289,14 +294,28 @@ composable.
 
 ## Publishing and versioning
 
-psyduck fetches plugins via `git clone` and builds them with the host's Go
-toolchain. Two consequences:
+psyduck fetches plugins via `git clone` and builds them with the toolchain
+`plugin.buildmode` selects. A few consequences:
 
 - `plugin.source` can be any `git clone`-able URL (`https://`, `git@`,
   or a local path — a source directory to build, or a prebuilt plugin
   executable to store as-is).
 - `plugin.tag` selects a git ref. Omit it to build from the default branch
   each time `psyduck init` runs. Pin it in shared workspaces.
+- `plugin.buildmode` selects the build toolchain: `go` (default) runs
+  `go build -C <source> -o <out>`; `bun` runs `bun install
+  --frozen-lockfile` followed by the plugin's own `build-plugin`
+  `package.json` script, from `<source>`. A bun plugin therefore commits a
+  lockfile (so `--frozen-lockfile` has something to install against) and
+  defines a `build-plugin` script that writes its compiled executable to
+  `./plugin`, relative to the plugin's own root — psyduck never looks
+  past that fixed path, the same way it never looks inside a Go plugin's
+  package layout. What `build-plugin` actually runs (`bun build
+  --compile`, which packages are `--external`, which file is the entry
+  point) is entirely the plugin's business. This does write build
+  artifacts (`node_modules`, `./plugin`) into the source directory
+  itself — expected and harmless for a throwaway clone, and just a normal
+  build-tooling side effect for a local-directory source.
 
 A loaded plugin's identity for resolving `<name>.<resource>` refs is
 whatever its own `sdk.Plugin.Name()` reports — not the label on the
