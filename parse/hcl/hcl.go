@@ -158,7 +158,10 @@ func (h *ParserHCL) Parse(ctx context.Context, entry string, load parse.Loader, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	index := indexResources(plugins)
+	index, err := indexResources(plugins)
+	if err != nil {
+		return nil, err
+	}
 	result, err := resolveFile(parse.ResolveImportPath("", entry), load, index, map[string]bool{}, map[string]*fileResult{})
 	if err != nil {
 		return nil, err

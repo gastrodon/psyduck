@@ -703,6 +703,22 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 	}
 }
 
+func TestParseDuplicatePluginName(t *testing.T) {
+	// Two loaded plugin processes reporting the same self-described Name()
+	// must error clearly instead of the second silently shadowing the first.
+	entry, load := src(`
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("dup"), testPlugin("dup")})
+	if err == nil || !strings.Contains(err.Error(), `"dup"`) {
+		t.Fatalf("want duplicate plugin name error, got: %v", err)
+	}
+}
+
 func TestParseUnsetEnv(t *testing.T) {
 	// env vars are prescanned; unset-but-queried ones resolve to ""
 	entry, load := src(`

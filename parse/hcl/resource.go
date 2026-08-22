@@ -27,7 +27,7 @@ type resourceIndex struct {
 	owners   map[string][]string // resource name -> plugin names that provide it
 }
 
-func indexResources(plugins []sdk.Plugin) *resourceIndex {
+func indexResources(plugins []sdk.Plugin) (*resourceIndex, error) {
 	ix := &resourceIndex{
 		plugins:  make(map[string]sdk.Plugin, len(plugins)),
 		byPlugin: make(map[string]map[string]sdk.ResourceDescriptor, len(plugins)),
@@ -35,6 +35,9 @@ func indexResources(plugins []sdk.Plugin) *resourceIndex {
 	}
 
 	for _, p := range plugins {
+		if _, ok := ix.plugins[p.Name()]; ok {
+			return nil, fmt.Errorf("two loaded plugins both report the name %q — plugins must report distinct names to be used together", p.Name())
+		}
 		ix.plugins[p.Name()] = p
 		resources := make(map[string]sdk.ResourceDescriptor)
 		for _, r := range p.Resources() {
@@ -44,7 +47,7 @@ func indexResources(plugins []sdk.Plugin) *resourceIndex {
 		ix.byPlugin[p.Name()] = resources
 	}
 
-	return ix
+	return ix, nil
 }
 
 func (ix *resourceIndex) lookup(ref string) (string, sdk.ResourceDescriptor, error) {
