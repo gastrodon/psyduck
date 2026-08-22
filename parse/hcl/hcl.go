@@ -117,9 +117,6 @@ func gatherOne(src parse.Source) (*topBlocks, error) {
 }
 
 // parsePluginSpec decodes one plugin{} block into a parse.Plugin.
-// source/tag/buildmode are evaluated against an env-aware context built
-// the same way as every other block type (envNames/envVal), so env.* is
-// resolvable here too.
 func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
 	content, diags := block.Body.Content(pluginSchema)
 	if diags.HasErrors() {
