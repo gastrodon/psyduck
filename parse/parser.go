@@ -21,16 +21,19 @@ const (
 	// BuildModeBun runs `bun install` followed by the plugin's own
 	// `build-plugin` script; see ParseBuildMode and plugins/fetch.go.
 	BuildModeBun buildMode = "bun"
+	// BuildModeBin takes Source as an already-built binary: no build step
+	// runs at all. See Plugin.Bin and plugins/fetch.go.
+	BuildModeBin buildMode = "bin"
 )
 
 // ParseBuildMode validates s against the known buildmode values,
-// returning an error naming both valid options if it isn't one.
+// returning an error naming every valid option if it isn't one.
 func ParseBuildMode(s string) (buildMode, error) {
 	switch mode := buildMode(s); mode {
-	case BuildModeGo, BuildModeBun:
+	case BuildModeGo, BuildModeBun, BuildModeBin:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("unknown buildmode %q, want %q or %q", mode, BuildModeGo, BuildModeBun)
+		return "", fmt.Errorf("unknown buildmode %q, want %q, %q, or %q", mode, BuildModeGo, BuildModeBun, BuildModeBin)
 	}
 }
 
@@ -41,6 +44,7 @@ type Plugin struct {
 	Source    string    // git URL or local path today; other schemes later
 	Tag       string    // optional ref to check out when fetching
 	BuildMode buildMode // how to build Source into an executable; "" means BuildModeGo
+	Bin       string    // buildmode "bin" only: binary's path, relative to Source when Source is a directory
 }
 
 // Parser bridges a configuration language (HCL, YAML, ...) to the pipeline

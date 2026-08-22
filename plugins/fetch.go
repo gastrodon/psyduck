@@ -61,6 +61,8 @@ func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 		return f.buildGo(codePath, spec)
 	case parse.BuildModeBun:
 		return f.buildBun(codePath)
+	case parse.BuildModeBin:
+		return resolveBin(codePath, spec)
 	default:
 		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
 	}
@@ -111,6 +113,27 @@ func (f *fetcher) buildBun(codePath string) (string, error) {
 	return out, nil
 }
 
+// resolveBin resolves buildmode "bin"'s codePath — spec.Source itself for
+// a local plugin, or the git clone directory for a remote one — to the
+// prebuilt binary it names: codePath as-is when it's already a file (the
+// same path an already-built binary is stored from today), or spec.Bin
+// joined onto codePath when it's a directory, since a directory alone
+// (e.g. a Nix build output) doesn't say which file inside it is the
+// binary.
+func resolveBin(codePath string, spec parse.Plugin) (string, error) {
+	stat, err := os.Stat(codePath)
+	if err != nil {
+		return "", err
+	}
+	if !stat.IsDir() {
+		return codePath, nil
+	}
+	if spec.Bin == "" {
+		return "", fmt.Errorf("plugin %s: buildmode \"bin\" requires bin when source is a directory", spec.Name)
+	}
+	return filepath.Join(codePath, spec.Bin), nil
+}
+
 func (f *fetcher) clone(spec parse.Plugin) (string, error) {
 	cloneDir := f.cloneDir(spec)
 	if out, err := exec.Command("git", "clone", spec.Source, cloneDir).CombinedOutput(); err != nil {
@@ -150,10 +173,11 @@ func resolveRef(cloneDir string) (string, error) {
 // fetch resolves spec (building it first if it's source code) and
 // content-addresses the resulting binary into the store, returning its
 // hash and, for remote sources, the actual git ref that got checked out.
-// A local prebuilt-binary source is read and stored as-is, relative to the current
-// working directory same as any other file argument — the store no
-// longer needs it to be absolute since it only reads it once, here, to
-// copy its bytes in.
+// A local buildmode="bin" source is read and stored as-is (relative to
+// the current working directory, same as any other file argument — the
+// store no longer needs it to be absolute since it only reads it once,
+// here, to copy its bytes in), or resolved via spec.Bin when it's a
+// directory rather than the binary itself.
 func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 	switch pluginKind(spec) {
 	case pluginLocal:
@@ -161,15 +185,19 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		if stat.IsDir() {
-			built, err := f.build(spec.Source, spec)
-			if err != nil {
-				return "", "", err
-			}
-			hash, err := f.store.storeBinary(built, spec.Name)
-			return hash, "", err
+		// A directory is always something to build; a bare file only
+		// counts as an already-built binary when buildmode says so —
+		// this is the one place that distinction used to be inferred
+		// from os.Stat alone, which broke for a non-Go-source directory
+		// (e.g. a Nix build output) that also isn't a plain file.
+		if spec.BuildMode != parse.BuildModeBin && !stat.IsDir() {
+			return "", "", fmt.Errorf("plugin %s: local source %s is not a directory; set buildmode = \"bin\" for a prebuilt binary", spec.Name, spec.Source)
 		}
-		hash, err := f.store.storeBinary(spec.Source, spec.Name)
+		built, err := f.build(spec.Source, spec)
+		if err != nil {
+			return "", "", err
+		}
+		hash, err := f.store.storeBinary(built, spec.Name)
 		return hash, "", err
 	case pluginRemote:
 		cloneDir, err := f.clone(spec)

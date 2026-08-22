@@ -49,6 +49,7 @@ var pluginSchema = &hcl.BodySchema{
 		{Name: "source", Required: true},
 		{Name: "tag"},
 		{Name: "buildmode"},
+		{Name: "bin"},
 	},
 }
 
@@ -147,6 +148,13 @@ func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
 			return parse.Plugin{}, fmt.Errorf("plugin %q: %w", spec.Name, err)
 		}
 		spec.BuildMode = mode
+	}
+	if attr, ok := content.Attributes["bin"]; ok {
+		v, diags := attr.Expr.Value(nil)
+		if diags.HasErrors() {
+			return parse.Plugin{}, diags
+		}
+		spec.Bin = v.AsString()
 	}
 	return spec, nil
 }
