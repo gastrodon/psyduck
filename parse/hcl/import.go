@@ -68,11 +68,28 @@ type fileResult struct {
 	pipelines map[string]parse.Pipeline            // this file's own pipeline{} blocks
 }
 
+// pluginDecl remembers where a plugin{} spec was first declared, so a
+// later conflicting declaration of the same name can point at both sites.
+type pluginDecl struct {
+	spec   parse.Plugin
+	origin hcl.Range
+}
+
 // collectPlugins walks entry and its transitive imports, collecting every
 // plugin{} declaration. It shares path resolution and cycle detection
 // with resolveFile but doesn't need to resolve resources or pipelines.
-func collectPlugins(path string, load parse.Loader, visiting, seen map[string]bool, out *[]parse.Plugin) error {
-	if seen[path] {
+//
+// Plugin declarations are file-scoped and not re-exported through
+// imports.* (see docs/hcl.md), so the same plugin name legitimately shows
+// up more than once across a file's import graph whenever a file reuses a
+// plugin another file already declared. seen tracks by name, across every
+// file: a repeat with an identical source/tag is folded into the single
+// entry already in out; a repeat that disagrees on source or tag is a
+// clean error instead of two specs silently reaching Store.Build, which
+// has no dedup of its own and would fail with a raw "git clone" error the
+// second time it fetches the same name.
+func collectPlugins(path string, load parse.Loader, visiting, files map[string]bool, decls map[string]pluginDecl, out *[]parse.Plugin) error {
+	if files[path] {
 		return nil
 	}
 	if visiting[path] {
@@ -95,6 +112,18 @@ func collectPlugins(path string, load parse.Loader, visiting, seen map[string]bo
 		if err != nil {
 			return err
 		}
+		if prev, dup := decls[spec.Name]; dup {
+			if prev.spec != spec {
+				return fmt.Errorf(
+					"plugin %q declared twice with different source/tag: %s (source=%q tag=%q) and %s (source=%q tag=%q)",
+					spec.Name,
+					prev.origin, prev.spec.Source, prev.spec.Tag,
+					block.DefRange, spec.Source, spec.Tag,
+				)
+			}
+			continue
+		}
+		decls[spec.Name] = pluginDecl{spec: spec, origin: block.DefRange}
 		*out = append(*out, spec)
 	}
 
@@ -104,12 +133,12 @@ func collectPlugins(path string, load parse.Loader, visiting, seen map[string]bo
 	}
 	for alias, importPath := range aliases {
 		childPath := parse.ResolveImportPath(path, importPath)
-		if err := collectPlugins(childPath, load, visiting, seen, out); err != nil {
+		if err := collectPlugins(childPath, load, visiting, files, decls, out); err != nil {
 			return fmt.Errorf("import %q at %s: %w", alias, path, err)
 		}
 	}
 
-	seen[path] = true
+	files[path] = true
 	return nil
 }
 

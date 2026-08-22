@@ -159,6 +159,62 @@ func TestPluginsFollowsImports(t *testing.T) {
 	}
 }
 
+func TestPluginsDedupesIdenticalDeclarationAcrossFiles(t *testing.T) {
+	fs := files{
+		"queue.psy": `
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+		}
+		consume "trash" "t" {}
+		`,
+		"main.psy": `
+		import { queue = "queue.psy" }
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+		}
+		consume "trash" "t" {}
+		`,
+	}
+	specs, err := NewParserHCL().Plugins("main.psy", fs.load)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(specs) != 1 {
+		t.Fatalf("want 1 deduped spec, got %d: %#v", len(specs), specs)
+	}
+	if specs[0].Name != "jobsearch" {
+		t.Fatalf("bad spec: %#v", specs[0])
+	}
+}
+
+func TestPluginsConflictingDeclarationErrors(t *testing.T) {
+	fs := files{
+		"queue.psy": `
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+			tag    = "v1"
+		}
+		consume "trash" "t" {}
+		`,
+		"main.psy": `
+		import { queue = "queue.psy" }
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+			tag    = "v2"
+		}
+		consume "trash" "t" {}
+		`,
+	}
+	_, err := NewParserHCL().Plugins("main.psy", fs.load)
+	if err == nil {
+		t.Fatal("want error for conflicting plugin declarations, got nil")
+	}
+	if !strings.Contains(err.Error(), "jobsearch") || !strings.Contains(err.Error(), "declared twice") {
+		t.Fatalf("want a clear duplicate-declaration error, got: %v", err)
+	}
+}
+
 func TestParse(t *testing.T) {
 	t.Setenv("PSYDUCK_TEST_VALUE", "from-env")
 
