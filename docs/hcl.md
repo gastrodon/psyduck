@@ -302,7 +302,6 @@ plugin "name" {
   source    = "https://github.com/org/repo"
   tag       = "v0.1.0"   # optional
   buildmode = "go"       # optional; "go" (default), "bun", or "bin"
-  bin       = "bin/foo"  # buildmode "bin" only; see plugins.md
 }
 ```
 

@@ -62,7 +62,7 @@ func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	case parse.BuildModeBun:
 		return f.buildBun(codePath)
 	case parse.BuildModeBin:
-		return resolveBin(codePath, spec)
+		return resolveBin(codePath, spec.Name)
 	default:
 		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
 	}
@@ -115,23 +115,19 @@ func (f *fetcher) buildBun(codePath string) (string, error) {
 
 // resolveBin resolves buildmode "bin"'s codePath — spec.Source itself for
 // a local plugin, or the git clone directory for a remote one — to the
-// prebuilt binary it names: codePath as-is when it's already a file (the
-// same path an already-built binary is stored from today), or spec.Bin
-// joined onto codePath when it's a directory, since a directory alone
-// (e.g. a Nix build output) doesn't say which file inside it is the
-// binary.
-func resolveBin(codePath string, spec parse.Plugin) (string, error) {
+// prebuilt binary it names: codePath itself, which must already be the
+// executable file, not a directory. A git-clone codePath is always a
+// directory, so a remote source under buildmode "bin" always hits this
+// error.
+func resolveBin(codePath, name string) (string, error) {
 	stat, err := os.Stat(codePath)
 	if err != nil {
 		return "", err
 	}
-	if !stat.IsDir() {
-		return codePath, nil
+	if stat.IsDir() {
+		return "", fmt.Errorf("plugin %s: buildmode \"bin\" requires source to be a file, not a directory", name)
 	}
-	if spec.Bin == "" {
-		return "", fmt.Errorf("plugin %s: buildmode \"bin\" requires bin when source is a directory", spec.Name)
-	}
-	return filepath.Join(codePath, spec.Bin), nil
+	return codePath, nil
 }
 
 func (f *fetcher) clone(spec parse.Plugin) (string, error) {
@@ -176,8 +172,8 @@ func resolveRef(cloneDir string) (string, error) {
 // A local buildmode="bin" source is read and stored as-is (relative to
 // the current working directory, same as any other file argument — the
 // store no longer needs it to be absolute since it only reads it once,
-// here, to copy its bytes in), or resolved via spec.Bin when it's a
-// directory rather than the binary itself.
+// here, to copy its bytes in); it must point directly at the executable
+// file, not a directory.
 func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 	switch pluginKind(spec) {
 	case pluginLocal:

@@ -299,7 +299,7 @@ psyduck fetches plugins via `git clone` and builds them with the toolchain
 
 - `plugin.source` can be any `git clone`-able URL (`https://`, `git@`,
   or a local path — a source directory to build, or, with `buildmode =
-  "bin"`, an already-built binary or the directory containing one).
+  "bin"`, an already-built binary itself).
 - `plugin.tag` selects a git ref. Omit it to build from the default branch
   each time `psyduck init` runs. Pin it in shared workspaces.
 - `plugin.buildmode` selects the build toolchain: `go` (default) runs
@@ -316,15 +316,16 @@ psyduck fetches plugins via `git clone` and builds them with the toolchain
   artifacts (`node_modules`, `./plugin`) into the source directory
   itself — expected and harmless for a throwaway clone, and just a normal
   build-tooling side effect for a local-directory source.
-- `buildmode = "bin"` skips the build step entirely: `source` already
-  resolves to a runnable binary. If `source` is a file, that file is the
-  binary. If `source` is a directory — a Nix build output, say — `bin`
-  names the binary's path relative to it (e.g. `bin = "bin/foo"` for
-  `<source>/bin/foo`); `bin` is required in that case, since a directory
-  alone doesn't say which file inside it to run. A local `source` that
-  isn't a directory always needs `buildmode = "bin"` to be treated as a
-  prebuilt binary — psyduck no longer infers that from the source not
-  being a directory.
+- `buildmode = "bin"` skips the build step entirely: `source` must point
+  directly at the executable file itself, not a directory — it is used
+  as-is. This also rules out a git-URL `source` under `buildmode =
+  "bin"`: a clone is always a directory. A local `source` that isn't a
+  directory always needs `buildmode = "bin"` to be treated as a prebuilt
+  binary — psyduck no longer infers that from the source not being a
+  directory. If `source` needs to name a file inside some other build
+  output (a Nix derivation, say), whatever constructs the `.psy` file
+  resolves that full path itself (e.g. Nix string interpolation like
+  `"${pkg}/bin/foo"`) — `source` is always the complete, literal path.
 
 A loaded plugin's identity for resolving `<name>.<resource>` refs is
 whatever its own `sdk.Plugin.Name()` reports — not the label on the

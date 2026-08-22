@@ -117,9 +117,8 @@ func TestPlugins(t *testing.T) {
 		buildmode = "bun"
 	}
 	plugin "prebuilt" {
-		source    = "/nix/store/abc-plugin"
+		source    = "/nix/store/abc-plugin/bin/plugin"
 		buildmode = "bin"
-		bin       = "bin/plugin"
 	}
 	`)
 	specs, err := NewParserHCL().Plugins(entry, load)
@@ -139,7 +138,7 @@ func TestPlugins(t *testing.T) {
 	if specs[2].Name != "playwright" || specs[2].BuildMode != parse.BuildModeBun {
 		t.Fatalf("bad spec: %#v", specs[2])
 	}
-	if specs[3].Name != "prebuilt" || specs[3].Source != "/nix/store/abc-plugin" || specs[3].BuildMode != parse.BuildModeBin || specs[3].Bin != "bin/plugin" {
+	if specs[3].Name != "prebuilt" || specs[3].Source != "/nix/store/abc-plugin/bin/plugin" || specs[3].BuildMode != parse.BuildModeBin {
 		t.Fatalf("bad spec: %#v", specs[3])
 	}
 }

@@ -22,7 +22,8 @@ const (
 	// `build-plugin` script; see ParseBuildMode and plugins/fetch.go.
 	BuildModeBun buildMode = "bun"
 	// BuildModeBin takes Source as an already-built binary: no build step
-	// runs at all. See Plugin.Bin and plugins/fetch.go.
+	// runs at all, and Source must point directly at the executable file
+	// itself, not a directory. See plugins/fetch.go.
 	BuildModeBin buildMode = "bin"
 )
 
@@ -44,7 +45,6 @@ type Plugin struct {
 	Source    string    // git URL or local path today; other schemes later
 	Tag       string    // optional ref to check out when fetching
 	BuildMode buildMode // how to build Source into an executable; "" means BuildModeGo
-	Bin       string    // buildmode "bin" only: binary's path, relative to Source when Source is a directory
 }
 
 // Parser bridges a configuration language (HCL, YAML, ...) to the pipeline
