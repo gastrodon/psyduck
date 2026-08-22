@@ -56,6 +56,19 @@ func (f *fetcher) cleanup() {
 // subprocesses (see sdk/rpc) regardless of toolchain: no
 // -buildmode=plugin, no toolchain/race parity with the host.
 func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
+	switch spec.BuildMode {
+	case "", parse.BuildModeGo:
+		return f.buildGo(codePath, spec)
+	case parse.BuildModeBun:
+		return f.buildBun(codePath)
+	default:
+		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
+	}
+}
+
+// buildGo runs `go build -C codePath -o <tmpOut>`, the toolchain's own
+// build orchestration for a Go plugin's package layout.
+func (f *fetcher) buildGo(codePath string, spec parse.Plugin) (string, error) {
 	// The ".bin" suffix keeps the output distinct from cloneDir: a remote
 	// plugin's clone already sits at <tmpDir>/<name>, and a build tool's
 	// `-o`/`--outfile` pointed at an existing directory doesn't fail — it
@@ -63,18 +76,11 @@ func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	// hand back.
 	tmpOut := filepath.Join(f.tmpDir, spec.Name+".bin")
 
-	switch spec.BuildMode {
-	case "", parse.BuildModeGo:
-		cmd := exec.Command("go", "build", "-C", codePath, "-o", tmpOut)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
-		}
-		return tmpOut, nil
-	case parse.BuildModeBun:
-		return f.buildBun(codePath)
-	default:
-		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
+	cmd := exec.Command("go", "build", "-C", codePath, "-o", tmpOut)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
 	}
+	return tmpOut, nil
 }
 
 // buildBun runs a bun plugin's own build: `bun install` against its
