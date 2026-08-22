@@ -148,6 +148,29 @@ func TestPlugins_UnknownBuildMode(t *testing.T) {
 	}
 }
 
+func TestPluginsResolvesEnv(t *testing.T) {
+	t.Setenv("PSYDUCK_TEST_PLUGIN_SOURCE", "https://github.com/psyduck-etl/amqp")
+	t.Setenv("PSYDUCK_TEST_PLUGIN_TAG", "v1.2.3")
+
+	entry, load := src(`
+	plugin "amqp" {
+		source = "${env.PSYDUCK_TEST_PLUGIN_SOURCE}"
+		tag    = "${env.PSYDUCK_TEST_PLUGIN_TAG}"
+	}
+	`)
+	specs, err := NewParserHCL().Plugins(entry, load)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(specs) != 1 {
+		t.Fatalf("want 1 spec, got %d", len(specs))
+	}
+	if specs[0].Name != "amqp" || specs[0].Source != "https://github.com/psyduck-etl/amqp" || specs[0].Tag != "v1.2.3" {
+		t.Fatalf("bad spec: %#v", specs[0])
+	}
+}
+
 func TestPluginsFollowsImports(t *testing.T) {
 	fs := files{
 		"main.psy": `

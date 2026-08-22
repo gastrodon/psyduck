@@ -10,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/psyduck-etl/sdk"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/gastrodon/psyduck/parse"
 )
@@ -116,29 +117,35 @@ func gatherOne(src parse.Source) (*topBlocks, error) {
 }
 
 // parsePluginSpec decodes one plugin{} block into a parse.Plugin.
+// source/tag/buildmode are evaluated against an env-aware context built
+// the same way as every other block type (envNames/envVal), so env.* is
+// resolvable here too.
 func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
 	content, diags := block.Body.Content(pluginSchema)
 	if diags.HasErrors() {
 		return parse.Plugin{}, diags
 	}
 
+	env := envVal(envNames([]hcl.Body{block.Body}, nil))
+	ctx := &hcl.EvalContext{Variables: map[string]cty.Value{nsEnv: env}}
+
 	spec := parse.Plugin{Name: block.Labels[0]}
 	if attr, ok := content.Attributes["source"]; ok {
-		v, diags := attr.Expr.Value(nil)
+		v, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return parse.Plugin{}, diags
 		}
 		spec.Source = v.AsString()
 	}
 	if attr, ok := content.Attributes["tag"]; ok {
-		v, diags := attr.Expr.Value(nil)
+		v, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return parse.Plugin{}, diags
 		}
 		spec.Tag = v.AsString()
 	}
 	if attr, ok := content.Attributes["buildmode"]; ok {
-		v, diags := attr.Expr.Value(nil)
+		v, diags := attr.Expr.Value(ctx)
 		if diags.HasErrors() {
 			return parse.Plugin{}, diags
 		}
