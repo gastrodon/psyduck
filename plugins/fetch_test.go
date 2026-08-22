@@ -172,6 +172,58 @@ func TestBuild_RemoteSource(t *testing.T) {
 	}
 }
 
+// TestBuild_BinSource covers buildmode="bin": source must point directly
+// at the executable file itself.
+func TestBuild_BinSource(t *testing.T) {
+	binPath := filepath.Join(t.TempDir(), "plugin")
+	if err := os.WriteFile(binPath, []byte("fake binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(t.TempDir())
+	locked, err := store.Build([]parse.Plugin{{Name: "prebuilt", Source: binPath, BuildMode: parse.BuildModeBin}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	entry, ok := locked["prebuilt"]
+	if !ok {
+		t.Fatalf("no lock entry for prebuilt: %#v", locked)
+	}
+	stored, err := os.ReadFile(store.binPath("prebuilt", entry.Hash))
+	if err != nil {
+		t.Fatalf("stored binary: %v", err)
+	}
+	if string(stored) != "fake binary" {
+		t.Errorf("stored binary = %q, want %q", stored, "fake binary")
+	}
+}
+
+// TestBuild_BinSourceDirectory covers the error for buildmode="bin" when
+// source is a directory rather than the executable file itself.
+func TestBuild_BinSourceDirectory(t *testing.T) {
+	sourceDir := t.TempDir()
+	store := NewStore(t.TempDir())
+	if _, err := store.Build([]parse.Plugin{{Name: "prebuilt", Source: sourceDir, BuildMode: parse.BuildModeBin}}); err == nil {
+		t.Fatal("want error for buildmode bin with a directory source, got nil")
+	}
+}
+
+// TestBuild_LocalFileWithoutBinBuildMode covers the removal of the old
+// implicit stat-based inference: a non-directory local source no longer
+// gets treated as a prebuilt binary unless buildmode = "bin" says so.
+func TestBuild_LocalFileWithoutBinBuildMode(t *testing.T) {
+	binPath := filepath.Join(t.TempDir(), "plugin")
+	if err := os.WriteFile(binPath, []byte("fake binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(t.TempDir())
+	if _, err := store.Build([]parse.Plugin{{Name: "prebuilt", Source: binPath}}); err == nil {
+		t.Fatal("want error for a non-directory local source without buildmode bin, got nil")
+	}
+}
+
 // TestBuild_BunSource covers the buildmode=bun path end to end: a plugin
 // source with no go.mod at all, only a package.json declaring a
 // build-plugin script (per the documented contract in docs/plugins.md)

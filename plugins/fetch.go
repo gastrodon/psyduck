@@ -61,6 +61,8 @@ func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 		return f.buildGo(codePath, spec)
 	case parse.BuildModeBun:
 		return f.buildBun(codePath)
+	case parse.BuildModeBin:
+		return resolveBin(codePath, spec.Name)
 	default:
 		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
 	}
@@ -111,6 +113,19 @@ func (f *fetcher) buildBun(codePath string) (string, error) {
 	return out, nil
 }
 
+// resolveBin returns codePath as-is if it's a file, erroring if it's a
+// directory (which a git-clone codePath always is).
+func resolveBin(codePath, name string) (string, error) {
+	stat, err := os.Stat(codePath)
+	if err != nil {
+		return "", err
+	}
+	if stat.IsDir() {
+		return "", fmt.Errorf("plugin %s: buildmode \"bin\" requires source to be a file, not a directory", name)
+	}
+	return codePath, nil
+}
+
 func (f *fetcher) clone(spec parse.Plugin) (string, error) {
 	cloneDir := f.cloneDir(spec)
 	if out, err := exec.Command("git", "clone", spec.Source, cloneDir).CombinedOutput(); err != nil {
@@ -150,10 +165,11 @@ func resolveRef(cloneDir string) (string, error) {
 // fetch resolves spec (building it first if it's source code) and
 // content-addresses the resulting binary into the store, returning its
 // hash and, for remote sources, the actual git ref that got checked out.
-// A local prebuilt-binary source is read and stored as-is, relative to the current
-// working directory same as any other file argument — the store no
-// longer needs it to be absolute since it only reads it once, here, to
-// copy its bytes in.
+// A local buildmode="bin" source is read and stored as-is (relative to
+// the current working directory, same as any other file argument — the
+// store no longer needs it to be absolute since it only reads it once,
+// here, to copy its bytes in); it must point directly at the executable
+// file, not a directory.
 func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 	switch pluginKind(spec) {
 	case pluginLocal:
@@ -161,15 +177,16 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 		if err != nil {
 			return "", "", err
 		}
-		if stat.IsDir() {
-			built, err := f.build(spec.Source, spec)
-			if err != nil {
-				return "", "", err
-			}
-			hash, err := f.store.storeBinary(built, spec.Name)
-			return hash, "", err
+		// A directory is always something to build; a bare file only
+		// counts as an already-built binary when buildmode says so.
+		if spec.BuildMode != parse.BuildModeBin && !stat.IsDir() {
+			return "", "", fmt.Errorf("plugin %s: local source %s is not a directory; set buildmode = \"bin\" for a prebuilt binary", spec.Name, spec.Source)
 		}
-		hash, err := f.store.storeBinary(spec.Source, spec.Name)
+		built, err := f.build(spec.Source, spec)
+		if err != nil {
+			return "", "", err
+		}
+		hash, err := f.store.storeBinary(built, spec.Name)
 		return hash, "", err
 	case pluginRemote:
 		cloneDir, err := f.clone(spec)

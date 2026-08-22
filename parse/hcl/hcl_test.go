@@ -116,14 +116,18 @@ func TestPlugins(t *testing.T) {
 		source    = "https://github.com/psyduck-etl/playwright-ts"
 		buildmode = "bun"
 	}
+	plugin "prebuilt" {
+		source    = "/nix/store/abc-plugin/bin/plugin"
+		buildmode = "bin"
+	}
 	`)
 	specs, err := NewParserHCL().Plugins(entry, load)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(specs) != 3 {
-		t.Fatalf("want 3 specs, got %d", len(specs))
+	if len(specs) != 4 {
+		t.Fatalf("want 4 specs, got %d", len(specs))
 	}
 	if specs[0].Name != "amqp" || specs[0].Source != "https://github.com/psyduck-etl/amqp" || specs[0].Tag != "v1.2.3" || specs[0].BuildMode != "" {
 		t.Fatalf("bad spec: %#v", specs[0])
@@ -133,6 +137,9 @@ func TestPlugins(t *testing.T) {
 	}
 	if specs[2].Name != "playwright" || specs[2].BuildMode != parse.BuildModeBun {
 		t.Fatalf("bad spec: %#v", specs[2])
+	}
+	if specs[3].Name != "prebuilt" || specs[3].Source != "/nix/store/abc-plugin/bin/plugin" || specs[3].BuildMode != parse.BuildModeBin {
+		t.Fatalf("bad spec: %#v", specs[3])
 	}
 }
 
