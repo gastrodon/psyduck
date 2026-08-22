@@ -113,12 +113,8 @@ func (f *fetcher) buildBun(codePath string) (string, error) {
 	return out, nil
 }
 
-// resolveBin resolves buildmode "bin"'s codePath — spec.Source itself for
-// a local plugin, or the git clone directory for a remote one — to the
-// prebuilt binary it names: codePath itself, which must already be the
-// executable file, not a directory. A git-clone codePath is always a
-// directory, so a remote source under buildmode "bin" always hits this
-// error.
+// resolveBin returns codePath as-is if it's a file, erroring if it's a
+// directory (which a git-clone codePath always is).
 func resolveBin(codePath, name string) (string, error) {
 	stat, err := os.Stat(codePath)
 	if err != nil {
@@ -182,10 +178,7 @@ func (f *fetcher) fetch(spec parse.Plugin) (hash, resolve string, err error) {
 			return "", "", err
 		}
 		// A directory is always something to build; a bare file only
-		// counts as an already-built binary when buildmode says so —
-		// this is the one place that distinction used to be inferred
-		// from os.Stat alone, which broke for a non-Go-source directory
-		// (e.g. a Nix build output) that also isn't a plain file.
+		// counts as an already-built binary when buildmode says so.
 		if spec.BuildMode != parse.BuildModeBin && !stat.IsDir() {
 			return "", "", fmt.Errorf("plugin %s: local source %s is not a directory; set buildmode = \"bin\" for a prebuilt binary", spec.Name, spec.Source)
 		}

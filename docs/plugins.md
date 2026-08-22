@@ -316,16 +316,15 @@ psyduck fetches plugins via `git clone` and builds them with the toolchain
   artifacts (`node_modules`, `./plugin`) into the source directory
   itself — expected and harmless for a throwaway clone, and just a normal
   build-tooling side effect for a local-directory source.
-- `buildmode = "bin"` skips the build step entirely: `source` must point
-  directly at the executable file itself, not a directory — it is used
-  as-is. This also rules out a git-URL `source` under `buildmode =
-  "bin"`: a clone is always a directory. A local `source` that isn't a
-  directory always needs `buildmode = "bin"` to be treated as a prebuilt
-  binary — psyduck no longer infers that from the source not being a
-  directory. If `source` needs to name a file inside some other build
-  output (a Nix derivation, say), whatever constructs the `.psy` file
-  resolves that full path itself (e.g. Nix string interpolation like
-  `"${pkg}/bin/foo"`) — `source` is always the complete, literal path.
+- `buildmode = "bin"` skips the build step entirely: `source` must be the
+  executable file itself, used as-is (a directory, including a git clone,
+  is an error). A local `source` that isn't a directory always needs
+  `buildmode = "bin"` to be treated as a prebuilt binary — psyduck no
+  longer infers that from the source not being a directory. If `source`
+  needs to name a file inside some other build output (a Nix derivation,
+  say), whatever constructs the `.psy` file resolves that full path
+  itself (e.g. Nix string interpolation like `"${pkg}/bin/foo"`) —
+  `source` is always the complete, literal path.
 
 A loaded plugin's identity for resolving `<name>.<resource>` refs is
 whatever its own `sdk.Plugin.Name()` reports — not the label on the

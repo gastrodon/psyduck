@@ -3,6 +3,8 @@ package parse
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/psyduck-etl/sdk"
 )
@@ -21,21 +23,27 @@ const (
 	// BuildModeBun runs `bun install` followed by the plugin's own
 	// `build-plugin` script; see ParseBuildMode and plugins/fetch.go.
 	BuildModeBun buildMode = "bun"
-	// BuildModeBin takes Source as an already-built binary: no build step
-	// runs at all, and Source must point directly at the executable file
-	// itself, not a directory. See plugins/fetch.go.
+	// BuildModeBin takes Source as an already-built binary: no build step.
 	BuildModeBin buildMode = "bin"
 )
+
+// buildModes lists every valid buildMode value; ParseBuildMode validates
+// against it and it's exhaustive on its own — a new buildmode only needs
+// a const above and an entry here.
+var buildModes = []buildMode{BuildModeGo, BuildModeBun, BuildModeBin}
 
 // ParseBuildMode validates s against the known buildmode values,
 // returning an error naming every valid option if it isn't one.
 func ParseBuildMode(s string) (buildMode, error) {
-	switch mode := buildMode(s); mode {
-	case BuildModeGo, BuildModeBun, BuildModeBin:
+	mode := buildMode(s)
+	if slices.Contains(buildModes, mode) {
 		return mode, nil
-	default:
-		return "", fmt.Errorf("unknown buildmode %q, want %q, %q, or %q", mode, BuildModeGo, BuildModeBun, BuildModeBin)
 	}
+	quoted := make([]string, len(buildModes))
+	for i, m := range buildModes {
+		quoted[i] = fmt.Sprintf("%q", m)
+	}
+	return "", fmt.Errorf("unknown buildmode %q, want one of: %s", mode, strings.Join(quoted, ", "))
 }
 
 // Plugin identifies a plugin declared in configuration, before it has
