@@ -171,3 +171,38 @@ func TestBuild_RemoteSource(t *testing.T) {
 		t.Errorf("stored binary mode = %v, want a regular file", stat.Mode())
 	}
 }
+
+// TestBuild_BunSource covers the buildmode=bun path: a plugin source with
+// no go.mod at all, only a package.json/src/main.ts pair, still builds
+// and stores correctly when spec.BuildMode says bun.
+func TestBuild_BunSource(t *testing.T) {
+	if _, err := exec.LookPath("bun"); err != nil {
+		t.Skip("skipping: bun not installed")
+	}
+
+	codeDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(codeDir, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(codeDir, "src", "main.ts"), []byte("console.log(\"hi\")\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(t.TempDir())
+	locked, err := store.Build([]parse.Plugin{{Name: "bunplugin", Source: codeDir, BuildMode: parse.BuildModeBun}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	entry, ok := locked["bunplugin"]
+	if !ok {
+		t.Fatalf("no lock entry for bunplugin: %#v", locked)
+	}
+	stat, err := os.Stat(store.binPath("bunplugin", entry.Hash))
+	if err != nil {
+		t.Fatalf("stored binary: %v", err)
+	}
+	if !stat.Mode().IsRegular() {
+		t.Errorf("stored binary mode = %v, want a regular file", stat.Mode())
+	}
+}

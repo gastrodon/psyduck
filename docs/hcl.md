@@ -295,8 +295,9 @@ Additional resources come from external plugins, declared with:
 
 ```hcl
 plugin "name" {
-  source = "https://github.com/org/repo"
-  tag    = "v0.1.0"   # optional
+  source    = "https://github.com/org/repo"
+  tag       = "v0.1.0"   # optional
+  buildmode = "go"       # optional; "go" (default) or "bun"
 }
 ```
 
