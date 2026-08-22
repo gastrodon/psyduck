@@ -142,13 +142,11 @@ func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
 		if diags.HasErrors() {
 			return parse.Plugin{}, diags
 		}
-		mode := parse.BuildMode(v.AsString())
-		switch mode {
-		case parse.BuildModeGo, parse.BuildModeBun:
-			spec.BuildMode = mode
-		default:
-			return parse.Plugin{}, fmt.Errorf("plugin %q: unknown buildmode %q, want %q or %q", spec.Name, mode, parse.BuildModeGo, parse.BuildModeBun)
+		mode, err := parse.ParseBuildMode(v.AsString())
+		if err != nil {
+			return parse.Plugin{}, fmt.Errorf("plugin %q: %w", spec.Name, err)
 		}
+		spec.BuildMode = mode
 	}
 	return spec, nil
 }

@@ -63,23 +63,46 @@ func (f *fetcher) build(codePath string, spec parse.Plugin) (string, error) {
 	// hand back.
 	tmpOut := filepath.Join(f.tmpDir, spec.Name+".bin")
 
-	var cmd *exec.Cmd
 	switch spec.BuildMode {
 	case "", parse.BuildModeGo:
-		cmd = exec.Command("go", "build", "-C", codePath, "-o", tmpOut)
+		cmd := exec.Command("go", "build", "-C", codePath, "-o", tmpOut)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
+		}
+		return tmpOut, nil
 	case parse.BuildModeBun:
-		// Mirrors a bun plugin's own build script, e.g.
-		// `bun build --compile --external playwright --outfile playwright-plugin src/main.ts`.
-		cmd = exec.Command("bun", "build", "--compile", "--external", "playwright", "--outfile", tmpOut, "src/main.ts")
-		cmd.Dir = codePath
+		return f.buildBun(codePath)
 	default:
 		return "", fmt.Errorf("plugin %s: unknown buildmode %q", spec.Name, spec.BuildMode)
 	}
+}
 
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("failed to build %s: %w\noutput: %s", codePath, err, out)
+// buildBun runs a bun plugin's own build: `bun install` against its
+// committed lockfile, then its `build-plugin` package.json script, which
+// is expected to write the built executable to ./plugin (relative to
+// codePath) — see docs/plugins.md. What that script actually runs
+// (--compile, externals, entry point) is the plugin's own business, the
+// same way fetch.go never looks inside a Go plugin's package layout. The
+// build's side effects (node_modules, ./plugin) are left in codePath,
+// same as any other build tooling writing into a checkout.
+func (f *fetcher) buildBun(codePath string) (string, error) {
+	install := exec.Command("bun", "install", "--frozen-lockfile")
+	install.Dir = codePath
+	if out, err := install.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("bun install failed: %w\noutput: %s", err, out)
 	}
-	return tmpOut, nil
+
+	build := exec.Command("bun", "run", "build-plugin")
+	build.Dir = codePath
+	if out, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("bun run build-plugin failed: %w\noutput: %s", err, out)
+	}
+
+	out := filepath.Join(codePath, "plugin")
+	if _, err := os.Stat(out); err != nil {
+		return "", fmt.Errorf("bun build-plugin did not produce %s: %w", out, err)
+	}
+	return out, nil
 }
 
 func (f *fetcher) clone(spec parse.Plugin) (string, error) {

@@ -303,11 +303,19 @@ psyduck fetches plugins via `git clone` and builds them with the toolchain
 - `plugin.tag` selects a git ref. Omit it to build from the default branch
   each time `psyduck init` runs. Pin it in shared workspaces.
 - `plugin.buildmode` selects the build toolchain: `go` (default) runs
-  `go build -C <source> -o <out>`; `bun` runs
-  `bun build --compile --external playwright --outfile <out> src/main.ts`
-  from `<source>`, so a bun plugin's entrypoint is `src/main.ts` and its
-  runtime-only, non-bundled dependency is `playwright` — same convention
-  its own `package.json` `build` script uses.
+  `go build -C <source> -o <out>`; `bun` runs `bun install
+  --frozen-lockfile` followed by the plugin's own `build-plugin`
+  `package.json` script, from `<source>`. A bun plugin therefore commits a
+  lockfile (so `--frozen-lockfile` has something to install against) and
+  defines a `build-plugin` script that writes its compiled executable to
+  `./plugin`, relative to the plugin's own root — psyduck never looks
+  past that fixed path, the same way it never looks inside a Go plugin's
+  package layout. What `build-plugin` actually runs (`bun build
+  --compile`, which packages are `--external`, which file is the entry
+  point) is entirely the plugin's business. This does write build
+  artifacts (`node_modules`, `./plugin`) into the source directory
+  itself — expected and harmless for a throwaway clone, and just a normal
+  build-tooling side effect for a local-directory source.
 
 Plugins are separate processes, so the host's SDK version moving does not
 break them — host and plugin only meet at the gRPC wire contract, which is
