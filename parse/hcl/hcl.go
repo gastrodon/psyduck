@@ -143,7 +143,7 @@ func parsePluginSpec(block *hcl.Block) (parse.Plugin, error) {
 // plugins need to be loaded to run it.
 func (h *ParserHCL) Plugins(entry string, load parse.Loader) ([]parse.Plugin, error) {
 	var out []parse.Plugin
-	err := collectPlugins(parse.ResolveImportPath("", entry), load, map[string]bool{}, map[string]bool{}, &out)
+	err := collectPlugins(parse.ResolveImportPath("", entry), load, map[string]bool{}, map[string]bool{}, map[string]pluginDecl{}, &out)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +158,10 @@ func (h *ParserHCL) Parse(ctx context.Context, entry string, load parse.Loader, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	index := indexResources(plugins)
+	index, err := indexResources(plugins)
+	if err != nil {
+		return nil, err
+	}
 	result, err := resolveFile(parse.ResolveImportPath("", entry), load, index, map[string]bool{}, map[string]*fileResult{})
 	if err != nil {
 		return nil, err

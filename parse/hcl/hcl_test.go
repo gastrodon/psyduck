@@ -159,6 +159,62 @@ func TestPluginsFollowsImports(t *testing.T) {
 	}
 }
 
+func TestPluginsDedupesIdenticalDeclarationAcrossFiles(t *testing.T) {
+	fs := files{
+		"queue.psy": `
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+		}
+		consume "trash" "t" {}
+		`,
+		"main.psy": `
+		import { queue = "queue.psy" }
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+		}
+		consume "trash" "t" {}
+		`,
+	}
+	specs, err := NewParserHCL().Plugins("main.psy", fs.load)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(specs) != 1 {
+		t.Fatalf("want 1 deduped spec, got %d: %#v", len(specs), specs)
+	}
+	if specs[0].Name != "jobsearch" {
+		t.Fatalf("bad spec: %#v", specs[0])
+	}
+}
+
+func TestPluginsConflictingDeclarationErrors(t *testing.T) {
+	fs := files{
+		"queue.psy": `
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+			tag    = "v1"
+		}
+		consume "trash" "t" {}
+		`,
+		"main.psy": `
+		import { queue = "queue.psy" }
+		plugin "jobsearch" {
+			source = "https://github.com/psyduck-etl/jobsearch.git"
+			tag    = "v2"
+		}
+		consume "trash" "t" {}
+		`,
+	}
+	_, err := NewParserHCL().Plugins("main.psy", fs.load)
+	if err == nil {
+		t.Fatal("want error for conflicting plugin declarations, got nil")
+	}
+	if !strings.Contains(err.Error(), "jobsearch") || !strings.Contains(err.Error(), "declared twice") {
+		t.Fatalf("want a clear duplicate-declaration error, got: %v", err)
+	}
+}
+
 func TestParse(t *testing.T) {
 	t.Setenv("PSYDUCK_TEST_VALUE", "from-env")
 
@@ -644,6 +700,22 @@ func TestParseReservedNamespaceCollision(t *testing.T) {
 	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{valuePlugin, testPlugin("test")})
 	if err == nil || !strings.Contains(err.Error(), "collides with reserved namespace") {
 		t.Fatalf("want namespace collision error, got: %v", err)
+	}
+}
+
+func TestParseDuplicatePluginName(t *testing.T) {
+	// Two loaded plugin processes reporting the same self-described Name()
+	// must error clearly instead of the second silently shadowing the first.
+	entry, load := src(`
+	consume "trash" "t" {}
+	pipeline "main" {
+		produce = [produce.constant.p]
+		consume = [trash.t]
+	}
+	`)
+	_, err := NewParserHCL().Parse(t.Context(), entry, load, []sdk.Plugin{testPlugin("dup"), testPlugin("dup")})
+	if err == nil || !strings.Contains(err.Error(), `"dup"`) {
+		t.Fatalf("want duplicate plugin name error, got: %v", err)
 	}
 }
 

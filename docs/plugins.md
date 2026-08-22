@@ -298,6 +298,15 @@ toolchain. Two consequences:
 - `plugin.tag` selects a git ref. Omit it to build from the default branch
   each time `psyduck init` runs. Pin it in shared workspaces.
 
+A loaded plugin's identity for resolving `<name>.<resource>` refs is
+whatever its own `sdk.Plugin.Name()` reports — not the label on the
+`plugin{}` block that declared it. The block label only picks which plugin
+to fetch; once it's running, the host looks it up by its self-reported
+name. Two loaded plugins reporting the same `Name()` is a hard error: there
+is no way to run two versions of one plugin side by side by giving them
+different block labels, since the binaries themselves would still both
+claim the same name.
+
 Plugins are separate processes, so the host's SDK version moving does not
 break them — host and plugin only meet at the gRPC wire contract, which is
 versioned independently by `rpc.Handshake.ProtocolVersion`. Pin

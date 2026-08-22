@@ -10,7 +10,11 @@ reference for the language. It focuses on the stdlib — for plugins, see
 **A `.psy` file is the unit of configuration.** Resources, locals, and
 plugins declared in one file are visible only within that file — there's no
 implicit directory-wide sharing. To reuse something declared in another
-file, `import` it explicitly (see [Imports](#imports) below).
+file, `import` it explicitly (see [Imports](#imports) below). Plugin
+declarations in particular are not re-exported through `imports.*` at all,
+so reusing a plugin across files means declaring the same `plugin{}` block
+again in each file that needs it — see [External plugins](#external-plugins)
+for how that's reconciled across the import graph.
 
 A file is run by pointing the CLI at it directly:
 
@@ -305,6 +309,16 @@ The plugin is fetched and compiled by `psyduck init` and then loaded on
 applies uniformly to plugin resources; only `plugin {}` itself is
 plugin-specific syntax. See [plugins.md](plugins.md) for the authoring
 side.
+
+Because `plugin{}` declarations are file-scoped and not re-exported through
+`imports.*`, reusing a plugin across files means declaring it again with
+the same name in each file that needs it. `init` resolves `plugin{}` across
+the whole import graph (see [Running a file](#running-a-file)), so the same
+name commonly shows up more than once in that walk. That's fine as long as
+every declaration of a given name agrees on `source` and `tag` — they're
+folded into a single fetch. A given name declared with a different `source`
+or `tag` somewhere else in the import graph is a parse-time error, since
+there's no way to fetch and load two different things under one name.
 
 ## Comments
 
