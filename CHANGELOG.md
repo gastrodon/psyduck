@@ -4,6 +4,20 @@ All notable user-facing changes to psyduck since the Go rewrite. Versions
 before v0.1.0 belong to the archived TypeScript prototype and are not covered
 here. Dates are when the work landed on the release commit.
 
+## v0.13.3 — 2026-08-22
+
+- Added `fetch`, an HTTP-pull transformer.
+- Plugins support `buildmode = go | bun | bin`: `bin` allows prebuilt-binary
+  plugin sources (source must be the executable itself); `go`/`bun` build
+  from source.
+- Identical `plugin{}` declarations across files are deduped; conflicting or
+  duplicate-named declarations error at parse time.
+- `plugin{}` block attributes may reference `env.*`.
+- The `request` producer and consumer share `fetch`'s new request-composition
+  API: consumer messages are request descriptors layered over the block's
+  spec. Added `follow-redirects` (default true); dropped `basic-auth` (set
+  an `Authorization` header instead).
+
 ## v0.13.2 — 2026-08-04
 
 - Object-typed config attributes accept partial literals: fields the plugin
