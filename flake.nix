@@ -12,6 +12,31 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+
+        # Not packaged in nixpkgs; build it straight from the upstream
+        # module. https://github.com/go-gremlins/gremlins
+        gremlins = pkgs.buildGoModule rec {
+          pname = "gremlins";
+          version = "0.6.0";
+
+          src = pkgs.fetchFromGitHub {
+            owner = "go-gremlins";
+            repo = "gremlins";
+            rev = "v${version}";
+            hash = "sha256-QwMj7aA4eafMT25gBLAomZMliCbueoEsDHD/nxtnmk4=";
+          };
+
+          vendorHash = "sha256-TYbbDN2V6GLj+YRNQIKggCnNspk3M96cP1DSe8P9qlY=";
+
+          subPackages = [ "cmd/gremlins" ];
+
+          meta = with pkgs.lib; {
+            description = "Mutation testing tool for Go";
+            homepage = "https://github.com/go-gremlins/gremlins";
+            license = licenses.asl20;
+            mainProgram = "gremlins";
+          };
+        };
       in
       {
         packages.default = pkgs.buildGoModule {
@@ -62,7 +87,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          packages = [ pkgs.go pkgs.git ];
+          packages = [ pkgs.go pkgs.git gremlins ];
 
           # Point git at the tracked .githooks/ dir so contributors get the
           # same pre-commit checks CI runs (gofmt, go test, nix build)
