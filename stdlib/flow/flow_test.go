@@ -114,6 +114,50 @@ func TestProducerCancelsInnerOnStopAfter(t *testing.T) {
 	}
 }
 
+// A producer that buffers a final value in flight when stop-after is hit.
+// Without proper stop() discipline (joining the inner producer), this late
+// value races teardown and is lost. With stop(), the wrapper waits for the
+// inner producer to finish before returning, so the final flush is delivered.
+func TestProducerJoinsInnerOnStopAfter(t *testing.T) {
+	innerFinished := make(chan struct{})
+	buffered := func(ctx context.Context, send chan<- []byte, _ chan<- error) {
+		defer close(innerFinished)
+		for i := 0; i < 5; i++ {
+			select {
+			case send <- []byte{byte(i)}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+
+	send, errs := make(chan []byte), make(chan error)
+	go Producer(buffered, 0, 0, 3)(t.Context(), send, errs)
+
+	got := []byte{}
+	for msg := range send {
+		got = append(got, msg...)
+	}
+
+	// Expect exactly the first 3 messages (stop-after = 3).
+	if len(got) != 3 {
+		t.Fatalf("stop-after: delivered %d messages, want 3", len(got))
+	}
+	for i, b := range got {
+		if b != byte(i) {
+			t.Fatalf("message %d: got %d, want %d", i, b, i)
+		}
+	}
+
+	// The inner producer should have finished by the time the wrapper returned.
+	// If it races teardown instead, this would time out.
+	select {
+	case <-innerFinished:
+	case <-time.After(time.Second):
+		t.Fatal("inner producer never finished after wrapper returned")
+	}
+}
+
 func TestConsumer(t *testing.T) {
 	run := func(perMinute, feed int) (int, time.Duration) {
 		count := 0
