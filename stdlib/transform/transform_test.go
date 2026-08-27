@@ -485,10 +485,12 @@ func TestSliceChunk(t *testing.T) {
 		t.Errorf("slice = %q", out)
 	}
 
-	fn = build(t, Chunk, map[string]any{"size": 2, "keep-tail": true, "decode": "bytes", "encode": "json", "on-error": "raise"})
-	out, _ = run(t, fn, "abcde")
-	if out != `["ab","cd","e"]` {
-		t.Errorf("chunk = %q", out)
+	// Chunk now emits each window as a separate message (true 1→N).
+	// Input "abcde" with size=2 and keep-tail=true yields chunks: "ab", "cd", "e"
+	fn = build(t, Chunk, map[string]any{"size": 2, "keep-tail": true, "decode": "bytes", "encode": "bytes", "on-error": "raise"})
+	outs := runAll(t, fn, "abcde")
+	if len(outs) != 3 || outs[0] != "ab" || outs[1] != "cd" || outs[2] != "e" {
+		t.Errorf("chunk outputs = %v, want [ab cd e]", outs)
 	}
 }
 
